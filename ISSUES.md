@@ -15,3 +15,22 @@ WinRE_DRV ntfs). `/srv/nfs/drives/{SYSTEM,Windows,WinRE_DRV}` exist but nothing 
 
 Why it matters: nothing on such a drive is reachable over NFS, SMB or the dashboard's file
 browser. A fix also has to be installed to `/usr/local/bin` on the Pi.
+
+## Remove handler's `umount` always fails ("must be superuser"); log noise only
+
+On unplug, `nfs-drive-handler.sh remove` logs `umount: /srv/nfs/drives/<LABEL>: must be
+superuser to unmount.` for every mounted partition (seen 2026-10-11, and in the log back to
+May). It runs inside udev's sandbox, which can't unmount — the same reason mounting is
+deferred to `systemd-run`. Harmless since `c260345`: the mounts are `.mount` units bound to
+the device, and systemd unmounts them itself (journal: `Unmounted srv-nfs-drives-*.mount`).
+The `umount -l` / `rmdir` loop in the remove branch is now dead weight; dropping it (or
+replacing it with `systemctl stop` of the mount unit) would clean up the log. Needs an
+install on the Pi.
+
+## nbd-server fails to restart when a drive's last export is removed
+
+On unplug of the only USB drive (2026-10-11 15:50:11), the handler's `systemctl restart
+nbd-server` after removing `sda.conf` failed: `Control process exited, code=exited,
+status=1/FAILURE`. Probably nbd-server refusing to start with no exports in
+`/etc/nbd-server/conf.d/`. It recovers on the next plug-in, so NBD works whenever a drive is
+present — but the unit sits failed in between, which shows up as a failed service.
