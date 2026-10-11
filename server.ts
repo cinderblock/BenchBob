@@ -1,4 +1,7 @@
-const PORT = 80;
+import { access } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+
+const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = import.meta.dir + "/defaults.json";
 const FLASH_DIR = "/var/tmp/deskypi-flash";
 const BOOT_MOUNT = "/tmp/deskypi-boot";
@@ -328,6 +331,7 @@ async function getStatus() {
     usbAdapters,
     drives,
     nbdExports,
+    filesRoot: FILES_ROOT,
     operations: getAllOps().map(opPublic),
     history: histBuf,
   };
@@ -1090,6 +1094,219 @@ setInterval(async () => {
   try { broadcast(await getStatus()); } catch {}
 }, 2000);
 
+// ==================== File Browser ====================
+//
+// Read-only browsing of the auto-mounted partitions under FILES_ROOT. Everything goes
+// through sudo: ext4 drives keep their own ownership, so `pi` alone can't read them all.
+// That grants nothing new — Samba already shares this tree to guests as root — but it
+// does mean a path must never escape the root. Every request is realpath-resolved and
+// checked, which also turns away absolute symlinks on a Linux rootfs drive: they resolve
+// against the host, not the drive.
+
+const FILES_ROOT = (process.env.FILES_ROOT || "/srv/nfs/drives").replace(/\/+$/, "");
+const MAX_LISTING = 5000;
+
+class FileError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+// Resolves a root-relative path to a real absolute path inside FILES_ROOT, or throws.
+async function resolveInRoot(rel: string): Promise<string> {
+  if (rel.includes("\0")) throw new FileError("Invalid path", 400);
+  const parts = rel.split("/").filter((s) => s && s !== ".");
+  if (parts.includes("..")) throw new FileError("Invalid path", 400);
+  const abs = [FILES_ROOT, ...parts].join("/");
+  // -z: NUL-terminated, so run()'s trim() can't eat trailing spaces in a directory name.
+  const { out: raw, code } = await run(["sudo", "realpath", "-ez", "--", abs]);
+  const out = raw.replace(/\0$/, "");
+  if (code !== 0 || !out) throw new FileError("Not found", 404);
+  if (out !== FILES_ROOT && !out.startsWith(FILES_ROOT + "/")) throw new FileError("Path leads outside the drives", 403);
+  return out;
+}
+
+function relOf(real: string): string {
+  return real === FILES_ROOT ? "" : real.slice(FILES_ROOT.length + 1);
+}
+
+// Single `find` call: type, target type, size, mtime, link target, name — NUL-separated,
+// since NUL is the one byte a filename can't contain.
+const FIND_FMT = "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0";
+const FIND_FIELDS = 6;
+
+interface StatEntry {
+  type: string; // find %y: f d l b c p s
+  targetType: string; // find %Y: type after following symlinks; N = dangling, L = loop
+  size: number;
+  mtime: number; // ms since epoch
+  link: string;
+  name: string;
+}
+
+function parseFind(raw: string): StatEntry[] {
+  const f = raw.split("\0");
+  const out: StatEntry[] = [];
+  for (let i = 0; i + FIND_FIELDS <= f.length; i += FIND_FIELDS) {
+    out.push({
+      type: f[i],
+      targetType: f[i + 1],
+      size: parseInt(f[i + 2]) || 0,
+      mtime: Math.round(parseFloat(f[i + 3]) * 1000) || 0,
+      link: f[i + 4],
+      name: f[i + 5],
+    });
+  }
+  return out;
+}
+
+async function statReal(real: string): Promise<StatEntry> {
+  const { out, code } = await run(["sudo", "find", real, "-maxdepth", "0", "-printf", FIND_FMT]);
+  const e = parseFind(out)[0];
+  if (code !== 0 || !e) throw new FileError("Not found", 404);
+  return e;
+}
+
+// Two batched calls however many links a directory holds: realpath them all, then stat
+// only the targets that stay inside the root, so a link to a host file never reveals so
+// much as that file's size.
+async function resolveLinks(dir: string, names: string[]): Promise<Map<string, { outside: boolean; stat?: StatEntry }>> {
+  const result = new Map<string, { outside: boolean; stat?: StatEntry }>();
+  if (!names.length) return result;
+  // Output has to line up with input. -m prints dangling links too, so one call normally
+  // suffices; anything it can't resolve makes it skip a record and exit non-zero, and then
+  // a per-link loop (one process each — seconds for a big directory) pads the gaps.
+  const paths = names.map((n) => `${dir}/${n}`);
+  let { out: realsRaw, code } = await run(["sudo", "realpath", "-mz", "--", ...paths]);
+  if (code !== 0) {
+    ({ out: realsRaw } = await run([
+      "sudo", "sh", "-c", 'for p; do realpath -mz -- "$p" 2>/dev/null || printf "\\0"; done', "sh", ...paths,
+    ]));
+  }
+  const reals = realsRaw.split("\0");
+  const inside: string[] = [];
+  names.forEach((name, i) => {
+    const r = reals[i] || "";
+    const outside = !!r && r !== FILES_ROOT && !r.startsWith(FILES_ROOT + "/");
+    result.set(name, { outside });
+    if (r && !outside) inside.push(r);
+  });
+  if (inside.length) {
+    // Keyed by %p because find skips (rather than reports) targets that don't exist.
+    const { out } = await run(["sudo", "find", ...inside, "-maxdepth", "0", "-printf", "%p\\0" + FIND_FMT]);
+    const f = out.split("\0");
+    const byPath = new Map<string, StatEntry>();
+    for (let i = 0; i + FIND_FIELDS + 1 <= f.length; i += FIND_FIELDS + 1) {
+      byPath.set(f[i], parseFind(f.slice(i + 1, i + 1 + FIND_FIELDS).join("\0") + "\0")[0]);
+    }
+    names.forEach((name, i) => {
+      const s = byPath.get(reals[i]);
+      // Still a link after resolving means a loop: as unusable as a dangling one.
+      if (s && s.type !== "l") result.get(name)!.stat = s;
+    });
+  }
+  return result;
+}
+
+async function listDir(rel: string) {
+  const real = await resolveInRoot(rel);
+  if ((await statReal(real)).type !== "d") throw new FileError("Not a directory", 400);
+
+  // run() trims output, which is harmless: every record ends in a NUL, not whitespace.
+  const { out, code, err } = await run(["sudo", "find", real, "-mindepth", "1", "-maxdepth", "1", "-printf", FIND_FMT]);
+  if (code !== 0 && !out) throw new FileError(err || "Could not read directory", 500);
+
+  const raw = parseFind(out);
+  const targets = await resolveLinks(real, raw.filter((e) => e.type === "l").map((e) => e.name));
+
+  const entries = raw.map((e) => {
+    // A symlink is presented as whatever it points at; `link` keeps it recognisable.
+    // Its own %s/%T@ describe the link, not the target, so those come from resolveLinks.
+    const t = e.type === "l" ? targets.get(e.name) : undefined;
+    const st = t?.stat || e;
+    const type = e.type === "l" && !t?.stat ? (t?.outside ? "outside" : "broken") : st.type === "d" ? "dir" : st.type === "f" ? "file" : "other";
+    return {
+      name: e.name,
+      type,
+      size: type === "file" || type === "other" ? st.size : null,
+      mtime: e.type === "l" && !t?.stat ? null : st.mtime,
+      link: e.type === "l" ? e.link : undefined,
+    };
+  });
+  entries.sort((a, b) => (a.type === "dir" ? 0 : 1) - (b.type === "dir" ? 0 : 1) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+
+  return {
+    ok: true,
+    path: relOf(real),
+    // Readable only partially (e.g. permission errors on some entries) still lists what it can.
+    warning: code !== 0 ? err.split("\n")[0] : undefined,
+    truncated: entries.length > MAX_LISTING,
+    total: entries.length,
+    entries: entries.slice(0, MAX_LISTING),
+  };
+}
+
+// Parses a single-range `Range` header. null = serve the whole file; "bad" = 416.
+function parseRange(h: string | null, size: number): { start: number; end: number } | null | "bad" {
+  if (!h) return null;
+  const m = h.match(/^bytes=(\d*)-(\d*)$/);
+  if (!m || (!m[1] && !m[2])) return null; // multi-range or malformed: ignore, send it all
+  let start: number, end: number;
+  if (!m[1]) {
+    start = Math.max(0, size - parseInt(m[2]));
+    end = size - 1;
+  } else {
+    start = parseInt(m[1]);
+    end = m[2] ? Math.min(parseInt(m[2]), size - 1) : size - 1;
+  }
+  if (start >= size || start > end) return "bad";
+  return { start, end };
+}
+
+function contentDisposition(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+async function downloadFile(rel: string, req: Request): Promise<Response> {
+  const real = await resolveInRoot(rel);
+  const st = await statReal(real);
+  if (st.type !== "f") throw new FileError("Not a regular file", 400);
+
+  const range = parseRange(req.headers.get("range"), st.size);
+  if (range === "bad") {
+    return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${st.size}` } });
+  }
+  const start = range ? range.start : 0;
+  const length = range ? range.end - range.start + 1 : st.size;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/octet-stream",
+    "Content-Disposition": contentDisposition(st.name),
+    "Content-Length": String(length),
+    "Accept-Ranges": "bytes",
+    "Last-Modified": new Date(st.mtime).toUTCString(),
+    "Cache-Control": "no-cache",
+  };
+  if (range) headers["Content-Range"] = `bytes ${range.start}-${range.end}/${st.size}`;
+  const status = range ? 206 : 200;
+  if (req.method === "HEAD" || length === 0) return new Response(null, { status, headers });
+
+  // Readable without sudo — every FAT/exFAT/NTFS mount — gets Bun's file path: sendfile,
+  // and a real Content-Length (Bun drops it on streamed bodies, which leaves the browser
+  // with no size or progress). Only files `pi` can't open take the sudo dd stream.
+  if (await access(real, fsConstants.R_OK).then(() => true, () => false)) {
+    return new Response(Bun.file(real).slice(start, start + length), { status, headers });
+  }
+
+  const proc = Bun.spawn(
+    ["sudo", "dd", `if=${real}`, "bs=1M", "iflag=skip_bytes,count_bytes", `skip=${start}`, `count=${length}`, "status=none"],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  // A cancelled download must not leave dd reading a multi-GB file into a dead pipe.
+  req.signal.addEventListener("abort", () => proc.kill());
+  return new Response(proc.stdout, { status, headers });
+}
+
 // ==================== API Docs ====================
 
 const API_DOCS = {
@@ -1106,6 +1323,8 @@ const API_DOCS = {
     "POST /api/deepscan": { body: { device: "sdb" }, description: "Exhaustive raw scan for file signatures across the whole device. Tracked like erase/flash: progress via SSE, cancellable." },
     "GET /api/scanresult?device=sdb": "Findings from the last deep scan of a device",
     "POST /api/cancel": { body: { operationId: "uuid" }, description: "Cancel active operation" },
+    "GET /api/files?path=LABEL/dir": "List a directory on a mounted drive (read-only). path is relative to /srv/nfs/drives; empty lists the mounted drives. Symlinks that lead outside the drives are refused.",
+    "GET /api/download?path=LABEL/dir/file": "Download one file. Supports Range requests, so interrupted downloads can resume (curl -C -).",
     "GET /api/images": "Official RPi OS image catalog (cached 1hr)",
     "GET /api/defaults": "Saved default flash settings",
     "POST /api/defaults": "Save default flash settings",
@@ -1114,6 +1333,8 @@ const API_DOCS = {
     eject: 'curl -X POST http://deskypi.tsl/api/eject -H "Content-Type: application/json" -d \'{"device":"sdb"}\'',
     status: "curl -s http://deskypi.tsl/api/status | jq '.drives'",
     list_exports: "curl -s http://deskypi.tsl/api/status | jq '.nbdExports'",
+    list_files: "curl -s 'http://deskypi.tsl/api/files?path=bootfs' | jq '.entries[].name'",
+    download: "curl -OJ 'http://deskypi.tsl/api/download?path=bootfs/config.txt'",
   },
 };
 
@@ -1244,6 +1465,17 @@ Bun.serve({
       const op = all.find((o) => o.id === operationId);
       if (op) { op.aborted = true; op.process?.kill(); op.status = "error"; op.message = "Cancelled"; }
       return Response.json({ ok: true });
+    }
+
+    if (p === "/api/files" || p === "/api/download") {
+      try {
+        const rel = url.searchParams.get("path") || "";
+        if (p === "/api/files") return Response.json(await listDir(rel));
+        if (req.method === "GET" || req.method === "HEAD") return await downloadFile(rel, req);
+        return new Response("Method Not Allowed", { status: 405 });
+      } catch (e: any) {
+        return Response.json({ ok: false, message: e.message }, { status: e instanceof FileError ? e.status : 500 });
+      }
     }
 
     if (p === "/api/images") return Response.json(await getRpiImages());

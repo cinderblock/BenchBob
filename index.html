@@ -199,6 +199,28 @@ details[open] summary{margin-bottom:8px}
 .wifi-entry input:focus{border-color:var(--accent)}
 .wifi-entry .wf-cc{flex:0 0 50px!important}
 
+/* File browser */
+.modal.wide{max-width:820px}
+.fb-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;font-family:'SF Mono',ui-monospace,monospace;font-size:.82rem;margin-bottom:10px}
+.fb-crumbs a{cursor:pointer;padding:1px 4px;border-radius:3px}
+.fb-crumbs a:hover{background:var(--surface3)}
+.fb-crumbs .sep{color:var(--dim)}
+.fb-crumbs .cur{padding:1px 4px;font-weight:600}
+.fb-filter{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.82rem;font-family:inherit;outline:none;margin-bottom:8px}
+.fb-filter:focus{border-color:var(--accent)}
+.fb-list{height:min(60vh,520px);overflow:auto;border:1px solid var(--border);border-radius:6px}
+.fb-tbl{width:100%;border-collapse:collapse;font-size:.8rem;table-layout:fixed}
+.fb-tbl th{position:sticky;top:0;background:var(--surface2);text-align:left;font-size:.62rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);padding:5px 8px;border-bottom:1px solid var(--border)}
+.fb-tbl td{padding:4px 8px;border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fb-tbl tr.nav{cursor:pointer}
+.fb-tbl tbody tr:hover{background:var(--surface2)}
+.fb-tbl .num{text-align:right;font-family:'SF Mono',ui-monospace,monospace;color:var(--dim);font-size:.74rem}
+.fb-ico{display:inline-block;width:1.4em;text-align:center}
+.fb-link{color:var(--dim);font-size:.72rem}
+.fb-dl{font-size:.74rem}
+.fb-msg{padding:24px;text-align:center;color:var(--dim);font-size:.85rem}
+.fb-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;font-size:.75rem;color:var(--dim)}
+
 /* Toast */
 .toasts{position:fixed;bottom:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:6px}
 .toast{padding:10px 18px;border-radius:7px;font-size:.85rem;font-weight:500;animation:fadeIn .25s;min-width:220px}
@@ -617,7 +639,9 @@ function renderDrives(drives, nbdExports) {
       for (const p of d.children) {
         const hasNbd = nbdExports.includes(p.name);
         const hasNfs = p.mountpoint && p.mountpoint.startsWith('/srv/nfs/');
-        h += `<div class="part"><div class="part-left"><span class="part-name">${p.name}</span><span class="part-info">${fmtSz(p.size)} · ${p.fstype||'?'}${p.label?' · '+esc(p.label):''}${p.mountpoint?' → '+esc(p.mountpoint):''}</span></div><div class="badges">${hasNfs?'<span class="badge badge-nfs">NFS</span>':''}${hasNbd?'<span class="badge badge-nbd">NBD</span>':''}</div></div>`;
+        const fbRel = filesRel(p.mountpoint);
+        const browse = fbRel !== null ? `<button class="btn btn-sm" onclick="openFiles(${esc(JSON.stringify(fbRel))})" title="Browse files on this partition (read-only)">Browse</button>` : '';
+        h += `<div class="part"><div class="part-left"><span class="part-name">${p.name}</span><span class="part-info">${fmtSz(p.size)} · ${p.fstype||'?'}${p.label?' · '+esc(p.label):''}${p.mountpoint?' → '+esc(p.mountpoint):''}</span></div><div class="badges" style="align-items:center">${hasNfs?'<span class="badge badge-nfs">NFS</span>':''}${hasNbd?'<span class="badge badge-nbd">NBD</span>':''}${browse}</div></div>`;
       }
       h += '</div>';
     } else if (!hasParts && !busy) {
@@ -855,6 +879,106 @@ function scrollToDrive(name) {
   el.classList.add('highlight');
 }
 
+// ==================== File Browser ====================
+// Read-only view of the auto-mounted partitions. Paths are relative to the server's
+// files root (/srv/nfs/drives); '' is the list of drives itself.
+
+// Root-relative path of a mountpoint, or null if it isn't browsable.
+function filesRel(mountpoint) {
+  const root = S?.filesRoot;
+  if (!root || !mountpoint || !mountpoint.startsWith(root + '/')) return null;
+  return mountpoint.slice(root.length + 1);
+}
+
+const FB_ICONS = { dir:'📁', file:'📄', broken:'⚠️', outside:'🚫', other:'⚙️' };
+const FB_NOTES = { broken:'broken link', outside:'points outside this drive' };
+let fb = null; // { path, entries, total, truncated, warning }
+let fbSeq = 0;
+
+function fbJoin(dir, name) { return dir ? dir + '/' + name : name; }
+function fbDate(ms) { return ms ? new Date(ms).toLocaleString(undefined, { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : ''; }
+
+async function openFiles(path) {
+  // Responses can arrive out of order when clicking quickly; only the latest renders.
+  const seq = ++fbSeq;
+  if (!fb) showFilesModal('<div class="fb-msg">Loading…</div>', path);
+  try {
+    const res = await fetch('/api/files?path=' + encodeURIComponent(path));
+    const r = await res.json();
+    if (seq !== fbSeq) return;
+    if (!r.ok) { toast(r.message || 'Could not open folder', 'error'); if (!fb) hideModal(); return; }
+    fb = r;
+    renderFiles();
+  } catch (e) {
+    if (seq !== fbSeq) return;
+    toast('Could not open folder', 'error');
+    if (!fb) hideModal();
+  }
+}
+
+function showFilesModal(listHtml, path) {
+  const parts = path ? path.split('/') : [];
+  let crumbs = `<a onclick="openFiles('')">drives</a>`;
+  parts.forEach((seg, i) => {
+    const sub = parts.slice(0, i + 1).join('/');
+    crumbs += '<span class="sep">/</span>' + (i === parts.length - 1
+      ? `<span class="cur">${esc(seg)}</span>`
+      : `<a onclick="openFiles(${esc(JSON.stringify(sub))})">${esc(seg)}</a>`);
+  });
+  showModal(`<h3>Files</h3>
+    <div class="fb-crumbs">${crumbs}</div>
+    <input class="fb-filter" id="fb-filter" placeholder="Filter this folder…" autocomplete="off" spellcheck="false">
+    <div class="fb-list" id="fb-list">${listHtml}</div>
+    <div class="fb-foot"><span id="fb-foot"></span><button class="btn btn-primary" id="mk">Close</button></div>`, 'wide');
+  Q('#mk').onclick = hideModal;
+  Q('#modal-bg').onclick = e => { if (e.target === Q('#modal-bg')) hideModal(); };
+  Q('#fb-filter').addEventListener('input', renderFileRows);
+  Q('#fb-filter').focus();
+}
+
+function renderFiles() {
+  showFilesModal('', fb.path);
+  renderFileRows();
+}
+
+function renderFileRows() {
+  const q = Q('#fb-filter').value.trim().toLowerCase();
+  const list = q ? fb.entries.filter(e => e.name.toLowerCase().includes(q)) : fb.entries;
+  let h = '<table class="fb-tbl"><colgroup><col><col style="width:90px"><col style="width:170px"><col style="width:44px"></colgroup>'
+        + '<thead><tr><th>Name</th><th style="text-align:right">Size</th><th style="text-align:right">Modified</th><th></th></tr></thead><tbody>';
+  if (fb.path && !q) {
+    const up = fb.path.split('/').slice(0, -1).join('/');
+    h += `<tr class="nav" onclick="openFiles(${esc(JSON.stringify(up))})"><td colspan="4"><span class="fb-ico">⬆️</span>..</td></tr>`;
+  }
+  for (const e of list) {
+    const p = fbJoin(fb.path, e.name);
+    const note = FB_NOTES[e.type] ? ` (${FB_NOTES[e.type]})` : '';
+    const link = e.link ? ` <span class="fb-link">→ ${esc(e.link)}${note}</span>` : '';
+    const name = `<span class="fb-ico">${FB_ICONS[e.type] || FB_ICONS.other}</span>${esc(e.name)}${link}`;
+    const size = e.size == null ? '' : fmtSz(e.size);
+    const title = esc(e.name + (e.link ? ' → ' + e.link : ''));
+    if (e.type === 'dir') {
+      h += `<tr class="nav" title="${title}" onclick="openFiles(${esc(JSON.stringify(p))})"><td>${name}</td><td class="num"></td><td class="num">${fbDate(e.mtime)}</td><td></td></tr>`;
+    } else if (e.type === 'file') {
+      const href = '/api/download?path=' + encodeURIComponent(p);
+      h += `<tr title="${title}"><td><a href="${href}" download style="color:inherit">${name}</a></td><td class="num">${size}</td><td class="num">${fbDate(e.mtime)}</td>`
+         + `<td><a class="fb-dl" href="${href}" download title="Download">⬇️</a></td></tr>`;
+    } else {
+      h += `<tr title="${title}" style="color:var(--dim)"><td>${name}</td><td class="num">${size}</td><td class="num">${fbDate(e.mtime)}</td><td></td></tr>`;
+    }
+  }
+  h += '</tbody></table>';
+  if (!list.length) h += `<div class="fb-msg">${q ? 'Nothing matches the filter' : 'Empty folder'}</div>`;
+  Q('#fb-list').innerHTML = h;
+
+  const files = fb.entries.filter(e => e.type === 'file');
+  let foot = `${fb.total} item${fb.total === 1 ? '' : 's'} · ${fmtSz(files.reduce((a, e) => a + (e.size || 0), 0))} in files`;
+  if (q) foot = `${list.length} of ${fb.total} shown`;
+  if (fb.truncated) foot += ` · only the first ${fb.entries.length} listed`;
+  if (fb.warning) foot += ` · ⚠️ ${esc(fb.warning)}`;
+  Q('#fb-foot').innerHTML = foot;
+}
+
 // ==================== Flash ====================
 async function flashDrive(dev) {
   if (!images.length) await loadImages();
@@ -929,11 +1053,16 @@ function addWifiRow(ssid, password, country) {
 }
 
 // ==================== Modals ====================
-function showModal(html) {
+function showModal(html, cls) {
+  Q('#modal').className = 'modal' + (cls ? ' ' + cls : '');
   Q('#modal').innerHTML = html;
   Q('#modal-bg').classList.remove('hidden');
 }
-function hideModal() { Q('#modal-bg').classList.add('hidden'); maybeReload(); }
+function hideModal() {
+  Q('#modal-bg').classList.add('hidden');
+  fb = null; fbSeq++; // drop any file-browser state and in-flight listing with it
+  maybeReload();
+}
 
 function confirm2(title, msg, devInfo) {
   return new Promise(resolve => {
