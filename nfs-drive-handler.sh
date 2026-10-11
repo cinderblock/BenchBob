@@ -62,9 +62,14 @@ case "$ACTION" in
           log "SKIP $DEVNAME already mounted at $MOUNTPOINT"
         else
           mkdir -p "$MOUNTPOINT"
-          # Defer mount to systemd to escape udev's restricted mount namespace
-          systemd-run --no-block \
-            --unit="nfs-drive-mount-$(basename "$DEVNAME")" \
+          UNIT="nfs-drive-mount-$(basename "$DEVNAME")"
+          # A failed run from an earlier plug-in (before --collect) keeps the unit name
+          # loaded, and systemd-run then refuses to start it again.
+          systemctl reset-failed "$UNIT.service" 2>/dev/null
+          # Defer mount to systemd to escape udev's restricted mount namespace.
+          # --collect unloads the unit once it finishes, however it finishes.
+          systemd-run --no-block --collect \
+            --unit="$UNIT" \
             --property="Type=oneshot" \
             /usr/local/bin/nfs-drive-mount.sh "$DEVNAME" "$MOUNTPOINT" \
             2>>"$LOGFILE"

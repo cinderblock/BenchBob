@@ -6,7 +6,16 @@ LOGFILE="/var/log/nfs-drive-handler.log"
 
 sleep 1
 
-if mount -o ro "$DEVNAME" "$MOUNTPOINT" 2>>"$LOGFILE"; then
+# systemd-mount, not mount: the mount gets its own .mount unit. A FUSE filesystem
+# (ntfs-3g, apfs-fuse) runs as a daemon, and a plain `mount` would leave that daemon in
+# this short-lived oneshot's cgroup, where systemd kills it — and the mount with it — the
+# moment this script exits. A .mount unit for a block device is also bound to the device,
+# so systemd unmounts it by itself when the drive is pulled.
+#
+# --fsck=no: systemd-mount fscks block devices by default, and fsck -a writes to the
+# filesystem. These are other people's drives, mounted read-only on purpose.
+# --collect: a mount that fails must not leave a failed unit squatting on the name.
+if systemd-mount --no-ask-password --fsck=no --collect -o ro "$DEVNAME" "$MOUNTPOINT" 2>>"$LOGFILE"; then
   echo "$(date -Is) MOUNTED $DEVNAME at $MOUNTPOINT" >> "$LOGFILE"
   exportfs -ra 2>>"$LOGFILE"
 else
