@@ -1,6 +1,6 @@
 # Issues
 
-## NTFS partitions unmount immediately after auto-mount; vfat sometimes never mounts
+## NTFS partitions unmount immediately after auto-mount; vfat sometimes never mounts — in progress (master, file-browser thread)
 
 Seen 2026-10-11 on `deskypi` with a Windows NVMe (`sda`: SYSTEM vfat, Windows ntfs,
 WinRE_DRV ntfs). `/srv/nfs/drives/{SYSTEM,Windows,WinRE_DRV}` exist but nothing is mounted.
