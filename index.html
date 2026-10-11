@@ -200,7 +200,7 @@ details[open] summary{margin-bottom:8px}
 .wifi-entry .wf-cc{flex:0 0 50px!important}
 
 /* File browser */
-.modal.wide{max-width:820px}
+.modal.wide{max-width:820px;max-height:96vh;overflow:auto}
 .fb-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;font-family:'SF Mono',ui-monospace,monospace;font-size:.82rem;margin-bottom:10px}
 .fb-crumbs a{cursor:pointer;padding:1px 4px;border-radius:3px}
 .fb-crumbs a:hover{background:var(--surface3)}
@@ -220,6 +220,26 @@ details[open] summary{margin-bottom:8px}
 .fb-dl{font-size:.74rem}
 .fb-msg{padding:24px;text-align:center;color:var(--dim);font-size:.85rem}
 .fb-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;font-size:.75rem;color:var(--dim)}
+
+/* OS detection */
+.drive-os{display:flex;flex-direction:column;gap:2px;margin-top:6px;font-size:.8rem}
+.drive-os .sub{color:var(--dim);font-size:.72rem;font-family:'SF Mono',ui-monospace,monospace}
+.badge-os{background:#1a2640;color:#8fb0ff;text-transform:none;letter-spacing:0;font-weight:600}
+.badge-role{background:var(--surface3);color:var(--dim);text-transform:none;letter-spacing:0;font-weight:500}
+.fb-info{border:1px solid var(--border);border-radius:6px;margin-bottom:10px;background:var(--surface2);font-size:.78rem}
+.fb-info summary{padding:7px 10px;margin:0!important;font-size:.78rem}
+.fb-info-body{padding:0 12px 10px;max-height:32vh;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.fb-info h4{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:4px}
+.fb-kv{display:grid;grid-template-columns:auto 1fr;gap:2px 14px}
+.fb-kv>:nth-child(odd){color:var(--dim)}
+.fb-kv>:nth-child(even){font-family:'SF Mono',ui-monospace,monospace;font-size:.75rem}
+.fb-ld{width:100%;border-collapse:collapse;table-layout:fixed}
+.fb-ld td{padding:3px 6px 3px 0;vertical-align:top;border-top:1px solid var(--border)}
+.fb-ld tr:first-child td{border-top:none}
+.fb-ld .mono{font-size:.72rem;color:var(--dim)}
+.fb-warn{color:var(--warning)}
+.fb-tag{display:inline-block;font-size:.62rem;padding:0 5px;border-radius:3px;background:var(--surface3);color:var(--dim);margin-left:4px;vertical-align:1px}
+.fb-list.short{height:min(44vh,420px)}
 
 /* Toast */
 .toasts{position:fixed;bottom:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:6px}
@@ -611,7 +631,7 @@ function renderDrives(drives, nbdExports) {
     return;
   }
   let h = '';
-  for (const d of drives) { pushH(`drv:${d.name}:r`, d.readRate); pushH(`drv:${d.name}:w`, d.writeRate); }
+  for (const d of drives) { pushH(`drv:${d.name}:r`, d.readRate); pushH(`drv:${d.name}:w`, d.writeRate); ensureOsInfo(d); }
   const drvMax = histMax('drv:');
   for (const d of drives) {
     const ops = d.operations || [];
@@ -626,6 +646,7 @@ function renderDrives(drives, nbdExports) {
         <div class="drive-info">
           <span class="drive-model">${esc(d.model || d.name)}</span>
           <span class="drive-meta">/dev/${d.name} · ${fmtSz(d.size)}${d.serial ? ' · S/N: '+esc(d.serial) : ''}${d.rev ? ' · FW: '+esc(d.rev) : ''}${d.usbVersion ? ' · '+esc(d.usbVersion) : ''}</span>
+          ${driveOsHtml(d)}
         </div>
         <div class="drive-bw" style="display:flex;gap:10px;align-items:center">
           <div style="display:flex;align-items:center;gap:4px"><div style="flex-shrink:0;width:50px">${sparkSvg(`drv:${d.name}:r`, 50, 16, '#6cb4ee', drvMax)}</div><span class="bw-rx" style="font-size:.68rem;min-width:62px;text-align:right">R ${fmtRate(d.readRate)}</span></div>
@@ -641,7 +662,12 @@ function renderDrives(drives, nbdExports) {
         const hasNfs = p.mountpoint && p.mountpoint.startsWith('/srv/nfs/');
         const fbRel = filesRel(p.mountpoint);
         const browse = fbRel !== null ? `<button class="btn btn-sm" onclick="openFiles(${esc(JSON.stringify(fbRel))})" title="Browse files on this partition (read-only)">Browse</button>` : '';
-        h += `<div class="part"><div class="part-left"><span class="part-name">${p.name}</span><span class="part-info">${fmtSz(p.size)} · ${p.fstype||'?'}${p.label?' · '+esc(p.label):''}${p.mountpoint?' → '+esc(p.mountpoint):''}</span></div><div class="badges" style="align-items:center">${hasNfs?'<span class="badge badge-nfs">NFS</span>':''}${hasNbd?'<span class="badge badge-nbd">NBD</span>':''}${browse}</div></div>`;
+        const pi = osPart(d.name, p.name);
+        const role = pi?.role ? `<span class="badge badge-role" title="${esc(pi.note || '')}">${esc(pi.role)}</span>` : '';
+        const osTag = pi ? partOsLabel(pi) : null;
+        const osBadge = osTag ? `<span class="badge badge-os">${esc(osTag)}</span>` : '';
+        const note = pi?.note ? ` · ${esc(pi.note)}` : '';
+        h += `<div class="part"><div class="part-left"><span class="part-name">${p.name}</span><span class="part-info">${fmtSz(p.size)} · ${p.fstype||'?'}${p.label?' · '+esc(p.label):''}${p.mountpoint?' → '+esc(p.mountpoint):''}${note}</span></div><div class="badges" style="align-items:center">${osBadge}${role}${hasNfs?'<span class="badge badge-nfs">NFS</span>':''}${hasNbd?'<span class="badge badge-nbd">NBD</span>':''}${browse}</div></div>`;
       }
       h += '</div>';
     } else if (!hasParts && !busy) {
@@ -879,6 +905,163 @@ function scrollToDrive(name) {
   el.classList.add('highlight');
 }
 
+// ==================== OS Detection ====================
+// /api/osinfo inspects a disk's mounted partitions: EFI loaders, Windows/Linux/macOS
+// installs, Pi bootfs. Fetched once per drive per set of mounts, then re-rendered.
+
+const osInfo = {}; // device -> { key, data, loading }
+const OS_ICONS = { windows:'🪟', linux:'🐧', pi:'🍓', macos:'🍎' };
+
+function ensureOsInfo(d) {
+  if (!d.children?.length) return;
+  const key = d.children.map(p => `${p.name}=${p.fstype || ''}@${p.mountpoint || ''}`).join(',');
+  if (osInfo[d.name]?.key === key) return;
+  // A new key can mean a different drive under the same name: never show the old data.
+  const entry = osInfo[d.name] = { key, data: null, loading: true };
+  fetch('/api/osinfo?device=' + encodeURIComponent(d.name)).then(r => r.json()).then(r => {
+    if (osInfo[d.name] !== entry) return;
+    entry.data = r.ok ? r : null;
+    entry.loading = false;
+    render();
+    if (fb && filesInfoTarget(fb.path)) renderFiles(true);
+  }).catch(() => { entry.loading = false; });
+}
+
+function osPart(dev, part) { return osInfo[dev]?.data?.partitions?.find(p => p.name === part) || null; }
+
+function partOsLabel(p) {
+  if (p.windows) return [p.windows.product, p.windows.version].filter(Boolean).join(' ');
+  if (p.linux) return p.linux.name;
+  if (p.macos) return [p.macos.name, p.macos.version].filter(Boolean).join(' ');
+  if (p.pi) return 'Raspberry Pi boot';
+  return null;
+}
+
+function driveOsHtml(d) {
+  const info = osInfo[d.name]?.data;
+  if (!info) return '';
+  if (info.systems.length) {
+    return '<div class="drive-os">' + info.systems.map(s =>
+      `<div><span title="${esc(s.kind)}">${OS_ICONS[s.kind] || '💽'}</span> <b>${esc(s.name)}</b>
+        <span class="sub">${[s.partition, s.detail].filter(Boolean).map(esc).join(' · ')}</span></div>`).join('') + '</div>';
+  }
+  const loaders = info.partitions.flatMap(p => p.esp?.loaders || []).filter(l => l.kind === 'os');
+  if (loaders.length) return `<div class="drive-os"><div class="sub">No readable OS · EFI loaders for ${loaders.map(l => esc(l.name)).join(', ')}</div></div>`;
+  return '';
+}
+
+// The drive/partition whose mount root is `path`, if it has anything to show.
+function filesInfoTarget(path) {
+  if (!path || path.includes('/')) return null;
+  for (const [dev, c] of Object.entries(osInfo)) {
+    const p = c.data?.partitions?.find(x => x.path === path);
+    if (p && (p.esp || p.windows || p.linux || p.pi || p.macos)) return { dev, part: p, disk: c.data };
+  }
+  return null;
+}
+
+let fbInfoOpen = true;
+
+function filesInfoHtml(t) {
+  const { part: p, disk } = t;
+  const sections = [];
+  let title = '';
+  const kv = rows => '<div class="fb-kv">' + rows.filter(r => r[1] != null && r[1] !== '').map(([k, v]) => `<span>${esc(k)}</span><span>${v}</span>`).join('') + '</div>';
+  const espEntriesFor = name => disk.partitions.flatMap(q => q.esp?.windowsBoot?.entries || []).filter(e => e.partition === name);
+
+  if (p.esp) {
+    const e = p.esp;
+    title = `💾 EFI System Partition — ${e.loaders.length} loader folder${e.loaders.length === 1 ? '' : 's'}`;
+    let h = '<div><h4>Boot loaders</h4><table class="fb-ld"><colgroup><col style="width:30%"><col style="width:22%"><col style="width:9%"><col></colgroup>';
+    for (const l of e.loaders) {
+      const notes = [];
+      if (l.shim) notes.push('Secure Boot shim');
+      if (l.target) {
+        notes.push(l.target.partition
+          ? `GRUB loads <b>/boot</b> from ${esc(l.target.partition)}${l.target.system ? ' — ' + esc(l.target.system) : ''}`
+          : `<span class="fb-warn">⚠ GRUB looks for filesystem <span class="mono">${esc(l.target.uuid)}</span>, which isn't on this drive — left over from a removed install</span>`);
+      }
+      if (l.kind === 'fallback' && e.fallback) {
+        const f = e.fallback, file = esc(f.file.split('/').pop());
+        if (f.sameAs) {
+          notes.push(`${file} is a copy of <span class="mono">EFI/${esc(f.sameAs)}</span>`);
+          const src = e.loaders.find(x => f.sameAs.toLowerCase().startsWith(x.dir.toLowerCase() + '/'));
+          if (src?.target && !src.target.partition) notes.push(`<span class="fb-warn">⚠ so the firmware's fallback boot leads to that broken GRUB</span>`);
+        } else {
+          notes.push(`${file} doesn't match any other loader here`);
+        }
+      }
+      if (l.dir.toLowerCase() === 'microsoft' && e.windowsBoot) {
+        const menu = e.windowsBoot.entries.filter(x => x.inMenu);
+        if (menu.length) notes.push('Menu: ' + menu.map(x => `"${esc(x.description)}"${x.partition ? ' → ' + esc(x.partition) : ''}${x.isDefault ? ' (default)' : ''}`).join(', '));
+      }
+      h += `<tr title="${esc(l.files.join('\n'))}"><td>${esc(l.name)}</td><td class="mono">EFI/${esc(l.dir)}</td><td class="mono">${esc(l.arch || '')}</td>`
+         + `<td>${notes.join('<br>') || `<span class="mono">${esc(l.files.join(', ') || 'no .efi files')}</span>`}</td></tr>`;
+    }
+    h += '</table></div>';
+    sections.push(h);
+
+    if (e.windowsBoot?.entries.length) {
+      const wb = e.windowsBoot;
+      let w = `<div><h4>Windows boot configuration (BCD)${wb.timeout != null ? ` · menu timeout ${wb.timeout}s` : ''}</h4><table class="fb-ld"><colgroup><col style="width:38%"><col style="width:12%"><col></colgroup>`;
+      for (const x of wb.entries) {
+        const tags = [x.isDefault && 'default', x.inMenu && 'in menu', x.kind !== 'os' && x.kind].filter(Boolean).map(t => `<span class="fb-tag">${t}</span>`).join('');
+        w += `<tr><td>${esc(x.description)}${tags}</td><td class="mono">${esc(x.partition || '?')}</td><td class="mono">${esc(x.path || '')}</td></tr>`;
+      }
+      sections.push(w + '</table></div>');
+    }
+
+    if (e.systemdBoot?.entries.length) {
+      const sb = e.systemdBoot;
+      sections.push('<div><h4>systemd-boot entries</h4><table class="fb-ld">' + sb.entries.map(x =>
+        `<tr><td>${esc(x.title)}${sb.default && x.file.startsWith(sb.default.replace(/\*.*$/, '')) ? '<span class="fb-tag">default</span>' : ''}</td><td class="mono">${esc(x.version || '')}</td><td class="mono">${esc(x.file)}</td></tr>`).join('') + '</table></div>');
+    }
+  }
+
+  if (p.windows) {
+    const w = p.windows;
+    title = `🪟 ${[w.product, w.version].filter(Boolean).join(' ')}`;
+    const via = espEntriesFor(p.name).filter(x => x.kind === 'os').map(x => `"${esc(x.description)}"${x.isDefault ? ' (default)' : ''}`);
+    sections.push('<div><h4>Windows installation</h4>' + kv([
+      ['Edition', esc(w.product) + (w.edition ? ` <span class="fb-tag">${esc(w.edition)}</span>` : '')],
+      ['Version', esc(w.version)],
+      ['Build', esc(w.build)],
+      ['Installed', w.installed ? esc(new Date(w.installed).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' })) : null],
+      ['PC name', esc(w.computerName)],
+      ['Boot menu', via.length ? 'Windows Boot Manager: ' + via.join(', ') : '<span class="fb-warn">no boot entry on this drive points here</span>'],
+    ]) + '</div>');
+  }
+
+  if (p.linux) {
+    const l = p.linux;
+    title = `${disk.partitions.some(q => q.pi?.rootPartition === p.name) ? '🍓' : '🐧'} ${l.name}`;
+    const via = [
+      ...disk.partitions.flatMap(q => (q.esp?.loaders || []).filter(x => x.target?.partition === p.name).map(x => `EFI/${esc(x.dir)} on ${esc(q.name)}`)),
+      ...disk.partitions.filter(q => q.pi?.rootPartition === p.name).map(q => `Raspberry Pi bootfs on ${esc(q.name)}`),
+    ];
+    sections.push('<div><h4>Linux installation</h4>' + kv([
+      ['OS', esc(l.name)],
+      ['Hostname', esc(l.hostname)],
+      ['Booted by', via.join(', ') || null],
+    ]) + '</div>');
+  }
+
+  if (p.pi) {
+    title = title || '🍓 Raspberry Pi boot partition';
+    sections.push('<div><h4>Raspberry Pi boot partition</h4>' + kv([
+      ['Image', esc(p.pi.image)],
+      ['Root filesystem', p.pi.rootPartition ? esc(p.pi.rootPartition) : p.pi.rootPartuuid ? `<span class="fb-warn">PARTUUID ${esc(p.pi.rootPartuuid)} isn't on this drive</span>` : 'not set in cmdline.txt'],
+    ]) + '</div>');
+  }
+
+  if (p.macos) {
+    title = title || `🍎 ${p.macos.name} ${p.macos.version || ''}`;
+    sections.push('<div><h4>macOS installation</h4>' + kv([['OS', esc(p.macos.name)], ['Version', esc(p.macos.version)]]) + '</div>');
+  }
+
+  return `<details class="fb-info" ${fbInfoOpen ? 'open' : ''} ontoggle="fbInfoOpen=this.open"><summary>${title}</summary><div class="fb-info-body">${sections.join('')}</div></details>`;
+}
+
 // ==================== File Browser ====================
 // Read-only view of the auto-mounted partitions. Paths are relative to the server's
 // files root (/srv/nfs/drives); '' is the list of drives itself.
@@ -925,10 +1108,12 @@ function showFilesModal(listHtml, path) {
       ? `<span class="cur">${esc(seg)}</span>`
       : `<a onclick="openFiles(${esc(JSON.stringify(sub))})">${esc(seg)}</a>`);
   });
+  const info = filesInfoTarget(path);
   showModal(`<h3>Files</h3>
     <div class="fb-crumbs">${crumbs}</div>
+    ${info ? filesInfoHtml(info) : ''}
     <input class="fb-filter" id="fb-filter" placeholder="Filter this folder…" autocomplete="off" spellcheck="false">
-    <div class="fb-list" id="fb-list">${listHtml}</div>
+    <div class="fb-list${info ? ' short' : ''}" id="fb-list">${listHtml}</div>
     <div class="fb-foot"><span id="fb-foot"></span><button class="btn btn-primary" id="mk">Close</button></div>`, 'wide');
   Q('#mk').onclick = hideModal;
   Q('#modal-bg').onclick = e => { if (e.target === Q('#modal-bg')) hideModal(); };
@@ -936,9 +1121,14 @@ function showFilesModal(listHtml, path) {
   Q('#fb-filter').focus();
 }
 
-function renderFiles() {
+// keepView: re-render in place (e.g. OS details arrived) without dropping the filter.
+function renderFiles(keepView) {
+  const q = keepView ? Q('#fb-filter')?.value || '' : '';
+  const top = keepView ? Q('#fb-list')?.scrollTop || 0 : 0;
   showFilesModal('', fb.path);
+  Q('#fb-filter').value = q;
   renderFileRows();
+  Q('#fb-list').scrollTop = top;
 }
 
 function renderFileRows() {

@@ -46,7 +46,7 @@ mkdir -p "$INSTALL_DIR"
 # ---------- 3. Application files ----------
 blue "Installing application files..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cp "$SCRIPT_DIR/server.ts" "$INSTALL_DIR/"
+cp "$SCRIPT_DIR"/*.ts "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/index.html" "$INSTALL_DIR/"
 
 if [ ! -f "$INSTALL_DIR/defaults.json" ]; then

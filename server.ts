@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
+import { analyseDisk, type DiskInfo } from "./osinfo.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = import.meta.dir + "/defaults.json";
@@ -1307,6 +1308,45 @@ async function downloadFile(rel: string, req: Request): Promise<Response> {
   return new Response(proc.stdout, { status, headers });
 }
 
+// ==================== OS Detection ====================
+//
+// Which systems are installed on a drive and how they boot — see osinfo.ts. Reading the
+// registry hives and hashing loaders takes a moment, so results are cached per disk until
+// its set of mounts changes (a remount gets a new mount ID, so it counts as a change).
+
+const osInfoCache = new Map<string, { key: string; result: Promise<DiskInfo> }>();
+
+async function mountIds(): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
+  for (const line of (await readSysFile("/proc/self/mountinfo")).split("\n")) {
+    const f = line.split(" ");
+    // Mount points are octal-escaped (\040 for a space) in mountinfo.
+    if (f.length > 4) ids.set(f[4].replace(/\\(\d{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8))), f[0]);
+  }
+  return ids;
+}
+
+async function getOsInfo(device: string): Promise<DiskInfo> {
+  const { out } = await run([
+    "lsblk", "-J", "-o", "NAME,TYPE,TRAN,FSTYPE,LABEL,UUID,PARTUUID,PARTTYPE,PARTLABEL,MOUNTPOINT,PTTYPE,PTUUID", `/dev/${device}`,
+  ]);
+  let disk: any;
+  try {
+    disk = JSON.parse(out).blockdevices?.[0];
+  } catch {}
+  if (!disk || disk.type !== "disk" || disk.tran !== "usb") throw new FileError("Not a USB disk", 404);
+
+  const ids = await mountIds();
+  const key = JSON.stringify((disk.children || []).map((p: any) => [p.name, p.fstype, p.mountpoint, ids.get(p.mountpoint)]));
+  const hit = osInfoCache.get(device);
+  if (hit && hit.key === key) return hit.result;
+  const result = analyseDisk(disk, FILES_ROOT);
+  osInfoCache.set(device, { key, result });
+  // A failure shouldn't stick: drop it so the next request tries again.
+  result.catch(() => osInfoCache.get(device)?.result === result && osInfoCache.delete(device));
+  return result;
+}
+
 // ==================== API Docs ====================
 
 const API_DOCS = {
@@ -1325,6 +1365,7 @@ const API_DOCS = {
     "POST /api/cancel": { body: { operationId: "uuid" }, description: "Cancel active operation" },
     "GET /api/files?path=LABEL/dir": "List a directory on a mounted drive (read-only). path is relative to /srv/nfs/drives; empty lists the mounted drives. Symlinks that lead outside the drives are refused.",
     "GET /api/download?path=LABEL/dir/file": "Download one file. Supports Range requests, so interrupted downloads can resume (curl -C -).",
+    "GET /api/osinfo?device=sda": "What's installed on a USB disk and how it boots: per-partition role, EFI loaders (with Windows BCD entries, GRUB targets, systemd-boot entries, fallback-loader identity), Windows edition/build/PC name, Linux os-release, Raspberry Pi bootfs, macOS version. Only mounted partitions are inspected.",
     "GET /api/images": "Official RPi OS image catalog (cached 1hr)",
     "GET /api/defaults": "Saved default flash settings",
     "POST /api/defaults": "Save default flash settings",
@@ -1357,7 +1398,7 @@ const UI_PATH = import.meta.dir + "/index.html";
 // UI_PATH must stay first — getBuild() serves texts[0] as the page.
 // defaults.json is deliberately excluded: it is user data, rewritten every time flash
 // settings are saved, and would cause a spurious reload on each save.
-const BUILD_FILES = [UI_PATH, import.meta.dir + "/server.ts"];
+const BUILD_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "regf.ts"].map((f) => `${import.meta.dir}/${f}`)];
 
 let buildCache: { stamp: string; version: string; html: string } | null = null;
 
@@ -1465,6 +1506,16 @@ Bun.serve({
       const op = all.find((o) => o.id === operationId);
       if (op) { op.aborted = true; op.process?.kill(); op.status = "error"; op.message = "Cancelled"; }
       return Response.json({ ok: true });
+    }
+
+    if (p === "/api/osinfo") {
+      const device = url.searchParams.get("device") || "";
+      if (!/^[a-z][a-z0-9]*$/.test(device) || isSysDev(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
+      try {
+        return Response.json({ ok: true, ...(await getOsInfo(device)) });
+      } catch (e: any) {
+        return Response.json({ ok: false, message: e.message }, { status: e instanceof FileError ? e.status : 500 });
+      }
     }
 
     if (p === "/api/files" || p === "/api/download") {
