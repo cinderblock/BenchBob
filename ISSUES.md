@@ -1,6 +1,6 @@
 # Issues
 
-## NTFS partitions unmount immediately after auto-mount; vfat sometimes never mounts — fixed in `c260345`, not yet installed on the Pi
+## NTFS partitions unmount immediately after auto-mount; vfat sometimes never mounts — fixed in `c260345`, installed on the Pi 2026-10-11
 
 Seen 2026-10-11 on `deskypi` with a Windows NVMe (`sda`: SYSTEM vfat, Windows ntfs,
 WinRE_DRV ntfs). `/srv/nfs/drives/{SYSTEM,Windows,WinRE_DRV}` exist but nothing is mounted.
