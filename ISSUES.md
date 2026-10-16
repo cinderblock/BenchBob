@@ -34,3 +34,12 @@ nbd-server` after removing `sda.conf` failed: `Control process exited, code=exit
 status=1/FAILURE`. Probably nbd-server refusing to start with no exports in
 `/etc/nbd-server/conf.d/`. It recovers on the next plug-in, so NBD works whenever a drive is
 present — but the unit sits failed in between, which shows up as a failed service.
+
+## desky's root filesystem is ~95–99% full; flash downloads live on it
+
+Seen 2026-10-16: `/dev/mmcblk0p2 15G 14G 247M 99% /` (772M free after removing a test
+download). `doFlash` downloads the compressed image to `/var/tmp/deskypi-flash` on that
+filesystem, so a lite image (~550 MB) barely fits and a full desktop image (~3 GB) will
+fail mid-download. A failed or cancelled flash also leaves its partial download behind
+(`rm -f dlPath` only runs on success), eating more of the space. Worth finding what fills
+the card, and possibly streaming the download straight into the decompressor.
