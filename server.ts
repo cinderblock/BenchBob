@@ -301,6 +301,52 @@ async function getNbdExports(): Promise<string[]> {
   }
 }
 
+// ==================== Host Power ====================
+//
+// A sagging supply on this Pi is worth shouting about: USB drives (and any Compute
+// Module powered from our ports) hang off the same 5 V rail, and under-voltage shows
+// up as flaky writes, dropped disks and corrupted flashes long before anything else.
+
+const THROTTLE_FLAGS: [number, string][] = [[0, "under-voltage"], [1, "ARM frequency capped"], [2, "throttled"], [3, "soft temperature limit"]];
+let uvLog = { at: 0, times: [] as number[] };
+let ext5vSupported = true;
+
+async function getPower() {
+  const { out, code } = await run(["vcgencmd", "get_throttled"]);
+  const m = out.match(/throttled=(0x[0-9a-f]+)/i);
+  if (code !== 0 || !m) return null;
+  const v = parseInt(m[1], 16);
+  const now = THROTTLE_FLAGS.filter(([b]) => v & (1 << b)).map(([, n]) => n);
+  const sinceBoot = THROTTLE_FLAGS.filter(([b]) => v & (1 << (b + 16))).map(([, n]) => n);
+
+  // get_throttled only says "it happened since boot". The firmware hwmon driver logs
+  // every episode, which gives a count and how recent the last one was. Re-read at most
+  // every 30 s, and only once there is something to find.
+  if (v & (1 << 16) && Date.now() - uvLog.at > 30000) {
+    uvLog.at = Date.now();
+    const j = await run(["sudo", "journalctl", "-k", "-b", "-o", "short-unix", "--no-pager", "-g", "Undervoltage detected"]);
+    uvLog.times = j.out.split("\n").map((l) => parseFloat(l) * 1000).filter((t) => t > 0);
+  }
+
+  // Pi 5 can read its 5 V input directly; older boards can't ("Command not registered").
+  let inputVolts: number | null = null;
+  if (ext5vSupported) {
+    const r = await run(["vcgencmd", "pmic_read_adc", "EXT5V_V"]);
+    const vm = r.out.match(/=([\d.]+)V/);
+    if (vm) inputVolts = Math.round(parseFloat(vm[1]) * 100) / 100;
+    else ext5vSupported = false;
+  }
+
+  return {
+    raw: m[1],
+    now,
+    sinceBoot,
+    undervoltageEvents: uvLog.times.length,
+    lastUndervoltage: uvLog.times.length ? uvLog.times[uvLog.times.length - 1] : null,
+    inputVolts,
+  };
+}
+
 // ==================== Status Assembly ====================
 
 async function getStatus() {
@@ -312,6 +358,7 @@ async function getStatus() {
   const usbAdapters = await getUsbAdapters();
   const hostname = await readSysFile("/etc/hostname");
   const uptimeStr = await readSysFile("/proc/uptime");
+  const power = await getPower();
 
   // Push mem/wifi to history
   pushHist("mem", system.memPercent);
@@ -327,6 +374,7 @@ async function getStatus() {
     // `uiVersion` — see the change and reload themselves once.
     uiVersion: (await getBuild()).version,
     system,
+    power,
     network,
     rootDevice,
     usbAdapters,
