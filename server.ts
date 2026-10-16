@@ -1,6 +1,7 @@
 import { access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { analyseDisk, type DiskInfo } from "./osinfo.ts";
+import * as rpi from "./rpiboot.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = import.meta.dir + "/defaults.json";
@@ -355,6 +356,7 @@ async function getStatus() {
   const network = await getNetworkInfo();
   const { rootDevice, drives } = await getDevices();
   const nbdExports = await getNbdExports();
+  const bootDevices = await rpi.getBootDevices();
   const usbAdapters = await getUsbAdapters();
   const hostname = await readSysFile("/etc/hostname");
   const uptimeStr = await readSysFile("/proc/uptime");
@@ -380,6 +382,9 @@ async function getStatus() {
     usbAdapters,
     drives,
     nbdExports,
+    bootDevices,
+    rpibootInstalled: await rpi.rpibootInstalled(),
+    rpibootResults: [...rpibootResults.values()],
     filesRoot: FILES_ROOT,
     operations: getAllOps().map(opPublic),
     history: histBuf,
@@ -390,7 +395,7 @@ async function getStatus() {
 
 interface Operation {
   id: string;
-  type: "erase" | "flash" | "deepscan";
+  type: "erase" | "flash" | "deepscan" | "msd" | "eeprom-check" | "eeprom-write";
   device: string;
   status: string;
   progress: number;
@@ -402,6 +407,9 @@ interface Operation {
   initFormat?: InitFormat;
   settings?: any;
   scanResult?: any;
+  usbPath?: string;
+  eepromImageId?: string;
+  bootConf?: string;
   process?: ReturnType<typeof Bun.spawn>;
   aborted?: boolean;
 }
@@ -449,6 +457,7 @@ async function execOp(op: Operation): Promise<void> {
     if (op.type === "erase") await doErase(op);
     else if (op.type === "flash") await doFlash(op);
     else if (op.type === "deepscan") await doDeepScan(op);
+    else await doRpiboot(op);
   } catch (e: any) {
     if (op.status !== "error") {
       op.status = "error";
@@ -1263,6 +1272,127 @@ function mkFirstrun(s: any): string {
   return sc;
 }
 
+// ==================== USB Boot Mode (rpiboot) ====================
+//
+// Operations on a device in USB boot mode are keyed `usb:<port path>` in the normal op
+// queue, so one device never has two rpiboot runs at once. See rpiboot.ts.
+
+interface RpibootResult {
+  path: string;
+  at: number;
+  kind: "eeprom-check" | "eeprom-write";
+  ok: boolean;
+  message: string;
+  metadata: Record<string, string> | null;
+  board: ReturnType<typeof rpi.decodeBoardRev>;
+}
+
+// Kept after the op itself is gone: the device leaves boot mode when recovery.bin is
+// done, and the board details are the point of a check.
+const rpibootResults = new Map<string, RpibootResult>();
+
+async function doRpiboot(op: Operation): Promise<void> {
+  const dev = (await rpi.getBootDevices()).find((d) => d.path === op.usbPath);
+  if (!dev) throw new Error("Device is no longer in USB boot mode");
+  const log: string[] = [];
+  const hooks: rpi.RunHooks = {
+    onLine: (l) => { log.push(l); op.message = l.length > 160 ? l.slice(0, 160) + "…" : l; },
+    onSpawn: (proc) => { op.process = proc; },
+    isAborted: () => !!op.aborted,
+  };
+  op.status = "running";
+  op.progress = 10;
+  const tail = () => log.slice(-3).join(" | ") || "no output";
+
+  if (op.type === "msd") {
+    op.message = "Loading mass-storage gadget...";
+    const r = await rpi.loadMassStorage(dev, hooks);
+    if (op.aborted) throw new Error("Cancelled");
+    // The gadget is up once the boot ROM device has gone away; rpiboot's exit code
+    // alone doesn't say that.
+    await Bun.sleep(1500);
+    const still = (await rpi.getBootDevices()).some((d) => d.path === dev.path);
+    if (r.timedOut || (r.code !== 0 && still)) throw new Error(`rpiboot ${r.timedOut ? "timed out" : `failed (exit ${r.code})`}: ${tail()}`);
+    op.progress = 100;
+    op.status = "done";
+    op.message = "Mass-storage gadget loaded. The module's storage should appear under Connected Drives within a few seconds.";
+    return;
+  }
+
+  const kind = op.type as "eeprom-check" | "eeprom-write";
+  let r: rpi.RpibootRun;
+  if (kind === "eeprom-check") {
+    op.message = "Reading bootloader metadata...";
+    r = await rpi.readBootloaderInfo(dev, hooks);
+  } else {
+    const image = (await rpi.eepromImages(dev.chip)).find((i) => i.id === op.eepromImageId);
+    if (!image) throw new Error("Unknown bootloader image");
+    op.message = `Writing bootloader ${image.label}...`;
+    r = await rpi.writeBootloader(dev, image, op.bootConf || "", hooks);
+  }
+  if (op.aborted) throw new Error("Cancelled");
+
+  const md = r.metadata;
+  const board = rpi.decodeBoardRev(md?.USER_BOARDREV);
+  const why = r.timedOut ? "timed out" : `rpiboot exit ${r.code}`;
+  let ok: boolean;
+  let message: string;
+  if (kind === "eeprom-check") {
+    ok = !!md;
+    message = md
+      ? `Read metadata${board ? ` from a ${board.model} (${board.memory})` : ""}. Nothing was written. Power-cycle the module to leave recovery.`
+      : `No metadata came back (${why}): ${tail()}`;
+  } else {
+    const upd = md?.EEPROM_UPDATE;
+    ok = upd === "success";
+    message = ok
+      ? "Bootloader EEPROM written and verified. Power-cycle the module (remove the nRPIBOOT jumper to boot normally)."
+      : upd
+        ? `Bootloader update reported "${upd}". The old bootloader is most likely still in place.`
+        : `Outcome unknown, no metadata came back (${why}). A rapidly flashing green LED on the module means success. Last output: ${tail()}`;
+  }
+  rpibootResults.set(dev.path, { path: dev.path, at: Date.now(), kind, ok, message, metadata: md, board });
+  op.progress = 100;
+  op.status = ok ? "done" : "error";
+  op.message = message;
+}
+
+const RPIBOOT_OPS: Record<string, "msd" | "eeprom-check" | "eeprom-write"> = {
+  "/api/rpiboot/msd": "msd",
+  "/api/rpiboot/eeprom/check": "eeprom-check",
+  "/api/rpiboot/eeprom/write": "eeprom-write",
+};
+
+async function rpibootRoute(p: string, req: Request, url: URL): Promise<Response> {
+  if (p === "/api/rpiboot/eeprom/options") {
+    const dev = (await rpi.getBootDevices()).find((d) => d.path === url.searchParams.get("path"));
+    if (!dev) return Response.json({ ok: false, message: "No such device in USB boot mode" }, { status: 404 });
+    return Response.json({ ok: true, chip: dev.chip, images: await rpi.eepromImages(dev.chip), bootConf: await rpi.defaultBootConf(dev.chip) });
+  }
+  if (p === "/api/rpiboot/results/clear" && req.method === "POST") {
+    const { path } = await req.json();
+    rpibootResults.delete(path);
+    return Response.json({ ok: true });
+  }
+  const type = RPIBOOT_OPS[p];
+  if (!type || req.method !== "POST") return new Response("Not Found", { status: 404 });
+  if (!(await rpi.rpibootInstalled())) return Response.json({ ok: false, message: "rpiboot is not installed (sudo apt install rpiboot)" }, { status: 501 });
+
+  const { path, imageId, bootConf } = await req.json();
+  const dev = (await rpi.getBootDevices()).find((d) => d.path === path);
+  if (!dev) return Response.json({ ok: false, message: "No such device in USB boot mode" }, { status: 404 });
+  if (type !== "msd" && dev.chip === "2835") return Response.json({ ok: false, message: "CM1/CM3 have no bootloader EEPROM" }, { status: 400 });
+  if (type === "eeprom-write") {
+    if (!(await rpi.eepromImages(dev.chip)).some((i) => i.id === imageId)) return Response.json({ ok: false, message: "Unknown bootloader image" }, { status: 400 });
+    if (typeof bootConf !== "string" || !bootConf.trim() || bootConf.length > 4000) return Response.json({ ok: false, message: "boot.conf is missing or too long" }, { status: 400 });
+  }
+  const key = `usb:${dev.path}`;
+  if (isDeviceBusy(key) || getOpsForDevice(key).some((o) => o.status === "queued")) return Response.json({ ok: false, message: "Device busy" }, { status: 409 });
+  const op: Operation = { id: crypto.randomUUID(), type, device: key, status: "starting", progress: 0, message: "Starting...", usbPath: dev.path, eepromImageId: imageId, bootConf };
+  enqueue(op);
+  return Response.json({ ok: true, message: "Started", operationId: op.id });
+}
+
 // ==================== RPi Image Catalog ====================
 
 let imageCache: any = null;
@@ -1597,6 +1727,11 @@ const API_DOCS = {
     "GET /api/osinfo?device=sda": "What's installed on a USB disk and how it boots: per-partition role, EFI loaders (with Windows BCD entries, GRUB targets, systemd-boot entries, fallback-loader identity), Windows edition/build/PC name, Linux os-release, Raspberry Pi bootfs, macOS version. Only mounted partitions are inspected.",
     "GET /api/images": "Official RPi OS image catalog (cached 1hr)",
     "GET /api/defaults": "Saved default flash settings",
+    "POST /api/rpiboot/msd": { body: { path: "1-1.3" }, description: "Load the mass-storage gadget onto a device in USB boot mode (path from status.bootDevices). Its eMMC/NVMe then appears as a normal drive." },
+    "POST /api/rpiboot/eeprom/check": { body: { path: "1-1.3" }, description: "Read OTP metadata (board, MAC, secure-boot state, EEPROM hash) through recovery.bin without writing anything. Result in status.rpibootResults." },
+    "GET /api/rpiboot/eeprom/options?path=1-1.3": "Bootloader images available for that device's SoC, plus rpiboot's default boot.conf",
+    "POST /api/rpiboot/eeprom/write": { body: { path: "1-1.3", imageId: "default|latest|rpiboot", bootConf: "[all]\nBOOT_ORDER=0xf25641" }, description: "Rewrite the SPI bootloader EEPROM with the chosen image and config." },
+    "POST /api/rpiboot/results/clear": { body: { path: "1-1.3" }, description: "Dismiss a stored bootloader check/write result" },
     "POST /api/defaults": "Save default flash settings",
   },
   examples: {
@@ -1627,7 +1762,7 @@ const UI_PATH = import.meta.dir + "/index.html";
 // UI_PATH must stay first — getBuild() serves texts[0] as the page.
 // defaults.json is deliberately excluded: it is user data, rewritten every time flash
 // settings are saved, and would cause a spurious reload on each save.
-const BUILD_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "regf.ts"].map((f) => `${import.meta.dir}/${f}`)];
+const BUILD_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "regf.ts", "rpiboot.ts"].map((f) => `${import.meta.dir}/${f}`)];
 
 let buildCache: { stamp: string; version: string; html: string } | null = null;
 
@@ -1760,6 +1895,8 @@ Bun.serve({
         return Response.json({ ok: false, message: e.message }, { status: e instanceof FileError ? e.status : 500 });
       }
     }
+
+    if (p.startsWith("/api/rpiboot/")) return await rpibootRoute(p, req, url);
 
     if (p === "/api/images") return Response.json(await getRpiImages());
     if (p === "/api/defaults") {

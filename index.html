@@ -30,6 +30,7 @@ main{padding:20px 24px;max-width:1100px;margin:0 auto;display:flex;flex-directio
 .power-banner.past{background:rgba(245,166,35,.1);border-color:var(--warning);color:#ffd591}
 .power-banner strong{color:var(--text)}
 .power-banner.hidden{display:none}
+.section.hidden{display:none}
 .power-banner .pb-icon{font-size:1.1rem;line-height:1.3}
 .power-banner .pb-sub{color:var(--dim);font-size:.78rem;margin-top:2px}
 
@@ -306,6 +307,12 @@ details[open] summary{margin-bottom:8px}
       <span id="root-summary">Root Device</span>
     </button>
     <div class="root-detail" id="root-detail"></div>
+  </div>
+
+  <!-- ====== USB BOOT MODE ====== -->
+  <div class="section hidden" id="boot-section">
+    <div class="section-title">USB Boot Mode</div>
+    <div id="boot-devices"></div>
   </div>
 
   <!-- ====== CONNECTED DRIVES ====== -->
@@ -625,6 +632,8 @@ function render() {
     Q('#root-detail').innerHTML = rh;
   }
 
+  renderBootDevices(s);
+
   // Drives
   renderDrives(s.drives, s.nbdExports);
 }
@@ -762,6 +771,131 @@ function renderDrives(drives, nbdExports) {
   }
   el.innerHTML = h;
   checkScanResults(drives);
+}
+
+// ==================== USB Boot Mode (Compute Modules) ====================
+// A CM with nRPIBOOT fitted shows up as a bare boot ROM. From here it can be turned
+// into a USB disk (mass-storage gadget) or have its bootloader EEPROM read/rewritten.
+const RPIBOOT_OP_NAMES = { msd: 'Mass storage', 'eeprom-check': 'Bootloader info', 'eeprom-write': 'Bootloader write' };
+
+function renderBootDevices(s) {
+  const devs = s.bootDevices || [];
+  const ops = (s.operations || []).filter(o => o.device.startsWith('usb:'));
+  const results = s.rpibootResults || [];
+  const show = devs.length || ops.length || results.length;
+  Q('#boot-section').classList.toggle('hidden', !show);
+  if (!show) return;
+
+  let h = '';
+  if (!s.rpibootInstalled) h += '<div class="no-parts" style="padding:12px 18px">rpiboot is not installed on this host. Run <span class="mono">sudo apt install rpiboot</span>.</div>';
+  const paths = [...new Set([...devs.map(d => d.path), ...ops.map(o => o.device.slice(4)), ...results.map(r => r.path)])].sort();
+  for (const path of paths) {
+    const d = devs.find(x => x.path === path);
+    const pOps = ops.filter(o => o.device === 'usb:' + path);
+    const busy = pOps.some(o => !['done', 'error', 'queued'].includes(o.status));
+    const r = results.find(x => x.path === path);
+    h += `<div class="drive-card"><div class="drive-hdr"><div class="drive-info">
+      <span class="drive-model">${d ? esc(d.label) : 'Left USB boot mode'}</span>
+      <span class="drive-meta">USB port ${esc(path)}${d?.serial ? ' · S/N: ' + esc(d.serial) : ''}${d?.product ? ' · ' + esc(d.product) : ''}</span>
+    </div></div>`;
+
+    for (const op of pOps) {
+      const cls = op.status === 'done' ? 'done' : op.status === 'error' ? 'error' : 'active';
+      h += `<div class="drive-op">
+        <div class="op-row"><span class="op-type">${RPIBOOT_OP_NAMES[op.type] || esc(op.type)}</span>
+        ${cls === 'active' ? `<button class="btn btn-sm btn-danger" onclick="cancelOp('${op.id}')">Cancel</button>` : ''}</div>
+        <div class="op-msg">${esc(op.message)}</div>
+        <div class="op-bar"><div class="op-fill ${cls}" style="width:${op.progress}%"></div></div>
+      </div>`;
+    }
+
+    if (r) h += bootResultHtml(r);
+
+    if (d && s.rpibootInstalled) {
+      const p = esc(JSON.stringify(path));
+      const eeprom = d.chip !== '2835';
+      h += `<div class="drive-actions">
+        <button class="btn btn-primary" onclick="rpibootMsd(${p})" ${busy ? 'disabled' : ''} title="Boot a small Linux that exposes the module's eMMC/NVMe as a USB disk, so it can be flashed, browsed or erased here">Load mass-storage gadget</button>
+        ${eeprom ? `<button class="btn" onclick="rpibootCheck(${p})" ${busy ? 'disabled' : ''} title="Read board, MAC and secure-boot details over USB. Nothing is written.">Bootloader info</button>
+        <button class="btn btn-warn" onclick="rpibootWrite(${p})" ${busy ? 'disabled' : ''} title="Rewrite the SPI bootloader EEPROM: update to a newer release, or recover a broken one">Update / recover bootloader…</button>` : ''}
+      </div>`;
+    }
+    h += '</div>';
+  }
+  Q('#boot-devices').innerHTML = h;
+}
+
+function bootResultHtml(r) {
+  const m = r.metadata || {};
+  const rows = [];
+  if (r.board) rows.push(['Board', `${r.board.model} · ${r.board.memory} · rev ${r.board.revision}`]);
+  if (m.USER_BOARDREV) rows.push(['Board revision', m.USER_BOARDREV]);
+  if (m.MAC_ADDR) rows.push(['MAC', m.MAC_ADDR]);
+  if (m.CUSTOMER_KEY_HASH) rows.push(['Secure boot', /^0*$/.test(m.CUSTOMER_KEY_HASH) ? 'not provisioned' : 'customer key programmed: ' + m.CUSTOMER_KEY_HASH.slice(0, 16) + '…']);
+  if (m.JTAG_LOCKED) rows.push(['JTAG', m.JTAG_LOCKED === '1' ? 'locked' : 'unlocked']);
+  if (m.EEPROM_UPDATE) rows.push(['EEPROM update', m.EEPROM_UPDATE]);
+  if (m.EEPROM_HASH) rows.push(['EEPROM hash', m.EEPROM_HASH]);
+  for (const [k, v] of Object.entries(m)) if (!['USER_BOARDREV', 'MAC_ADDR', 'CUSTOMER_KEY_HASH', 'JTAG_LOCKED', 'EEPROM_UPDATE', 'EEPROM_HASH'].includes(k)) rows.push([k, v]);
+  const when = new Date(r.at).toLocaleTimeString();
+  return `<div class="drive-op">
+    <div class="op-row"><span><span class="op-type">${RPIBOOT_OP_NAMES[r.kind]}</span> · ${esc(when)}</span>
+    <button class="btn btn-sm" onclick="rpibootDismiss(${esc(JSON.stringify(r.path))})">Dismiss</button></div>
+    <div class="op-msg" style="color:${r.ok ? 'var(--success)' : 'var(--danger)'}">${esc(r.message)}</div>
+    ${rows.length ? `<table class="net-tbl mono" style="margin-top:6px;font-size:.72rem"><tbody>${rows.map(([k, v]) => `<tr><td style="color:var(--dim);padding-right:12px;white-space:nowrap;width:1%">${esc(k)}</td><td style="word-break:break-all">${esc(v)}</td></tr>`).join('')}</tbody></table>` : ''}
+  </div>`;
+}
+
+async function rpibootPost(url, body) {
+  try {
+    const r = await (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    if (!r.ok) toast(r.message, 'error');
+    return r.ok;
+  } catch { toast('Request failed', 'error'); return false; }
+}
+
+async function rpibootMsd(path) {
+  await rpibootPost('/api/rpiboot/msd', { path });
+}
+
+async function rpibootCheck(path) {
+  await rpibootPost('/api/rpiboot/eeprom/check', { path });
+}
+
+async function rpibootDismiss(path) {
+  await rpibootPost('/api/rpiboot/results/clear', { path });
+}
+
+async function rpibootWrite(path) {
+  let o;
+  try { o = await (await fetch('/api/rpiboot/eeprom/options?path=' + encodeURIComponent(path))).json(); } catch { o = { ok: false, message: 'Request failed' }; }
+  if (!o.ok) return toast(o.message, 'error');
+  if (!o.images.length) return toast('No bootloader images found (is rpi-eeprom installed?)', 'error');
+  const opts = o.images.map((im, i) => `<option value="${esc(im.id)}"${i === 0 ? ' selected' : ''}>${esc(im.label)}</option>`).join('');
+  showModal(`<h3>Update / recover bootloader</h3>
+    <p>Rewrites the SPI bootloader EEPROM of the BCM${esc(o.chip)} on USB port <span class="mono">${esc(path)}</span>. A failed write isn't permanent: the module can always be recovered again this way.</p>
+    <div class="flash-form">
+      <div class="fg"><label>Bootloader image</label><select id="bl-img">${opts}</select></div>
+      <div class="fg full"><label>boot.conf (embedded into the image)</label>
+        <textarea id="bl-conf" rows="9" spellcheck="false" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:7px 10px;color:var(--text);font-size:.8rem;font-family:'SF Mono',ui-monospace,monospace;resize:vertical;outline:none;width:100%">${esc(o.bootConf)}</textarea>
+        <div class="img-detail">Pre-filled with rpiboot's default config for this chip. The module's current config can't be read over USB, so any custom settings must be entered here again.</div>
+      </div>
+    </div>
+    <div class="modal-btns">
+      <button class="btn" id="mc">Cancel</button>
+      <button class="btn" id="bl-recover" title="rpiboot's stock image with its stock boot.conf: the known-good choice for a module that won't boot">Recover (stock image + config)</button>
+      <button class="btn btn-warn" id="mk">Write bootloader</button>
+    </div>`);
+  const go = async (imageId, bootConf) => {
+    hideModal();
+    await rpibootPost('/api/rpiboot/eeprom/write', { path, imageId, bootConf });
+  };
+  Q('#mc').onclick = hideModal;
+  Q('#mk').onclick = () => go(Q('#bl-img').value, Q('#bl-conf').value);
+  Q('#bl-recover').onclick = () => {
+    if (!o.images.some(i => i.id === 'rpiboot')) return toast("rpiboot's stock image is missing", 'error');
+    go('rpiboot', o.bootConf);
+  };
+  Q('#modal-bg').onclick = e => { if (e.target === Q('#modal-bg')) hideModal(); };
 }
 
 // ==================== Actions ====================

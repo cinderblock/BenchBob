@@ -27,6 +27,8 @@ apt-get install -y -qq \
   samba \
   apfs-dkms \
   apfsprogs \
+  rpiboot \
+  rpi-eeprom \
   > /dev/null
 
 # Install Bun if not present
