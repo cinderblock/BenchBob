@@ -909,7 +909,9 @@ async function doFlash(op: Operation): Promise<void> {
   else if (filename.endsWith(".zip")) cmd = `unzip -p "${dlPath}" "*.img" | sudo dd of=/dev/${op.device} bs=4M conv=fsync status=progress`;
   else cmd = `sudo dd if="${dlPath}" of=/dev/${op.device} bs=4M conv=fsync status=progress`;
 
-  const flashProc = Bun.spawn(["bash", "-c", cmd], { stdout: "pipe", stderr: "pipe" });
+  // pipefail: without it a decompressor dying mid-stream (truncated download) leaves dd
+  // exiting 0 on a partial image, and the flash reports success.
+  const flashProc = Bun.spawn(["bash", "-o", "pipefail", "-c", cmd], { stdout: "pipe", stderr: "pipe" });
   op.process = flashProc;
   const reader = flashProc.stderr.getReader();
   const dec = new TextDecoder();
