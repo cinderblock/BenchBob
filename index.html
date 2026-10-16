@@ -1203,6 +1203,11 @@ async function saveDefaults() {
   } catch { toast('Save failed','error'); }
 }
 
+// How the chosen image takes first-boot settings (the catalog's init_format).
+function initFormatLabel(f) {
+  return { systemd: 'firstrun.sh', cloudinit: 'cloud-init', 'cloudinit-rpi': 'cloud-init', 'rpi-preseed': 'not supported (rpi-preseed)' }[f] || 'not supported by this image';
+}
+
 function readSettingsForm() {
   // Collect WiFi networks
   const wifiRows = document.querySelectorAll('.wifi-entry');
@@ -1223,6 +1228,7 @@ function readSettingsForm() {
     username: Q('#sf-user')?.value||'pi',
     password: Q('#sf-pass')?.value||'',
     enableSsh: Q('#sf-ssh')?.checked??true,
+    passwordlessSudo: Q('#sf-sudo')?.checked??false,
     sshKeys,
     wifiNetworks,
     timezone: Q('#sf-tz')?.value||'UTC',
@@ -1306,7 +1312,7 @@ function flashModal(dev) {
             <div class="fg"><label>Hostname</label><input type="text" id="sf-host" value="${esc(d.hostname||'raspberrypi')}"></div>
             <div class="fg"><label>Username</label><input type="text" id="sf-user" value="${esc(d.username||'pi')}"></div>
             <div class="fg"><label>Password</label><input type="password" id="sf-pass" placeholder="Blank = key-only SSH"></div>
-            <div class="fg"><label>&nbsp;</label><div class="check"><input type="checkbox" id="sf-ssh" ${d.enableSsh!==false?'checked':''}><label for="sf-ssh">Enable SSH</label></div></div>
+            <div class="fg"><label>&nbsp;</label><div class="check"><input type="checkbox" id="sf-ssh" ${d.enableSsh!==false?'checked':''}><label for="sf-ssh">Enable SSH</label></div><div class="check"><input type="checkbox" id="sf-sudo" ${d.passwordlessSudo?'checked':''}><label for="sf-sudo">Passwordless sudo</label></div></div>
             <div class="fg full"><label>SSH Authorized Keys</label><textarea id="sf-keys" rows="3" placeholder="ssh-ed25519 AAAA... user@host (one per line)" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:7px 10px;color:var(--text);font-size:.8rem;font-family:'SF Mono',ui-monospace,monospace;resize:vertical;outline:none;width:100%">${esc(savedKeys)}</textarea></div>
             <div class="fg full" style="margin-top:8px">
               <label>WiFi Networks</label>
@@ -1331,7 +1337,7 @@ function flashModal(dev) {
       Q('#mk').disabled = isNaN(idx);
       if (!isNaN(idx) && images[idx]) {
         const im = images[idx];
-        Q('#sf-imgd').textContent = `${(im.description||'').replace(/<[^>]*>/g,'').slice(0,100)} | DL: ${fmtSz(im.downloadSize)} | Size: ${fmtSz(im.extractSize)}`;
+        Q('#sf-imgd').textContent = `${(im.description||'').replace(/<[^>]*>/g,'').slice(0,100)} | DL: ${fmtSz(im.downloadSize)} | Size: ${fmtSz(im.extractSize)} | Settings: ${initFormatLabel(im.initFormat)}`;
       } else Q('#sf-imgd').textContent = '';
     });
 

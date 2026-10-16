@@ -351,6 +351,7 @@ interface Operation {
   imageUrl?: string;
   imageName?: string;
   extractSize?: number;
+  initFormat?: InitFormat;
   settings?: any;
   scanResult?: any;
   process?: ReturnType<typeof Bun.spawn>;
@@ -937,50 +938,230 @@ async function doFlash(op: Operation): Promise<void> {
   // Configure
   op.status = "configuring";
   op.progress = 85;
-  op.message = "Applying settings...";
   await run(["sudo", "partprobe", `/dev/${op.device}`]);
   await Bun.sleep(2000);
-  if (op.settings && Object.keys(op.settings).length) await applySettings(op.device, op.settings);
+  let applied = "";
+  if (op.settings && Object.keys(op.settings).length) {
+    op.message = "Applying settings...";
+    try {
+      applied = await applySettings(op.device, op.settings, op.initFormat);
+    } catch (e: any) {
+      // The image itself is good; say so, so nobody re-flashes to fix a settings problem.
+      op.status = "error";
+      op.message = `Image written, but settings were NOT applied: ${e.message}`;
+      await run(["rm", "-f", dlPath]);
+      return;
+    }
+  }
 
   op.progress = 100;
   op.status = "done";
-  op.message = "Flash complete!";
+  op.message = applied ? `Flash complete! ${applied}` : "Flash complete!";
   await run(["rm", "-f", dlPath]);
 }
 
-async function applySettings(devName: string, s: any): Promise<void> {
-  const bootDev = `/dev/${devName}1`;
+// ==================== Flash Customization ====================
+//
+// How settings reach a freshly written image depends on the image. The catalog's
+// `init_format` says which mechanism the OS reads on first boot. Writing the wrong one is
+// silently ignored, and the Pi boots unconfigured with no SSH. Raspberry Pi OS trixie
+// is `cloudinit-rpi` and ignores firstrun.sh. Bookworm/Legacy is `systemd`.
+// The generators follow Raspberry Pi Imager 2.x (src/customization_generator.cpp,
+// src/downloadthread.cpp) so a DeskyPi flash boots the same as an Imager one.
+
+type InitFormat = "systemd" | "cloudinit" | "cloudinit-rpi" | "rpi-preseed" | "none";
+
+function partDev(devName: string, n: number): string {
+  // sda → sda1, but nvme0n1 / mmcblk0 / loop0 → nvme0n1p1
+  return `/dev/${devName}${/\d$/.test(devName) ? "p" : ""}${n}`;
+}
+
+// Write a root-owned file without the content ever touching a world-readable temp file
+// (these carry password hashes and Wi-Fi keys).
+async function sudoWrite(path: string, content: string): Promise<void> {
+  const proc = Bun.spawn(["sudo", "tee", path], { stdin: "pipe", stdout: "ignore", stderr: "pipe" });
+  proc.stdin.write(content);
+  proc.stdin.end();
+  const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+  if (code !== 0) throw new Error(`writing ${path.split("/").pop()}: ${err.trim() || `exit ${code}`}`);
+}
+
+async function hashPassword(pw: string): Promise<string> {
+  // Pasted passwords can carry a trailing newline that PAM never sends — strip CR/LF as
+  // Imager does, or the hash can never match. Fed on stdin so it never shows in `ps`.
+  const proc = Bun.spawn(["openssl", "passwd", "-6", "-stdin"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  proc.stdin.write(pw.replace(/[\r\n]/g, "") + "\n");
+  proc.stdin.end();
+  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  const hash = out.trim();
+  if (code !== 0 || !hash.startsWith("$")) throw new Error("could not hash the password");
+  return hash;
+}
+
+function settingsKeys(s: any): string[] {
+  const keys: string[] = Array.isArray(s.sshKeys) ? s.sshKeys : s.sshKeys ? String(s.sshKeys).split(/\r?\n/) : [];
+  return keys.map((k) => String(k).trim()).filter((k) => k.length > 0);
+}
+
+function settingsWifi(s: any): { ssid: string; password: string; country: string; priority: number }[] {
+  const nets: any[] = Array.isArray(s.wifiNetworks) ? [...s.wifiNetworks] : [];
+  // Legacy single-network compat
+  if (nets.length === 0 && s.configureWifi && s.wifiSsid) {
+    nets.push({ ssid: s.wifiSsid, password: s.wifiPassword || "", country: s.wifiCountry || "US", priority: 0 });
+  }
+  return nets
+    .filter((w) => w && w.ssid)
+    .map((w) => ({ ssid: String(w.ssid), password: String(w.password || "").replace(/[\r\n]/g, ""), country: String(w.country || "US"), priority: Number(w.priority) || 0 }));
+}
+
+// cmdline.txt is one line of space-separated kernel parameters, so the Wi-Fi country
+// lands there only if it is exactly two letters — anything else could inject parameters.
+function countryCode(cc: string): string {
+  const t = (cc || "").trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(t) ? t : "";
+}
+
+// A JSON string literal is a valid YAML double-quoted scalar, escapes included.
+const yq = (v: string) => JSON.stringify(String(v));
+
+async function applySettings(devName: string, s: any, initFormat: InitFormat | undefined): Promise<string> {
   await run(["sudo", "mkdir", "-p", BOOT_MOUNT]);
-  if ((await run(["sudo", "mount", bootDev, BOOT_MOUNT])).code !== 0) return;
+  const bootDev = partDev(devName, 1);
+  const m = await run(["sudo", "mount", bootDev, BOOT_MOUNT]);
+  if (m.code !== 0) throw new Error(`could not mount boot partition ${bootDev}: ${m.err || `exit ${m.code}`}`);
   try {
-    if (s.enableSsh) await run(["sudo", "touch", `${BOOT_MOUNT}/ssh`]);
-    if (s.username && s.password) {
-      const { out: hash } = await run(["openssl", "passwd", "-6", s.password]);
-      if (hash) {
-        await Bun.write("/tmp/_userconf.txt", `${s.username}:${hash}\n`);
-        await run(["sudo", "cp", "/tmp/_userconf.txt", `${BOOT_MOUNT}/userconf.txt`]);
-        await run(["rm", "/tmp/_userconf.txt"]);
-      }
-    } else if (s.username) {
-      // No password — create user with locked password (SSH key-only)
-      await Bun.write("/tmp/_userconf.txt", `${s.username}:*\n`);
-      await run(["sudo", "cp", "/tmp/_userconf.txt", `${BOOT_MOUNT}/userconf.txt`]);
-      await run(["rm", "/tmp/_userconf.txt"]);
-    }
-    const firstrun = mkFirstrun(s);
-    await Bun.write("/tmp/_firstrun.sh", firstrun);
-    await run(["sudo", "cp", "/tmp/_firstrun.sh", `${BOOT_MOUNT}/firstrun.sh`]);
-    await run(["sudo", "chmod", "+x", `${BOOT_MOUNT}/firstrun.sh`]);
-    await run(["rm", "/tmp/_firstrun.sh"]);
-    const { out: cmdline } = await run(["sudo", "cat", `${BOOT_MOUNT}/cmdline.txt`]);
-    if (cmdline && !cmdline.includes("firstrun.sh")) {
-      await Bun.write("/tmp/_cmdline.txt", cmdline.trimEnd() + " systemd.run=/boot/firmware/firstrun.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target\n");
-      await run(["sudo", "cp", "/tmp/_cmdline.txt", `${BOOT_MOUNT}/cmdline.txt`]);
-      await run(["rm", "/tmp/_cmdline.txt"]);
-    }
+    const fmt = initFormat ?? (await detectInitFormat());
+    if (fmt === "cloudinit" || fmt === "cloudinit-rpi") return await applyCloudInit(s);
+    if (fmt === "systemd") return await applyFirstrun(s);
+    if (fmt === "rpi-preseed") throw new Error("this image expects rpi-preseed customization, which DeskyPi does not support yet");
+    return "This image does not support customization; settings were not applied.";
   } finally {
     await run(["sudo", "umount", BOOT_MOUNT]);
   }
+}
+
+// Only used when the image isn't in the catalog (so has no init_format): cloud-init
+// images ship NoCloud seed files on bootfs; anything else with a cmdline.txt is assumed
+// to be a firstrun.sh-era Raspberry Pi OS.
+async function detectInitFormat(): Promise<InitFormat> {
+  if (await Bun.file(`${BOOT_MOUNT}/meta-data`).exists() || await Bun.file(`${BOOT_MOUNT}/user-data`).exists()) return "cloudinit";
+  if (await Bun.file(`${BOOT_MOUNT}/cmdline.txt`).exists()) return "systemd";
+  return "none";
+}
+
+async function appendCmdline(params: string): Promise<void> {
+  const { out: cmdline, code } = await run(["sudo", "cat", `${BOOT_MOUNT}/cmdline.txt`]);
+  if (code !== 0 || !cmdline) throw new Error("could not read cmdline.txt");
+  await sudoWrite(`${BOOT_MOUNT}/cmdline.txt`, cmdline.trim() + params + "\n");
+}
+
+async function applyCloudInit(s: any): Promise<string> {
+  const user = await mkCloudInitUserData(s);
+  const net = mkCloudInitNetworkConfig(s);
+  // A fresh instance-id per write makes cloud-init treat this as a new machine and run
+  // first-boot setup; the stub meta-data in the image has a fixed one.
+  const instanceId = `deskypi-${Date.now()}`;
+  await sudoWrite(`${BOOT_MOUNT}/meta-data`, `instance-id: ${instanceId}\n`);
+  await sudoWrite(`${BOOT_MOUNT}/user-data`, "#cloud-config\n" + user);
+  const written = ["user-data", "meta-data"];
+  if (net) {
+    await sudoWrite(`${BOOT_MOUNT}/network-config`, net);
+    written.push("network-config");
+  }
+  // ds= lets cloud-init validate its cache from the cmdline instead of rediscovering
+  // the datasource on every boot.
+  let params = ` ds=nocloud;i=${instanceId}`;
+  const cc = countryCode(settingsWifi(s)[0]?.country || "");
+  if (cc) params += ` cfg80211.ieee80211_regdom=${cc}`;
+  await appendCmdline(params);
+  written.push("cmdline.txt");
+  return `Settings applied via cloud-init (${written.join(", ")}).`;
+}
+
+async function mkCloudInitUserData(s: any): Promise<string> {
+  const L: string[] = ["manage_resolv_conf: false", ""];
+  const hostname = String(s.hostname || "").trim();
+  if (hostname) {
+    L.push(`hostname: ${yq(hostname)}`, "manage_etc_hosts: true");
+    // Parity with Imager: avahi for <hostname>.local, and don't let a first-boot clock
+    // that hasn't synced yet make apt reject the repo signatures.
+    L.push("packages:", "- avahi-daemon", "", "apt:", "  preserve_sources_list: true", "  conf: |",
+      "    Acquire {", '      Check-Date "false";', "    };", "");
+  }
+  if (s.timezone) L.push(`timezone: ${yq(String(s.timezone).trim())}`);
+  if (s.keyboardLayout) L.push("keyboard:", "  model: pc105", `  layout: ${yq(String(s.keyboardLayout).trim())}`);
+
+  const username = String(s.username || "").trim() || "pi";
+  const keys = s.enableSsh ? settingsKeys(s) : [];
+  const passwordless = !!s.passwordlessSudo;
+  // With neither a password nor a key the account would be unusable, so leave the
+  // image's default user alone.
+  if (s.password || keys.length) {
+    // Singular `user:` renames/extends the distro's default user, keeping its groups
+    // (sudo, gpio, video, ...). The plural `users:` list would make a group-less account.
+    L.push("", "user:", `  name: ${yq(username)}`, "  shell: /bin/bash");
+    if (s.password) L.push("  lock_passwd: false", `  passwd: ${yq(await hashPassword(String(s.password)))}`);
+    else L.push("  lock_passwd: true");
+    if (keys.length) {
+      L.push("  ssh_authorized_keys:");
+      for (const k of keys) L.push(`    - ${yq(k)}`);
+    }
+    // Must be explicit: the default user in /etc/cloud/cloud.cfg carries NOPASSWD sudo,
+    // and `user:` is merged over it. `null` drops that rule but keeps the sudo group.
+    L.push(passwordless ? "  sudo: ALL=(ALL) NOPASSWD:ALL" : "  sudo: null", "");
+  }
+
+  const runcmd: string[] = [];
+  if (s.enableSsh) {
+    L.push(`ssh_pwauth: ${s.password ? "true" : "false"}`);
+    // cc_ssh writes host keys and authorized_keys but never enables sshd, and Raspberry
+    // Pi OS ships it disabled.
+    runcmd.push("  - [ systemctl, enable, --now, ssh ]");
+  }
+  if (passwordless) {
+    // `sudo:` above isn't honoured by every cloud-init build; Imager writes the file too.
+    const file = `/etc/sudoers.d/010_${username}-nopasswd`;
+    runcmd.push(`  - [ sh, -c, ${yq(`echo '${shellEsc(`${username} ALL=(ALL) NOPASSWD:ALL`)}' >'${shellEsc(file)}' && chmod 0440 '${shellEsc(file)}'`)} ]`);
+  }
+  if (runcmd.length) L.push("", "runcmd:", ...runcmd);
+  return L.join("\n") + "\n";
+}
+
+function mkCloudInitNetworkConfig(s: any): string {
+  const nets = settingsWifi(s);
+  if (!nets.length) return "";
+  // Highest priority first; netplan has no per-AP priority, but order is the best hint.
+  nets.sort((a, b) => b.priority - a.priority);
+  const cc = countryCode(nets[0].country);
+  // eth0 is listed too: once a network-config is supplied it replaces the distro default,
+  // and wired Ethernet would otherwise stop coming up.
+  const L = ["network:", "  version: 2", "  ethernets:", "    eth0:", "      dhcp4: true", "      dhcp6: true", "      optional: true",
+    "  wifis:", "    wlan0:", "      dhcp4: true"];
+  if (cc) L.push(`      regulatory-domain: ${yq(cc)}`);
+  L.push("      access-points:");
+  for (const w of nets) {
+    L.push(`        ${yq(w.ssid)}:`);
+    if (w.password) L.push(`          password: ${yq(w.password)}`);
+    else L.push("          auth:", "            key-management: none");
+  }
+  L.push("      optional: true");
+  return L.join("\n") + "\n";
+}
+
+async function applyFirstrun(s: any): Promise<string> {
+  if (s.enableSsh) await sudoWrite(`${BOOT_MOUNT}/ssh`, "");
+  if (s.username) {
+    // No password: create the user with a locked password (SSH key-only)
+    const hash = s.password ? await hashPassword(String(s.password)) : "*";
+    await sudoWrite(`${BOOT_MOUNT}/userconf.txt`, `${s.username}:${hash}\n`);
+  }
+  await sudoWrite(`${BOOT_MOUNT}/firstrun.sh`, mkFirstrun(s));
+  const { out: cmdline } = await run(["sudo", "cat", `${BOOT_MOUNT}/cmdline.txt`]);
+  if (!cmdline.includes("firstrun.sh")) {
+    // Must stay last on the line: firstrun.sh deletes from " systemd.run" to the end.
+    await appendCmdline(" systemd.run=/boot/firmware/firstrun.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target");
+  }
+  return "Settings applied via firstrun.sh.";
 }
 
 function mkFirstrun(s: any): string {
@@ -992,7 +1173,6 @@ function mkFirstrun(s: any): string {
 
   // SSH
   if (s.enableSsh) {
-    const pwAuth = s.password ? "true" : "false";
     sc += `\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom enable_ssh\nelse\n  systemctl enable ssh\nfi\n`;
     if (!s.password) {
       sc += `\nsed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config\n`;
@@ -1000,29 +1180,28 @@ function mkFirstrun(s: any): string {
   }
 
   // SSH authorized keys
-  const keys: string[] = Array.isArray(s.sshKeys) ? s.sshKeys : s.sshKeys ? [s.sshKeys] : [];
-  const validKeys = keys.map((k: string) => k.trim()).filter((k: string) => k.length > 0);
+  const validKeys = settingsKeys(s);
+  const user = shellEsc(s.username || "pi");
   if (validKeys.length > 0) {
-    const user = shellEsc(s.username || "pi");
     sc += `\nFIRSTUSERHOME=$(getent passwd '${user}' | cut -d: -f6)\nif [ -z "$FIRSTUSERHOME" ]; then FIRSTUSERHOME="/home/${user}"; fi\nmkdir -p "$FIRSTUSERHOME/.ssh"\nchmod 700 "$FIRSTUSERHOME/.ssh"\ncat >> "$FIRSTUSERHOME/.ssh/authorized_keys" <<'SSHEOF'\n`;
     for (const key of validKeys) sc += `${key}\n`;
     sc += `SSHEOF\nchmod 600 "$FIRSTUSERHOME/.ssh/authorized_keys"\nchown -R '${user}:${user}' "$FIRSTUSERHOME/.ssh"\n`;
   }
 
-  // WiFi networks (supports array)
-  const wifiNets: any[] = Array.isArray(s.wifiNetworks) ? s.wifiNetworks : [];
-  // Legacy single-network compat
-  if (wifiNets.length === 0 && s.configureWifi && s.wifiSsid) {
-    wifiNets.push({ ssid: s.wifiSsid, password: s.wifiPassword || "", country: s.wifiCountry || "US", priority: 0 });
+  // Passwordless sudo (opt-in; Raspberry Pi OS prompts by default)
+  if (s.passwordlessSudo) {
+    sc += `\necho '${user} ALL=(ALL) NOPASSWD:ALL' >'/etc/sudoers.d/010_${user}-nopasswd'\nchmod 0440 '/etc/sudoers.d/010_${user}-nopasswd'\n`;
   }
+
+  // WiFi networks (supports array)
+  const wifiNets = settingsWifi(s);
   for (let i = 0; i < wifiNets.length; i++) {
     const w = wifiNets[i];
-    if (!w.ssid) continue;
     const ssid = shellEsc(w.ssid);
-    const psk = shellEsc(w.password || "");
-    const cc = shellEsc(w.country || "US");
+    const psk = shellEsc(w.password);
+    const cc = shellEsc(w.country);
     const connName = `wifi-${i}`;
-    sc += `\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom set_wlan '${ssid}' '${psk}' '${cc}'\nelse\n  cat > '/etc/NetworkManager/system-connections/${connName}.nmconnection' <<'NMEOF'\n[connection]\nid=${w.ssid}\ntype=wifi\nautoconnect-priority=${w.priority || 0}\n[wifi]\nmode=infrastructure\nssid=${w.ssid}\n[wifi-security]\nauth-alg=open\nkey-mgmt=wpa-psk\npsk=${w.password || ""}\n[ipv4]\nmethod=auto\n[ipv6]\nmethod=auto\nNMEOF\n  chmod 600 '/etc/NetworkManager/system-connections/${connName}.nmconnection'\nfi\n`;
+    sc += `\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom set_wlan '${ssid}' '${psk}' '${cc}'\nelse\n  cat > '/etc/NetworkManager/system-connections/${connName}.nmconnection' <<'NMEOF'\n[connection]\nid=${w.ssid}\ntype=wifi\nautoconnect-priority=${w.priority}\n[wifi]\nmode=infrastructure\nssid=${w.ssid}\n[wifi-security]\nauth-alg=open\nkey-mgmt=wpa-psk\npsk=${w.password}\n[ipv4]\nmethod=auto\n[ipv6]\nmethod=auto\nNMEOF\n  chmod 600 '/etc/NetworkManager/system-connections/${connName}.nmconnection'\nfi\n`;
   }
 
   // Timezone
@@ -1058,7 +1237,7 @@ function flattenImages(items: any[], category = ""): any[] {
   const r: any[] = [];
   for (const i of items) {
     if (i.subitems) r.push(...flattenImages(i.subitems, i.name));
-    else if (i.url) r.push({ name: i.name, description: i.description || "", category, url: i.url, extractSize: i.extract_size || 0, downloadSize: i.image_download_size || 0, releaseDate: i.release_date || "", icon: i.icon || "" });
+    else if (i.url) r.push({ name: i.name, description: i.description || "", category, url: i.url, extractSize: i.extract_size || 0, downloadSize: i.image_download_size || 0, releaseDate: i.release_date || "", icon: i.icon || "", initFormat: i.init_format || "none" });
   }
   return r;
 }
@@ -1470,7 +1649,10 @@ Bun.serve({
       const nonEraseRunning = ops.some((o) => !["done", "error", "queued"].includes(o.status) && o.type !== "erase");
       const alreadyQueued = ops.some((o) => o.status === "queued");
       if (nonEraseRunning || alreadyQueued) return Response.json({ ok: false, message: "Device busy" }, { status: 409 });
-      const op: Operation = { id: crypto.randomUUID(), type: "flash", device, status: "starting", progress: 0, message: "Starting...", imageUrl, imageName, extractSize, settings };
+      // init_format comes from our own catalog, not the client: an old dashboard tab
+      // doesn't send it, and guessing wrong silently drops every setting.
+      const initFormat: InitFormat | undefined = (await getRpiImages()).find((i: any) => i.url === imageUrl)?.initFormat;
+      const op: Operation = { id: crypto.randomUUID(), type: "flash", device, status: "starting", progress: 0, message: "Starting...", imageUrl, imageName, extractSize, initFormat, settings };
       enqueue(op);
       return Response.json({ ok: true, message: hasQueuedFlash(device) ? "Flash queued after erase" : "Flash started" });
     }
