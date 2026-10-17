@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { analyseDisk, type DiskInfo } from "./osinfo.ts";
 import * as rpi from "./rpiboot.ts";
@@ -445,7 +445,7 @@ async function getStatus() {
 
 interface Operation {
   id: string;
-  type: "erase" | "flash" | "deepscan" | "msd" | "eeprom-check" | "eeprom-write";
+  type: "erase" | "flash" | "deepscan" | "blcard" | "msd" | "eeprom-check" | "eeprom-write";
   device: string;
   status: string;
   progress: number;
@@ -460,6 +460,7 @@ interface Operation {
   usbPath?: string;
   eepromImageId?: string;
   bootConf?: string;
+  chip?: "2711" | "2712"; // bootloader cards: which board family
   process?: ReturnType<typeof Bun.spawn>;
   aborted?: boolean;
 }
@@ -507,6 +508,7 @@ async function execOp(op: Operation): Promise<void> {
     if (op.type === "erase") await doErase(op);
     else if (op.type === "flash") await doFlash(op);
     else if (op.type === "deepscan") await doDeepScan(op);
+    else if (op.type === "blcard") await doBootloaderCard(op);
     else await doRpiboot(op);
   } catch (e: any) {
     if (op.status !== "error") {
@@ -1462,6 +1464,110 @@ async function rpibootRoute(p: string, req: Request, url: URL): Promise<Response
   return Response.json({ ok: true, message: "Started", operationId: op.id });
 }
 
+// ==================== Bootloader update SD cards ====================
+//
+// A drive operation like erase/flash; rpiboot.ts buildCardFiles says what goes on the
+// card. Laid out like the official image (MBR, one FAT32 partition at 1 MiB with 512-byte
+// clusters) but sized to fit the card, and capped at the official 256 MiB because
+// recovery.bin wants a FAT partition under 32 GB.
+
+const CARD_MOUNT = "/tmp/deskypi-blcard";
+const MiB = 1024 * 1024;
+const CARD_PART_MAX = 256 * MiB;
+const CARD_PART_MIN = 8 * MiB;
+
+async function mustRun(cmd: string[], stdin?: string): Promise<string> {
+  const proc = Bun.spawn(cmd, { stdin: stdin === undefined ? "ignore" : "pipe", stdout: "pipe", stderr: "pipe" });
+  if (stdin !== undefined) {
+    proc.stdin!.write(stdin);
+    proc.stdin!.end();
+  }
+  const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  const name = cmd[0] === "sudo" ? cmd[1] : cmd[0];
+  if (code !== 0) throw new Error(`${name} failed: ${err.trim().split("\n").at(-1) || `exit ${code}`}`);
+  return out;
+}
+
+async function unmountAll(part: string): Promise<void> {
+  const { out } = await run(["lsblk", "-nro", "MOUNTPOINT", part]);
+  for (const mp of out.split("\n").filter(Boolean)) await mustRun(["sudo", "umount", mp]);
+}
+
+async function doBootloaderCard(op: Operation): Promise<void> {
+  const chip = op.chip!;
+  const image = (await rpi.eepromImages(chip)).find((i) => i.id === op.eepromImageId);
+  if (!image) throw new Error("Unknown bootloader image");
+  const dev = `/dev/${op.device}`;
+  const part = partDev(op.device, 1);
+  const cancelled = () => { if (op.aborted) throw new Error("Cancelled"); };
+
+  op.status = "preparing";
+  op.message = "Building bootloader files...";
+  const card = await rpi.buildCardFiles(chip, image, op.bootConf || "");
+  try {
+    op.progress = 10;
+    op.message = "Unmounting...";
+    await prepareDevice(op.device);
+    cancelled();
+
+    op.status = "writing";
+    op.progress = 20;
+    op.message = "Partitioning...";
+    const total = await getDeviceSizeBytes(op.device);
+    const size = Math.min(CARD_PART_MAX, Math.floor((total - MiB) / MiB) * MiB);
+    if (size < CARD_PART_MIN) throw new Error(`Card too small (${fmtBytes(total)})`);
+    await mustRun(["sudo", "wipefs", "-a", dev]);
+    await mustRun(["sudo", "sfdisk", "--wipe", "always", "--wipe-partitions", "always", dev], `label: dos\nstart=2048, size=${size / 512}, type=c\n`);
+    await run(["sudo", "partprobe", dev]);
+    await run(["sudo", "udevadm", "settle"]);
+    for (let i = 0; i < 50 && (await run(["test", "-b", part])).code !== 0; i++) await Bun.sleep(100);
+    cancelled();
+
+    op.progress = 35;
+    op.message = "Formatting...";
+    // FAT32 needs 65525 clusters, about 33 MiB of 512-byte clusters; FAT16 below that.
+    const fat = size >= 64 * MiB ? ["-F", "32", "-s", "1"] : ["-F", "16"];
+    await mustRun(["sudo", "mkfs.vfat", ...fat, "-n", "BOOTLOADER", part]);
+    cancelled();
+
+    op.progress = 50;
+    op.message = "Copying files...";
+    await run(["sudo", "mkdir", "-p", CARD_MOUNT]);
+    await unmountAll(part); // udev may have auto-mounted the new filesystem already
+    await mustRun(["sudo", "mount", "-t", "vfat", part, CARD_MOUNT]);
+    try {
+      for (const f of card.files) await mustRun(["sudo", "cp", `${card.dir}/${f}`, `${CARD_MOUNT}/${f}`]);
+    } finally {
+      await run(["sudo", "umount", CARD_MOUNT]);
+    }
+    cancelled();
+
+    // Read back from the card itself, not the page cache.
+    op.progress = 75;
+    op.message = "Verifying...";
+    await unmountAll(part);
+    await mustRun(["sudo", "blockdev", "--flushbufs", part]);
+    await mustRun(["sudo", "mount", "-o", "ro", "-t", "vfat", part, CARD_MOUNT]);
+    try {
+      const out = await mustRun(["sudo", "sha256sum", ...card.files.map((f) => `${CARD_MOUNT}/${f}`)]);
+      const onCard = new Map(out.trim().split("\n").map((l) => [l.slice(l.lastIndexOf("/") + 1), l.split(/\s+/)[0]] as [string, string]));
+      for (const f of card.files) {
+        const want = new Bun.CryptoHasher("sha256").update(await Bun.file(`${card.dir}/${f}`).arrayBuffer()).digest("hex");
+        if (onCard.get(f) !== want) throw new Error(`Verify failed: ${f} on the card doesn't match what was written`);
+      }
+    } finally {
+      await run(["sudo", "umount", CARD_MOUNT]);
+    }
+
+    await run(["sudo", "partprobe", dev]); // lets udev mount it, so the files show up here
+    op.progress = 100;
+    op.status = "done";
+    op.message = `Bootloader card ready and verified: ${image.label} for the ${rpi.CARD_BOARDS[chip]}. Insert it, power on, and wait for the green LED to blink rapidly (or a green HDMI screen).`;
+  } finally {
+    await rm(card.dir, { recursive: true, force: true });
+  }
+}
+
 // ==================== RPi Image Catalog ====================
 
 let imageCache: any = null;
@@ -1869,6 +1975,8 @@ const API_DOCS = {
     "GET /api/rpiboot/eeprom/options?path=1-1.3": "Bootloader images available for that device's SoC, plus rpiboot's default boot.conf",
     "POST /api/rpiboot/eeprom/write": { body: { path: "1-1.3", imageId: "default|latest|rpiboot", bootConf: "[all]\nBOOT_ORDER=0xf25641" }, description: "Rewrite the SPI bootloader EEPROM with the chosen image and config." },
     "POST /api/rpiboot/results/clear": { body: { path: "1-1.3" }, description: "Dismiss a stored bootloader check/write result" },
+    "GET /api/blcard/options?chip=2711|2712": "Bootloader images for a Pi 4 (2711) or Pi 5 (2712) bootloader update card, each with its built-in boot.conf",
+    "POST /api/blcard": { body: { device: "sdb", chip: "2711|2712", imageId: "default|latest|rpiboot", bootConf: "[all]\nBOOT_ORDER=0xf41" }, description: "Erase a drive and write a bootloader update SD card (recovery.bin + pieeprom.bin with that config), sized to fit any card. Tracked like erase/flash." },
     "POST /api/defaults": "Save default flash settings",
   },
   examples: {
@@ -1996,6 +2104,32 @@ Bun.serve({
       const op: Operation = { id: crypto.randomUUID(), type: "deepscan", device, status: "starting", progress: 0, message: "Starting..." };
       enqueue(op);
       return Response.json({ ok: true, message: "Deep scan started", operationId: op.id });
+    }
+
+    if (p === "/api/blcard/options") {
+      const chip = url.searchParams.get("chip");
+      if (chip !== "2711" && chip !== "2712") return Response.json({ ok: false, message: "chip must be 2711 or 2712" }, { status: 400 });
+      return Response.json({ ok: true, chip, board: rpi.CARD_BOARDS[chip], images: await rpi.eepromImages(chip) });
+    }
+
+    if (p === "/api/blcard" && req.method === "POST") {
+      const { device, chip, imageId, bootConf } = await req.json();
+      // Goes into sfdisk/mkfs arguments: a plain kernel disk name that exists, nothing else.
+      if (typeof device !== "string" || !/^[a-z][a-z0-9]*$/.test(device) || isSysDev(device) || !(await getDeviceSizeBytes(device))) {
+        return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
+      }
+      if (chip !== "2711" && chip !== "2712") return Response.json({ ok: false, message: "chip must be 2711 or 2712" }, { status: 400 });
+      if (!(await rpi.eepromImages(chip)).some((i) => i.id === imageId)) return Response.json({ ok: false, message: "Unknown bootloader image" }, { status: 400 });
+      if (typeof bootConf !== "string" || !bootConf.trim() || bootConf.length > 4000) return Response.json({ ok: false, message: "boot.conf is missing or too long" }, { status: 400 });
+      if ((await getDeviceSizeBytes(device)) < CARD_PART_MIN + MiB) return Response.json({ ok: false, message: "Card too small" }, { status: 400 });
+      if (isDeviceBusy(device) || getOpsForDevice(device).some((o) => o.status === "queued")) return Response.json({ ok: false, message: "Device busy" }, { status: 409 });
+      const image = (await rpi.eepromImages(chip)).find((i) => i.id === imageId)!;
+      const op: Operation = {
+        id: crypto.randomUUID(), type: "blcard", device, status: "starting", progress: 0, message: "Starting...",
+        chip, eepromImageId: imageId, bootConf, imageName: `${rpi.CARD_BOARDS[chip]} · ${image.buildDate}`,
+      };
+      enqueue(op);
+      return Response.json({ ok: true, message: "Writing bootloader card", operationId: op.id });
     }
 
     if (p === "/api/scanresult") {

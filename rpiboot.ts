@@ -341,21 +341,119 @@ export async function readBootloaderInfo(dev: BootDevice, hooks: RunHooks): Prom
   }
 }
 
+function tool(cmd: string[]): void {
+  const r = Bun.spawnSync(cmd);
+  if (r.exitCode === 0) return;
+  // rpi-eeprom-config reports problems as a Python traceback; the last line says what.
+  const last = r.stderr.toString().trim().split("\n").at(-1);
+  throw new Error(`${cmd[0]}: ${last || `exit ${r.exitCode}`}`);
+}
+
+// rpi-eeprom-digest from 2026-09 can tag the .sig with "target-soc", which bootloaders and
+// recovery.bin from that release check before flashing, so a Pi 4 image can't land on a
+// Pi 5. Older versions of the tool don't have the option.
+let digestHasSoc: boolean | null = null;
+function digestSocArgs(chip: "2711" | "2712"): string[] {
+  digestHasSoc ??= /target SoC/i.test(Bun.spawnSync(["rpi-eeprom-digest", "-h"]).stdout.toString());
+  return digestHasSoc ? ["-c", chip] : [];
+}
+
+// Embed boot.conf into a copy of the image as dir/pieeprom.bin, plus the .sig that
+// recovery.bin checks it against. Returns the sha256 of the built image.
+async function buildPieeprom(chip: "2711" | "2712", image: EepromImage, bootConf: string, dir: string): Promise<string> {
+  await writeFile(`${dir}/boot.conf`, bootConf.replace(/\r\n/g, "\n").trimEnd() + "\n");
+  tool(["rpi-eeprom-config", "--config", `${dir}/boot.conf`, "--out", `${dir}/pieeprom.bin`, image.path]);
+  tool(["rpi-eeprom-digest", ...digestSocArgs(chip), "-i", `${dir}/pieeprom.bin`, "-o", `${dir}/pieeprom.sig`]);
+  return sha256(await Bun.file(`${dir}/pieeprom.bin`).arrayBuffer());
+}
+
 export async function writeBootloader(dev: BootDevice, image: EepromImage, bootConf: string, hooks: RunHooks): Promise<RpibootRun> {
   if (dev.chip === "2835") throw new Error("CM1/CM3 have no bootloader EEPROM");
   const dir = await recoveryWorkDir(dev.chip, image.recoveryBin);
   try {
-    await writeFile(`${dir}/boot.conf`, bootConf.replace(/\r\n/g, "\n").trimEnd() + "\n");
-    // Embed the config into the image, then the .sig recovery.bin checks it against.
-    const cfg = Bun.spawnSync(["rpi-eeprom-config", "--config", `${dir}/boot.conf`, "--out", `${dir}/pieeprom.bin`, image.path]);
-    if (cfg.exitCode !== 0) throw new Error(`rpi-eeprom-config: ${cfg.stderr.toString().trim() || `exit ${cfg.exitCode}`}`);
-    const dig = Bun.spawnSync(["rpi-eeprom-digest", "-i", `${dir}/pieeprom.bin`, "-o", `${dir}/pieeprom.sig`]);
-    if (dig.exitCode !== 0) throw new Error(`rpi-eeprom-digest: ${dig.stderr.toString().trim() || `exit ${dig.exitCode}`}`);
+    const imageSha256 = await buildPieeprom(dev.chip, image, bootConf, dir);
     hooks.onLine(`Built pieeprom.bin from ${image.label}`);
-    const imageSha256 = sha256(await Bun.file(`${dir}/pieeprom.bin`).arrayBuffer());
     const r = await rpiboot(["-d", dir, "-j", `${dir}/metadata`, "-p", dev.path], hooks, 180_000);
     return { ...r, metadata: await readMetadata(`${dir}/metadata`), imageSha256 };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+// ==================== Bootloader update SD cards ====================
+//
+// Raspberry Pi Imager's "Bootloader" utility images (rpi-eeprom's release zips) are one
+// 256 MiB FAT32 partition holding recovery.bin, pieeprom.bin + .sig and, for the Pi 4,
+// vl805.bin + .sig. The boot ROM runs recovery.bin from the SD card, and it flashes the
+// EEPROM(s). Building those files here instead of writing Imager's 258 MiB image lets
+// them go on any card, with any settings. CM4 can't run recovery.bin from SD/eMMC, so
+// cards are for the flagship boards; CMs use USB boot mode instead.
+
+export const CARD_BOARDS: Record<"2711" | "2712", string> = { "2711": "Raspberry Pi 4 / 400", "2712": "Raspberry Pi 5 / 500" };
+
+export interface CardFiles {
+  dir: string; // work dir in /tmp; the caller removes it
+  files: string[]; // names in dir that belong on the card
+  imageSha256: string;
+}
+
+// The USB 3 controller firmware the official Pi 4 card carries. recovery.bin only
+// applies it on boards with a separate VL805 EEPROM (Pi 4 rev 1.1/1.2).
+async function vl805Image(image: EepromImage): Promise<string | null> {
+  for (const dir of [image.path.slice(0, image.path.lastIndexOf("/")), `${EEPROM_FW_DIR}/bootloader-2711/default`]) {
+    try {
+      const f = (await readdir(dir)).filter((n) => /^vl805-[0-9a-f]+\.bin$/.test(n)).sort().at(-1);
+      if (f) return `${dir}/${f}`;
+    } catch {}
+  }
+  return null;
+}
+
+export async function buildCardFiles(chip: "2711" | "2712", image: EepromImage, bootConf: string): Promise<CardFiles> {
+  const dir = `${WORK_ROOT}/${crypto.randomUUID()}`;
+  await mkdir(dir, { recursive: true });
+  try {
+    await copyFile(image.recoveryBin, `${dir}/recovery.bin`);
+    const imageSha256 = await buildPieeprom(chip, image, bootConf, dir);
+    const files = ["recovery.bin", "pieeprom.bin", "pieeprom.sig"];
+    if (chip === "2711") {
+      const vl = await vl805Image(image);
+      if (!vl) throw new Error("No VL805 firmware found in rpi-eeprom's files");
+      await copyFile(vl, `${dir}/vl805.bin`);
+      tool(["rpi-eeprom-digest", "-i", `${dir}/vl805.bin`, "-o", `${dir}/vl805.sig`]);
+      files.push("vl805.bin", "vl805.sig");
+    }
+    await writeFile(`${dir}/README.txt`, cardReadme(chip, image, bootConf).replace(/\n/g, "\r\n"));
+    files.push("README.txt");
+    return { dir, files, imageSha256 };
+  } catch (e) {
+    await rm(dir, { recursive: true, force: true });
+    throw e;
+  }
+}
+
+function cardReadme(chip: "2711" | "2712", image: EepromImage, bootConf: string): string {
+  return `${CARD_BOARDS[chip]} bootloader update card
+Made by DeskyPi on ${new Date().toISOString().slice(0, 10)}
+
+Bootloader release: ${image.label}
+
+Settings written into the EEPROM (boot.conf):
+
+${bootConf.replace(/\r\n/g, "\n").trimEnd()}
+
+To update the bootloader:
+
+1. Power off the Raspberry Pi
+2. Insert this card
+3. Power on and wait at least 10 seconds
+
+Success: the green LED blinks rapidly forever, and an HDMI display (if
+attached) turns green. A different blink pattern, or red on HDMI, means the
+update failed and the old bootloader is still in place.
+
+Then power off and remove the card. If the card now holds RECOVERY.000
+instead of recovery.bin, rename it back (or write the card again) before
+using it on another Pi.
+`;
 }

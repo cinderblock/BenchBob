@@ -822,6 +822,8 @@ function toggleRoot() {
   det.classList.toggle('open');
 }
 
+const DRIVE_OP_NAMES = { blcard: 'Bootloader card' };
+
 function renderDrives(drives, nbdExports) {
   const el = Q('#drives');
   if (!drives.length) {
@@ -876,7 +878,7 @@ function renderDrives(drives, nbdExports) {
     for (const op of ops.filter(o => !['queued'].includes(o.status))) {
       const cls = op.status === 'done' ? 'done' : op.status === 'error' ? 'error' : 'active';
       h += `<div class="drive-op">
-        <div class="op-row"><span><span class="op-type">${op.type}</span>${op.imageName ? ' · '+esc(op.imageName) : ''}</span>
+        <div class="op-row"><span><span class="op-type">${DRIVE_OP_NAMES[op.type] || op.type}</span>${op.imageName ? ' · '+esc(op.imageName) : ''}</span>
         ${cls==='active'?`<button class="btn btn-sm btn-danger" onclick="cancelOp('${op.id}')">Cancel</button>`:''}</div>
         <div class="op-msg">${esc(op.message)}</div>
         <div class="op-bar"><div class="op-fill ${cls}" style="width:${op.progress}%"></div></div>
@@ -885,7 +887,7 @@ function renderDrives(drives, nbdExports) {
 
     // Queued operations
     for (const op of queuedOps) {
-      h += `<div class="op-queued">⏳ ${op.type} queued${op.imageName ? ': '+esc(op.imageName) : ''}</div>`;
+      h += `<div class="op-queued">⏳ ${DRIVE_OP_NAMES[op.type] || op.type} queued${op.imageName ? ': '+esc(op.imageName) : ''}</div>`;
     }
 
     // Action buttons
@@ -921,6 +923,7 @@ function renderDrives(drives, nbdExports) {
 
     if (!busy) {
       h += `<button class="btn btn-warn" onclick="eraseDrive('${d.name}','${esc(d.model||d.name)}',${d.size})">Erase</button>`;
+      h += `<button class="btn" onclick="blCardDrive('${d.name}')">Bootloader card…</button>`;
     }
 
     // Eject: disabled during any operation
@@ -1038,36 +1041,41 @@ const BL_MODES = {
   '1': 'eMMC / SD', '2': 'Network', '3': 'RPIBOOT', '4': 'USB storage', '5': 'USB 2.0 (BCM)',
   '6': 'NVMe', '7': 'HTTP', 'e': 'Stop', 'f': 'Restart', '0': 'SD detect',
 };
+// Keyed by blBoard(): chip, plus "cm" for Compute Modules. The flagship ones match the
+// boot orders in Imager's three Bootloader images (rpi-eeprom release zips, 2026-09).
 const BL_ORDER_PRESETS = {
-  '2711': [['0xf25641', "eMMC, USB, NVMe, USB 2.0, network (rpiboot's CM4 default)"], ['0xf41', 'eMMC, USB (firmware default)'], ['0xf461', 'eMMC, NVMe, USB'], ['0xf416', 'NVMe, eMMC, USB'], ['0xf14', 'USB, eMMC'], ['0xf21', 'eMMC, network']],
-  '2712': [['0xf2461', "eMMC, NVMe, USB, network (rpiboot's CM5 default)"], ['0xf461', 'eMMC, NVMe, USB (image default)'], ['0xf416', 'NVMe, eMMC, USB'], ['0xf146', 'NVMe, USB, eMMC'], ['0xf14', 'USB, eMMC'], ['0xf21', 'eMMC, network']],
+  '2711cm': [['0xf25641', "eMMC, USB, NVMe, USB 2.0, network (rpiboot's CM4 default)"], ['0xf41', 'eMMC, USB (firmware default)'], ['0xf461', 'eMMC, NVMe, USB'], ['0xf416', 'NVMe, eMMC, USB'], ['0xf14', 'USB, eMMC'], ['0xf21', 'eMMC, network']],
+  '2712cm': [['0xf2461', "eMMC, NVMe, USB, network (rpiboot's CM5 default)"], ['0xf461', 'eMMC, NVMe, USB (image default)'], ['0xf416', 'NVMe, eMMC, USB'], ['0xf146', 'NVMe, USB, eMMC'], ['0xf14', 'USB, eMMC'], ['0xf21', 'eMMC, network']],
+  '2711': [['0xf41', 'SD card, USB (Imager "SD Card Boot")'], ['0xf14', 'USB, SD card (Imager "USB Boot")'], ['0xf21', 'SD card, network (Imager "Network Boot")']],
+  '2712': [['0xf461', 'SD card, NVMe, USB (Imager "SD Card Boot")'], ['0xf146', 'NVMe, USB, SD card (Imager "NVMe/USB Boot")'], ['0xf21', 'SD card, network (Imager "Network Boot")'], ['0xf416', 'NVMe, SD card, USB']],
 };
 
-// def: what the bootloader does when the key is left out (per chip where it differs).
-// chips: only shown for these.
+// def: what the bootloader does when the key is left out, keyed by blBoard() (falling
+// back to the chip) where boards differ. chips / board ('cm' or 'flagship'): only shown
+// for those, per the property docs.
 const BL_SETTINGS = [
-  { g: 'Boot', key: 'SD_BOOT_MAX_RETRIES', t: 'int', def: '0', label: 'eMMC / SD retries', hint: 'Before moving on to the next boot mode. -1 = forever.' },
+  { g: 'Boot', key: 'SD_BOOT_MAX_RETRIES', t: 'int', def: '0', label: 'SD / eMMC retries', hint: 'Before moving on to the next boot mode. -1 = forever.' },
   { g: 'Boot', key: 'NET_BOOT_MAX_RETRIES', t: 'int', def: '0', label: 'Network boot retries', hint: '-1 = forever.' },
   { g: 'Boot', key: 'BOOT_WATCHDOG_TIMEOUT', t: 'int', def: '0', label: 'Boot watchdog (s)', hint: 'Reset if no OS has started by then. 0 = off.' },
   { g: 'Boot', key: 'PARTITION', t: 'int', def: '0', label: 'Boot partition', hint: '0 = the default partition.' },
   { g: 'Boot', key: 'PARTITION_WALK', t: 'bool', def: '1', label: 'Partition walk', hint: "Try other partitions if the chosen one isn't bootable." },
   { g: 'Boot', key: 'REBOOT_ON_FATAL_ERROR', t: 'bool', def: '1', label: 'Reboot on fatal error', hint: 'Off = blink the error pattern until power-cycled.' },
-  { g: 'Power', key: 'POWER_OFF_ON_HALT', t: 'bool', def: { '2711': '0', '2712': '1' }, label: 'Power off on halt', hint: 'Switch off the PMIC outputs on halt (CM4: needs Wake on GPIO off).' },
+  { g: 'Power', key: 'POWER_OFF_ON_HALT', t: 'bool', def: { '2711': '0', '2712': '0', '2712cm': '1' }, label: 'Power off on halt', hint: 'Switch off the PMIC outputs on halt. Pi 4 / CM4: needs Wake on GPIO off. Pi 500 defaults to on.' },
   { g: 'Power', key: 'WAKE_ON_GPIO', t: 'bool', def: '1', chips: ['2711'], label: 'Wake on GPIO3', hint: 'Halt in low power until GPIO3 or GLOBAL_EN is grounded.' },
-  { g: 'Power', key: 'WAIT_FOR_POWER_BUTTON', t: 'bool', def: '0', chips: ['2712'], label: 'Wait for power button', hint: 'After power loss, stay off until the button is pressed. Needs Power off on halt.' },
-  { g: 'Power', key: 'PSU_MAX_CURRENT', t: 'select', def: '', chips: ['2712'], options: [['3000', '3 A'], ['5000', '5 A']], label: 'Power supply current', hint: 'Skip USB-PD negotiation and assume this rating.' },
+  { g: 'Power', key: 'WAIT_FOR_POWER_BUTTON', t: 'bool', def: '0', chips: ['2712'], board: 'flagship', label: 'Wait for power button', hint: 'After power loss, stay off until the button is pressed. Needs Power off on halt.' },
+  { g: 'Power', key: 'PSU_MAX_CURRENT', t: 'select', def: '', chips: ['2712'], board: 'flagship', options: [['3000', '3 A'], ['5000', '5 A']], label: 'Power supply current', hint: 'Skip USB-PD negotiation and assume this rating.' },
   { g: 'Diagnostics', key: 'BOOT_UART', t: 'bool', def: '0', label: 'UART boot log', hint: 'Bootloader debug output on the primary UART.' },
-  { g: 'Diagnostics', key: 'UART_BAUD', t: 'select', def: '115200', chips: ['2712'], options: ['9600', '19200', '38400', '57600', '115200', '230400', '460800', '921600'].map(b => [b, b]), label: 'UART baud rate' },
+  { g: 'Diagnostics', key: 'UART_BAUD', t: 'select', def: '115200', chips: ['2712'], board: 'flagship', options: ['9600', '19200', '38400', '57600', '115200', '230400', '460800', '921600'].map(b => [b, b]), label: 'UART baud rate' },
   { g: 'Diagnostics', key: 'DISABLE_HDMI', t: 'bool', def: '0', label: 'Disable HDMI diagnostics', hint: 'Also disables network install.' },
   { g: 'Diagnostics', key: 'HDMI_DELAY', t: 'int', def: '5', label: 'HDMI diagnostics delay (s)', hint: 'Shown sooner on a fatal error.' },
-  { g: 'Diagnostics', key: 'NET_INSTALL_ENABLED', t: 'bool', def: '0', label: 'Network install', hint: 'Offer it when a keyboard is attached. Adds ~1 s to boot.' },
+  { g: 'Diagnostics', key: 'NET_INSTALL_ENABLED', t: 'bool', def: { '2711': '1', '2712': '1', '2711cm': '0', '2712cm': '0' }, label: 'Network install', hint: 'Offer it when a keyboard is attached. Adds ~1 s to boot.' },
   { g: 'Diagnostics', key: 'NET_INSTALL_AT_POWER_ON', t: 'bool', def: '0', label: 'Network install at power-on', hint: 'Briefly show the network install screen after a cold boot.' },
   { g: 'Updates', key: 'ENABLE_SELF_UPDATE', t: 'bool', def: '1', label: 'Self-update', hint: 'Apply a pieeprom.upd found on the boot filesystem (USB / network boot).' },
   { g: 'Updates', key: 'FREEZE_VERSION', t: 'bool', def: '0', label: 'Freeze version', hint: 'Block automatic updates, including rpi-eeprom-update. Rewriting over USB still works.' },
-  { g: 'USB & PCIe', key: 'PCIE_PROBE', t: 'bool', def: '0', label: 'Probe PCIe for NVMe', hint: "For carriers whose NVMe isn't detected automatically." },
+  { g: 'USB & PCIe', key: 'PCIE_PROBE', t: 'bool', def: '0', chips: ['2712'], board: 'flagship', label: 'Probe PCIe for NVMe', hint: 'For PCIe add-ons that aren\'t HAT+ (those are detected automatically).' },
   { g: 'USB & PCIe', key: 'USB_MSD_DISCOVER_TIMEOUT', t: 'int', def: '20000', min: 5000, label: 'USB discover timeout (ms)', hint: 'Give up on USB boot after this. Minimum 5000.' },
   { g: 'USB & PCIe', key: 'USB_MSD_STARTUP_DELAY', t: 'int', def: '0', min: 0, max: 30000, label: 'USB startup delay (ms)', hint: 'For slow-to-spin-up disks. Maximum 30000.' },
-  { g: 'USB & PCIe', key: 'VL805', t: 'bool', def: '0', chips: ['2711'], label: 'VL805 USB 3 firmware', hint: 'Only for a VL805 controller with no SPI EEPROM of its own.' },
+  { g: 'USB & PCIe', key: 'VL805', t: 'bool', def: '0', chips: ['2711'], board: 'cm', label: 'VL805 USB 3 firmware', hint: 'Only for a VL805 controller with no SPI EEPROM of its own.' },
   { g: 'Network boot', key: 'TFTP_IP', t: 'text', def: '', ph: '192.168.1.99', label: 'TFTP server', hint: "Overrides the DHCP server's choice." },
   { g: 'Network boot', key: 'TFTP_PREFIX', t: 'select', def: '0', options: [['0', 'Serial number'], ['1', 'Custom string'], ['2', 'MAC address']], label: 'TFTP directory' },
   { g: 'Network boot', key: 'TFTP_PREFIX_STR', t: 'text', def: '', ph: 'tftp_test/', label: 'Custom TFTP directory', hint: 'Used when TFTP directory is Custom string.' },
@@ -1140,9 +1148,14 @@ function blOrderItems(v) {
 }
 function blOrderHex(items) { return items.length ? '0x' + [...items].reverse().join('') : null; }
 
-let bl = null; // the open dialog: { path, o, text, base, baseLabel }
+// The open editor: { chip, cm, o (options from the server), starts() -> starting points,
+// text, base, baseLabel, start }. Shared by the CM dialog (rpibootWrite) and the SD card
+// dialog (blCardModal).
+let bl = null;
 
-function blSettingDefault(s) { return typeof s.def === 'object' ? s.def[bl.o.chip] : s.def; }
+function blBoard() { return bl.chip + (bl.cm ? 'cm' : ''); }
+function blSettingDefault(s) { return typeof s.def === 'object' ? s.def[blBoard()] ?? s.def[bl.chip] : s.def; }
+function blModeLabel(m) { return m === '1' && !bl.cm ? 'SD card' : BL_MODES[m] || '0x' + m; }
 
 function blFieldHtml(s) {
   const id = 'bls-' + s.key;
@@ -1160,14 +1173,15 @@ function blFieldHtml(s) {
   return `<div class="fg"><label for="${id}">${esc(s.label)}</label>${ctl}${s.hint ? `<div class="img-detail">${esc(s.hint)}</div>` : ''}</div>`;
 }
 
-function blSettingsFor(chip) { return BL_SETTINGS.filter(s => !s.chips || s.chips.includes(chip)); }
+function blSettings() {
+  return BL_SETTINGS.filter(s => (!s.chips || s.chips.includes(bl.chip)) && (!s.board || s.board === (bl.cm ? 'cm' : 'flagship')));
+}
 
 function blFormHtml() {
-  const chip = bl.o.chip;
   const vals = blValues(bl.text);
   let h = '';
   for (const g of BL_GROUPS) {
-    const ss = blSettingsFor(chip).filter(s => s.g === g);
+    const ss = blSettings().filter(s => s.g === g);
     const set = ss.some(s => s.key in vals);
     const open = g === 'Boot' || g === 'Power' || set;
     h += `<details ${open ? 'open' : ''}><summary>${esc(g)}</summary>`;
@@ -1178,29 +1192,31 @@ function blFormHtml() {
 }
 
 function blOrderHtml() {
-  const chip = bl.o.chip;
+  const chip = bl.chip;
   const raw = blValues(bl.text).BOOT_ORDER;
   const items = blOrderItems(raw);
   if (items === null) return `<div class="bl-warn">BOOT_ORDER=${esc(raw)} isn't a hex number. Fix it in boot.conf.</div>`;
   let h = '<div class="bl-order">';
-  if (!items.length) h += '<span class="img-detail">Not set: the firmware default, eMMC/SD then USB, repeating (0xf41).</span>';
+  if (!items.length) h += `<span class="img-detail">Not set: the firmware default, ${bl.cm ? 'eMMC/SD' : 'SD card'} then USB, repeating (0xf41).</span>`;
   items.forEach((m, i) => {
     const term = m === 'e' || m === 'f';
-    h += `${i ? '<span class="bl-sep">→</span>' : ''}<span class="bl-pill${term ? ' term' : ''}">${esc(BL_MODES[m] || '0x' + m)}
+    h += `${i ? '<span class="bl-sep">→</span>' : ''}<span class="bl-pill${term ? ' term' : ''}">${esc(blModeLabel(m))}
       <button type="button" onclick="blOrderMove(${i},-1)" ${i === 0 ? 'disabled' : ''} aria-label="Earlier">‹</button><button type="button" onclick="blOrderMove(${i},1)" ${i === items.length - 1 ? 'disabled' : ''} aria-label="Later">›</button><button type="button" onclick="blOrderMove(${i},0)" aria-label="Remove">✕</button></span>`;
   });
   h += '</div>';
-  const modes = ['1', '6', '4', ...(chip === '2711' ? ['5'] : []), '2', '7', '3', 'f', 'e'];
+  const nvme = chip === '2712' || bl.cm; // CM4 has PCIe; the Pi 4 doesn't
+  const modes = ['1', ...(nvme ? ['6'] : []), '4', ...(chip === '2711' ? ['5'] : []), '2', '7', '3', 'f', 'e'];
   h += `<div class="bl-tools">
-    <select onchange="blOrderAdd(this.value);this.value=''" ${items.length >= 8 ? 'disabled' : ''}><option value="">+ Add boot mode…</option>${modes.map(m => `<option value="${m}">${esc(BL_MODES[m])}</option>`).join('')}</select>
-    <select onchange="blOrderPreset(this.value);this.value=''"><option value="">Presets…</option>${BL_ORDER_PRESETS[chip].map(([v, l]) => `<option value="${v}">${esc(v)}: ${esc(l)}</option>`).join('')}</select>
+    <select onchange="blOrderAdd(this.value);this.value=''" ${items.length >= 8 ? 'disabled' : ''}><option value="">+ Add boot mode…</option>${modes.map(m => `<option value="${m}">${esc(blModeLabel(m))}</option>`).join('')}</select>
+    <select onchange="blOrderPreset(this.value);this.value=''"><option value="">Presets…</option>${BL_ORDER_PRESETS[blBoard()].map(([v, l]) => `<option value="${v}">${esc(v)}: ${esc(l)}</option>`).join('')}</select>
     ${items.length ? `<span class="img-detail mono" style="align-self:center">BOOT_ORDER=${esc(blOrderHex(items))}</span>` : ''}
   </div>`;
   const warn = [];
   const stopAt = items.findIndex(m => m === '3' || m === 'e' || m === 'f');
-  if (stopAt !== -1 && stopAt < items.length - 1) warn.push(`Nothing after ${BL_MODES[items[stopAt]]} is ever tried.`);
-  if (items.length && !['f', 'e', '3'].includes(items.at(-1))) warn.push('No Restart at the end: the module halts with an error if every mode fails.');
+  if (stopAt !== -1 && stopAt < items.length - 1) warn.push(`Nothing after ${blModeLabel(items[stopAt])} is ever tried.`);
+  if (items.length && !['f', 'e', '3'].includes(items.at(-1))) warn.push(`No Restart at the end: the ${bl.cm ? 'module' : 'Pi'} halts with an error if every mode fails.`);
   if (chip === '2712' && items.includes('5')) warn.push('USB 2.0 (BCM) boot is not available on BCM2712.');
+  if (!nvme && items.includes('6')) warn.push('The Pi 4 has no NVMe boot.');
   if (items.includes('0')) warn.push('SD detect (0) is deprecated. Use Restart instead.');
   h += warn.map(w => `<div class="bl-warn">⚠️ ${esc(w)}</div>`).join('');
   return h;
@@ -1209,7 +1225,7 @@ function blOrderHtml() {
 // Push the text into the form (after loading a starting point or editing the raw text).
 function blSyncForm() {
   const vals = blValues(bl.text);
-  for (const s of blSettingsFor(bl.o.chip)) {
+  for (const s of blSettings()) {
     const el = Q('#bls-' + s.key);
     if (!el || el === document.activeElement) continue;
     const v = vals[s.key] ?? '';
@@ -1281,17 +1297,14 @@ function blOrderPreset(v) {
   if (v) blSetText(blSet(bl.text, 'BOOT_ORDER', v));
 }
 
-// Starting points: what's installed (when recognised), DeskyPi's last write to this
-// module, rpiboot's CM default, or the chosen image's own built-in config.
-function blStarts() {
-  const o = bl.o, inst = o.installed, img = o.images.find(i => i.id === Q('#bl-img')?.value) || o.images[0];
-  const s = []; // [id, button label, text, "changes from …" label]
-  if (inst?.bootConf != null) s.push(['installed', 'Installed settings', inst.bootConf, 'the installed settings']);
-  if (inst?.lastWrite) s.push(['last', "DeskyPi's last write", inst.lastWrite.bootConf, "DeskyPi's last write"]);
-  s.push(['rpiboot', "rpiboot's CM default", o.bootConf, "rpiboot's CM default"]);
-  if (img?.config) s.push(['image', 'Image built-in', img.config, `the ${img.buildDate} image's built-in config`]);
-  return s;
+// Starting points, each [id, button label, text, "changes from …" label]. The selected
+// release's own built-in config is always one of them.
+function blSelectedImage() { return bl.o.images.find(i => i.id === Q('#bl-img')?.value) || bl.o.images[0]; }
+function blImageStart() {
+  const img = blSelectedImage();
+  return img?.config ? [['image', 'Release built-in', img.config, `the ${img.buildDate} release's built-in config`]] : [];
 }
+function blStarts() { return bl.starts(); }
 function blStartsHtml() {
   return 'Start from: ' + blStarts().map(([id, label]) => `<button type="button" class="btn btn-sm${bl.start === id ? ' btn-primary' : ''}" onclick="blLoad('${id}')">${esc(label)}</button>`).join('');
 }
@@ -1324,17 +1337,10 @@ function blImageOpts(o) {
   }).join('');
 }
 
-async function rpibootWrite(path) {
-  let o;
-  try { o = await (await fetch('/api/rpiboot/eeprom/options?path=' + encodeURIComponent(path))).json(); } catch { o = { ok: false, message: 'Request failed' }; }
-  if (!o.ok) return toast(o.message, 'error');
-  if (!o.images.length) return toast('No bootloader images found (is rpi-eeprom installed?)', 'error');
-  bl = { path, o, text: '', base: '', baseLabel: '', start: '' };
-  showModal(`<h3>Bootloader settings &amp; update</h3>
-    <p>Rewrites the SPI bootloader EEPROM of the BCM${esc(o.chip)} on USB port <span class="mono">${esc(path)}</span> with the chosen release and settings. A bad write isn't permanent: the module can always be recovered again from here.</p>
-    ${blInstalledHtml(o)}
-    <div class="flash-form">
-      <div class="fg"><label for="bl-img">Bootloader release</label><select id="bl-img">${blImageOpts(o)}</select></div>
+// Release picker, starting points, form and raw boot.conf: the part both dialogs share.
+function blEditorHtml() {
+  return `<div class="flash-form">
+      <div class="fg"><label for="bl-img">Bootloader release</label><select id="bl-img">${blImageOpts(bl.o)}</select></div>
       <div class="bl-starts" id="bl-starts"></div>
       <div class="bl-grid">
         <div class="bl-form">${blFormHtml()}<div class="img-detail" id="bl-extra"></div></div>
@@ -1345,31 +1351,129 @@ async function rpibootWrite(path) {
           <div class="bl-diff" id="bl-diff"></div>
         </div>
       </div>
-    </div>
+    </div>`;
+}
+// After blEditorHtml is in the page: load the first available of the preferred starts.
+function blMount(prefer) {
+  const ids = blStarts().map(s => s[0]);
+  blLoad(prefer.find(id => ids.includes(id)) || ids[0]);
+  Q('#bl-img').onchange = () => { Q('#bl-starts').innerHTML = blStartsHtml(); };
+}
+// The edited boot.conf, or null (with a toast) when it can't be written yet.
+function blReady() {
+  if (Q('#modal .bad')) { toast('Fix the highlighted settings first', 'error'); return null; }
+  if (!bl.text.trim()) { toast('boot.conf is empty', 'error'); return null; }
+  return bl.text;
+}
+
+async function rpibootWrite(path) {
+  let o;
+  try { o = await (await fetch('/api/rpiboot/eeprom/options?path=' + encodeURIComponent(path))).json(); } catch { o = { ok: false, message: 'Request failed' }; }
+  if (!o.ok) return toast(o.message, 'error');
+  if (!o.images.length) return toast('No bootloader images found (is rpi-eeprom installed?)', 'error');
+  // Starting points: what's installed (when recognised), DeskyPi's last write to this
+  // module, rpiboot's CM default, or the chosen release's own built-in config.
+  const starts = () => {
+    const inst = o.installed, s = [];
+    if (inst?.bootConf != null) s.push(['installed', 'Installed settings', inst.bootConf, 'the installed settings']);
+    if (inst?.lastWrite) s.push(['last', "DeskyPi's last write", inst.lastWrite.bootConf, "DeskyPi's last write"]);
+    s.push(['rpiboot', "rpiboot's CM default", o.bootConf, "rpiboot's CM default"]);
+    return [...s, ...blImageStart()];
+  };
+  bl = { chip: o.chip, cm: true, o, starts, text: '', base: '', baseLabel: '', start: '' };
+  showModal(`<h3>Bootloader settings &amp; update</h3>
+    <p>Rewrites the SPI bootloader EEPROM of the BCM${esc(o.chip)} on USB port <span class="mono">${esc(path)}</span> with the chosen release and settings. A bad write isn't permanent: the module can always be recovered again from here.</p>
+    ${blInstalledHtml(o)}
+    ${blEditorHtml()}
     <div class="modal-btns">
       <button class="btn" id="mc">Cancel</button>
       <button class="btn" id="bl-recover">Recover (stock image + config)</button>
       <button class="btn btn-warn" id="mk">Write bootloader</button>
     </div>
     <div class="img-detail" style="text-align:right;margin-top:6px">Recover writes rpiboot's stock release with its stock config: the known-good choice for a module that won't boot.</div>`, 'wide');
-  const starts = blStarts().map(s => s[0]);
-  blLoad(starts.includes('installed') ? 'installed' : starts.includes('last') ? 'last' : 'rpiboot');
-  Q('#bl-img').onchange = () => { Q('#bl-starts').innerHTML = blStartsHtml(); };
+  blMount(['installed', 'last', 'rpiboot']);
   const go = async (imageId, bootConf) => {
     hideModal();
     await rpibootPost('/api/rpiboot/eeprom/write', { path, imageId, bootConf });
   };
   Q('#mc').onclick = hideModal;
   Q('#mk').onclick = () => {
-    if (Q('#modal .bad')) return toast('Fix the highlighted settings first', 'error');
-    if (!bl.text.trim()) return toast('boot.conf is empty', 'error');
-    go(Q('#bl-img').value, bl.text);
+    const conf = blReady();
+    if (conf != null) go(Q('#bl-img').value, conf);
   };
   Q('#bl-recover').onclick = () => {
     if (!o.images.some(i => i.id === 'rpiboot')) return toast("rpiboot's stock image is missing", 'error');
     go('rpiboot', o.bootConf);
   };
   Q('#modal-bg').onclick = e => { if (e.target === Q('#modal-bg')) hideModal(); };
+}
+
+// ==================== Bootloader update SD cards ====================
+// For ordinary Pi 4/400 and Pi 5/500 boards: a card holding recovery.bin and the built
+// EEPROM image, which the boot ROM runs at power-on. The server builds it to fit any
+// card, so it works on the small cards Imager refuses (its image is 258 MiB).
+
+function blCardDrive(name) {
+  const d = (S?.drives || []).find(x => x.name === name);
+  if (d) blCardModal(d.name, d.model || d.name, d.size, !!d.hasPartitions);
+}
+
+function blCardModal(dev, model, size, hasParts) {
+  let chip = localStorage.getItem('blcard-chip') === '2711' ? '2711' : '2712';
+  bl = null;
+  showModal(`<h3>Bootloader update card</h3>
+    <p>Erases this card and writes one that updates a Raspberry Pi's bootloader when the Pi boots from it, with the release and settings chosen here. Any card from 16 MB up works, including ones too small for Imager's 258 MB image.</p>
+    <div class="modal-dev">${esc(model)}<br>/dev/${esc(dev)} · ${fmtSz(size)}</div>
+    <div class="fg"><label for="blc-board">Board</label><select id="blc-board"><option value="2711">Raspberry Pi 4 / 400</option><option value="2712">Raspberry Pi 5 / 500</option></select>
+      <div class="img-detail">Compute Modules can't update from a card: put them in USB boot mode and use <b>Bootloader settings &amp; update</b> instead.</div></div>
+    <div id="blc-editor" style="margin-top:12px"></div>
+    ${hasParts ? '<div class="confirm-box"><label for="ec">This card has partitions. Type ERASE to confirm:</label><input type="text" id="ec" autocomplete="off"></div>' : ''}
+    <div class="modal-btns"><button class="btn" id="mc">Cancel</button><button class="btn ${hasParts ? 'btn-danger' : 'btn-warn'}" id="mk" ${hasParts ? 'disabled' : ''}>Erase &amp; write card</button></div>`, 'wide');
+
+  const load = async () => {
+    const want = chip;
+    Q('#blc-editor').innerHTML = '<div class="img-detail">Loading releases…</div>';
+    let o;
+    try { o = await (await fetch('/api/blcard/options?chip=' + want)).json(); } catch { o = { ok: false, message: 'Request failed' }; }
+    if (chip !== want || !Q('#blc-editor')) return; // board changed, or the dialog closed
+    if (!o.ok || !o.images.length) {
+      Q('#blc-editor').innerHTML = `<div class="bl-warn">${esc(o.ok ? 'No bootloader releases found (is rpi-eeprom installed?)' : o.message)}</div>`;
+      return;
+    }
+    // The last card's settings for this board, so a batch of cards comes out the same.
+    const last = localStorage.getItem('blcard-conf-' + want);
+    bl = {
+      chip: want, cm: false, o, text: '', base: '', baseLabel: '', start: '',
+      starts: () => [...(last ? [['last', 'Last card', last, 'the last card written here']] : []), ...blImageStart()],
+    };
+    Q('#blc-editor').innerHTML = blEditorHtml();
+    blMount(['last', 'image']);
+  };
+
+  Q('#blc-board').value = chip;
+  Q('#blc-board').onchange = () => {
+    chip = Q('#blc-board').value;
+    localStorage.setItem('blcard-chip', chip);
+    bl = null;
+    load();
+  };
+  if (hasParts) Q('#ec').oninput = () => { Q('#mk').disabled = Q('#ec').value !== 'ERASE'; };
+  Q('#mc').onclick = hideModal;
+  Q('#mk').onclick = async () => {
+    if (!bl || bl.chip !== chip) return toast('Still loading the releases', 'error');
+    if (hasParts && Q('#ec').value !== 'ERASE') return;
+    const conf = blReady();
+    if (conf == null) return;
+    const imageId = Q('#bl-img').value;
+    hideModal();
+    try {
+      const r = await (await fetch('/api/blcard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device: dev, chip, imageId, bootConf: conf }) })).json();
+      if (!r.ok) return toast(r.message, 'error');
+      localStorage.setItem('blcard-conf-' + chip, conf);
+    } catch { toast('Request failed', 'error'); }
+  };
+  Q('#modal-bg').onclick = e => { if (e.target === Q('#modal-bg')) hideModal(); };
+  load();
 }
 
 // ==================== Actions ====================
