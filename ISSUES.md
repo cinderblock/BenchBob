@@ -43,3 +43,7 @@ filesystem, so a lite image (~550 MB) barely fits and a full desktop image (~3 G
 fail mid-download. A failed or cancelled flash also leaves its partial download behind
 (`rm -f dlPath` only runs on success), eating more of the space. Worth finding what fills
 the card, and possibly streaming the download straight into the decompressor.
+
+2026-10-17: the culprit was Bun's package cache, `~/.bun/install/cache` (4.8 GB). It was
+cleared, and the root filesystem is at 69% (4.4 GB free). The cache grows back with every
+`bun install` on the Pi, so the download-to-SD design is still fragile.
