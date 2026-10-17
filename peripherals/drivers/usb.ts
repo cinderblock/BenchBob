@@ -70,8 +70,9 @@ function label(d: U.UsbDevice) {
 function usbipPort() {
   return ctx.settings.get("usbipPort", 3240) + PORT_OFFSET;
 }
+// 4200+: the serial bridges own 4000+ (raw TCP) and 4100+ (RFC 2217).
 function redirBase() {
-  return ctx.settings.get("redirBasePort", 4000) + PORT_OFFSET;
+  return ctx.settings.get("redirBasePort", 4200) + PORT_OFFSET;
 }
 let fqdn = "";
 /** Name clients should use in usbip/QEMU commands (the UI prefers the name it was reached by). */
@@ -739,7 +740,7 @@ const routes: Route[] = [
   {
     method: "POST",
     path: "/api/usb/config",
-    doc: { body: { usbipPort: 3240, redirBasePort: 4000 }, description: "Listener ports for usbipd and the first usbredir session (DESKYPI_PORT_OFFSET is added at runtime)" },
+    doc: { body: { usbipPort: 3240, redirBasePort: 4200 }, description: "Listener ports for usbipd and the first usbredir session (DESKYPI_PORT_OFFSET is added at runtime)" },
     handler: async (req) => {
       const b = await body(req);
       for (const k of ["usbipPort", "redirBasePort"]) {
