@@ -47,3 +47,32 @@ the card, and possibly streaming the download straight into the decompressor.
 2026-10-17: the culprit was Bun's package cache, `~/.bun/install/cache` (4.8 GB). It was
 cleared, and the root filesystem is at 69% (4.4 GB free). The cache grows back with every
 `bun install` on the Pi, so the download-to-SD design is still fragile.
+
+## lldpd loses LLDP multicast membership when another lldpd on the same NIC exits
+
+Seen 2026-10-17: a side instance on desky started and stopped its own receive-only lldpd
+on eth0 while the live one ran. Afterwards `ip maddr show dev eth0` no longer listed
+`01:80:c2:00:00:0e` and the live lldpd reported "no neighbor" until netdiag was restarted
+(disable/enable in Peripherals…). Only happens with two DeskyPi instances on one Pi, but
+netdiag could notice "listening for minutes, link up, no LLDP multicast address" and
+restart lldpd itself.
+
+## Full status refresh spawns ~12 processes every 2 s while a dashboard is open
+
+`getStatus()` in server.ts runs lsusb, lsblk, findmnt, ip (×3), iw, vcgencmd and three `ls`
+calls each time; with a dashboard open that is ~3.5% of a Pi 4 core in children alone
+(measured 2026-10-17). Most of it could come from sysfs/procfs reads or be cached
+(lsusb, nbd conf.d, root storage change rarely).
+
+## GPIO stream pushes ~5 messages/s from SoC-internal pins
+
+The live GPIO stream sends whenever any of GPIO 0–57 changes, and GPIO37 (SD card) toggles
+constantly, so an open GPIO panel gets ~5 updates/s even when the header is idle. Could
+send header-pin changes immediately and internal pins at most once a second.
+
+## NetworkManager's TwillTech connection isn't bound to wlan0
+
+The netplan-generated `netplan-wlan0-TwillTech` profile has no interface name, so NM may
+bring it up on any new Wi-Fi radio (e.g. a USB dongle plugged in for the Wi-Fi panel). The
+Wi-Fi panel sets a dongle unmanaged while it uses it, but between plug-in and first use NM
+can grab it.
