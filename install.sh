@@ -58,6 +58,7 @@ apt-get install -y -qq \
   avrdude \
   udhcpc \
   python3-serial \
+  ieee-data \
   > /dev/null
 
 # Install Bun if not present
