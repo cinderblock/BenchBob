@@ -534,7 +534,7 @@ const OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
 const FLASH_DIR = "/var/tmp/deskypi-serial";
 const TXQ_MAX = 1 << 20;
 const NET_PENDING_MAX = 1 << 20;
-const MAX_WAIT_MS = 9000; // Bun.serve answers nothing after 10 s, so waits stay below that
+const MAX_WAIT_MS = 60000; // server.ts sets Bun.serve's idleTimeout to 120 s, so a minute-long wait is safe
 const ENV = { ...process.env, PATH: `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${process.env.PATH || ""}` };
 
 function portSettings(id: string): PortSettings {
@@ -1009,7 +1009,7 @@ async function autobaud(p: Port, o: { rates?: number[]; ms?: number; apply?: boo
   if (p.state === "autobaud") throw new HttpError(409, "Auto-baud already running");
   const rates = (o.rates?.length ? o.rates : AUTOBAUD_RATES).map(Number).filter((r) => Number.isInteger(r) && r >= 50);
   if (!rates.length) throw new HttpError(400, "No valid rates");
-  // Keep the whole sweep inside one HTTP request (Bun's 10 s limit).
+  // Keep the whole sweep inside one HTTP request (server.ts's idleTimeout).
   const ms = Math.max(100, Math.min(o.ms || 400, Math.floor(8500 / rates.length)));
   await ensureOpen(p);
   const saved = { ...p.cfg };
@@ -1780,13 +1780,13 @@ const routes = [
   {
     method: "POST" as const,
     path: "/api/serial/:id/write",
-    doc: { body: { text: "help", hex: "(or) de ad be ef", base64: "(or)", eol: "none|cr|lf|crlf", wait: "regex, optional", flags: "m", timeout_ms: 3000, raw: false, token: "(lock token, if you hold the lock)" }, description: "Write to the port (opens it if closed). With wait, returns the output that arrived after the write up to the first regex match or timeout_ms (max 9000). raw keeps ANSI escapes." },
+    doc: { body: { text: "help", hex: "(or) de ad be ef", base64: "(or)", eol: "none|cr|lf|crlf", wait: "regex, optional", flags: "m", timeout_ms: 3000, raw: false, token: "(lock token, if you hold the lock)" }, description: "Write to the port (opens it if closed). With wait, returns the output that arrived after the write up to the first regex match or timeout_ms (max 60000). raw keeps ANSI escapes." },
     handler: async (req: Request, a: any) => writeAndWait(getPort(a.id), await body(req)),
   },
   {
     method: "GET" as const,
     path: "/api/serial/:id/read",
-    doc: "Received data from the ring buffer (~256 KB). ?cursor=N (absolute byte offset; omit for the latest), max_bytes, wait_ms (long-poll up to 9000), format=text|hex|base64|raw (raw returns the bytes; add download=1 for a log file)",
+    doc: "Received data from the ring buffer (~256 KB). ?cursor=N (absolute byte offset; omit for the latest), max_bytes, wait_ms (long-poll up to 60000), format=text|hex|base64|raw (raw returns the bytes; add download=1 for a log file)",
     handler: async (req: Request, a: any, url: URL) => {
       const p = getPort(a.id);
       const q = Object.fromEntries(url.searchParams);
@@ -1931,7 +1931,7 @@ const tools = [
   {
     name: "serial_write",
     description:
-      "Write to a serial port and optionally wait for a reply. Opens the port if needed (and leaves it open). Give text (use eol to append a line ending) or hex. With wait (a JavaScript regex), returns the output received after the write up to the first match, or whatever arrived by timeout_ms (max 9000). Without wait, timeout_ms just collects output for that long. ANSI escapes are stripped unless raw. Example: {id, text:'help', eol:'crlf', wait:'\\\\n> ?$'}.",
+      "Write to a serial port and optionally wait for a reply. Opens the port if needed (and leaves it open). Give text (use eol to append a line ending) or hex. With wait (a JavaScript regex), returns the output received after the write up to the first match, or whatever arrived by timeout_ms (max 60000). Without wait, timeout_ms just collects output for that long. ANSI escapes are stripped unless raw. Example: {id, text:'help', eol:'crlf', wait:'\\\\n> ?$'}.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1941,7 +1941,7 @@ const tools = [
         eol: { type: "string", enum: ["none", "cr", "lf", "crlf"], default: "none" },
         wait: { type: "string", description: "Regex to wait for in the output" },
         flags: { type: "string", default: "m" },
-        timeout_ms: { type: "integer", default: 3000, maximum: 9000 },
+        timeout_ms: { type: "integer", default: 3000, maximum: 60000 },
         raw: { type: "boolean", default: false },
       },
       required: ["id"],
@@ -1957,7 +1957,7 @@ const tools = [
         ...idProp,
         cursor: { type: "integer" },
         max_bytes: { type: "integer", default: 16384 },
-        wait_ms: { type: "integer", maximum: 9000 },
+        wait_ms: { type: "integer", maximum: 60000 },
         format: { type: "string", enum: ["text", "hex", "base64"], default: "text" },
         raw: { type: "boolean", default: false },
       },

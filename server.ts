@@ -2040,6 +2040,10 @@ await periph.start(async () => {
 
 Bun.serve({
   port: PORT, hostname: "::",
+  // Bun drops a request that is quiet for 10 s by default. Peripheral calls legitimately
+  // wait longer (an agent waiting for a serial prompt, a CAN capture, a Wi-Fi client
+  // test), so allow up to 2 minutes. SSE and WebSockets are unaffected: they send often.
+  idleTimeout: 120,
   websocket: periph.websocket,
   async fetch(req, server) {
     const url = new URL(req.url);
