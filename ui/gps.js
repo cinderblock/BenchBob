@@ -110,7 +110,6 @@
       ['UTC time', f.time ? esc(f.time) : '–'],
       ['vs system clock', `${f.toffOffset_ms != null ? `${f.toffOffset_ms} ms (gpsd TOFF)` : '–'}${f.nmeaOffset_ms != null ? ` · NMEA arrival ${f.nmeaOffset_ms} ms` : ''} <span class="pr-note">negative = receiver's time is behind; includes serial latency</span>`],
       ['PPS', st.ppsDevices?.length ? (f.ppsOffset_us != null ? `${f.ppsOffset_us} µs offset (${f.ppsAge_s} s ago)` : `${esc(st.ppsDevices.join(', '))}: no pulses yet`) : 'no /dev/pps* device'],
-      ['NTP', esc(st.ntp || '')],
     ];
     h += `<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;margin-top:8px">
       <div style="flex:0 1 240px;min-width:180px">${skyPlot(sats)}

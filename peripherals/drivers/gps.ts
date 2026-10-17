@@ -25,7 +25,6 @@ import { classifyUsb, ingest, newState, summarize, type GpsdState } from "../lib
 const GPSD = "/usr/sbin/gpsd";
 const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
 const DEFAULT_PORT = 2947 + PORT_OFFSET;
-const NTP_NOTE = "NTP serving needs chrony (not installed; installing it replaces systemd-timesyncd)";
 
 let ctx: Ctx;
 
@@ -324,7 +323,6 @@ function status() {
     summary: run ? `${fix!.fix === "unknown" ? "Waiting for data" : fix!.fix} · ${fix!.satsUsed}/${fix!.satsVisible} sats · ${run.path}` : gps.length ? `${gps.length} receiver${gps.length > 1 ? "s" : ""}, gpsd off` : "No GPS receiver",
     candidates,
     ppsDevices: ppsDevices(),
-    ntp: NTP_NOTE,
     settings: { port: ctx.settings.get("port", DEFAULT_PORT), share: ctx.settings.get("share", false), readOnly: ctx.settings.get("readOnly", false), pps: ctx.settings.get("pps", true) },
     log: log.slice(-30),
     ...v,
