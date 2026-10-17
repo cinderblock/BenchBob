@@ -19,7 +19,8 @@ peripheral operations are MCP tools at `POST /mcp`.
 Each device class is a panel. A panel appears on the dashboard when it has something to
 show (a device plugged in, a capture running). Idle panels fold into the **Tools** strip,
 where you can open them. **Peripherals…** turns whole panels off (GPIO, say), which also
-removes them from the API and MCP.
+removes them from the API and MCP. Turning the USB panel off also stops sharing its devices;
+restarting DeskyPi doesn't, so remote USB/IP clients stay attached across a deploy.
 
 | Panel | What it does |
 | --- | --- |

@@ -94,7 +94,8 @@ export interface Driver {
   /** One-line description for the driver settings list. */
   description?: string;
   init?(ctx: Ctx): void | Promise<void>;
-  stop?(): void | Promise<void>;
+  /** "disable": the user turned the driver off; "shutdown": the service is stopping or restarting. */
+  stop?(reason: "disable" | "shutdown"): void | Promise<void>;
   /** Hotplug: called for every udev event after the device DB is updated. */
   udev?(ev: UdevEvent): void;
   status?(): any;
@@ -324,11 +325,11 @@ async function startDriver(l: Loaded) {
   }
 }
 
-async function stopDriver(l: Loaded) {
+async function stopDriver(l: Loaded, reason: "disable" | "shutdown") {
   if (!l.started) return;
   l.started = false;
   try {
-    await l.driver.stop?.();
+    await l.driver.stop?.(reason);
   } catch (e) {
     console.error(`[${l.driver.id}] stop failed:`, e);
   }
@@ -374,7 +375,7 @@ export async function start(onChanged: () => void) {
     if (shuttingDown) return;
     shuttingDown = true;
     udevProc?.kill();
-    await Promise.all([...loaded.values()].map(stopDriver));
+    await Promise.all([...loaded.values()].map((l) => stopDriver(l, "shutdown")));
     process.exit(0);
   };
   process.on("SIGTERM", shutdown);
@@ -436,7 +437,7 @@ export async function route(req: Request, url: URL, server: Server): Promise<Res
       if (disabled) settingsData.disabled[id] = true;
       else delete settingsData.disabled[id];
       saveSettings();
-      await (disabled ? stopDriver(l) : startDriver(l));
+      await (disabled ? stopDriver(l, "disable") : startDriver(l));
       changed();
       return Response.json({ ok: true });
     } catch (e) {

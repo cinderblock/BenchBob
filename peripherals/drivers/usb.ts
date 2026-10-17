@@ -419,6 +419,18 @@ async function unshare(busid: string) {
   return { ok: true, busid };
 }
 
+async function unshareAll() {
+  const bin = which("usbip");
+  if (!bin) return;
+  // Read sysfs directly: rescan() would also restart usbipd and reapply rules.
+  for (const x of (await U.readUsbSysfs()).filter((x) => x.driver === "usbip-host")) {
+    const r = await run(["sudo", "-n", bin, "unbind", "-b", x.name], { timeoutMs: 15000 });
+    if (r.code === 0) ctx.event(`Stopped sharing ${x.name}: USB panel turned off`, { kind: "share", busid: x.name });
+    else ctx.event(`Couldn't stop sharing ${x.name}: ${(r.err || r.out).replace(/^usbip: error: /, "")}`, { kind: "share", level: "error", busid: x.name });
+  }
+  raw = await U.readUsbSysfs();
+}
+
 function clientHelp(busid: string) {
   const port = usbipPort();
   const pf = port === 3240 ? "" : ` --tcp-port ${port}`;
@@ -877,14 +889,16 @@ const driver: Driver = {
     pollTimer = setInterval(() => poll().catch((e) => ctx.log("poll:", e)), 3000);
     ctx.changed();
   },
-  async stop() {
+  async stop(reason) {
     stopped = true;
     for (const t of [rescanTimer, hubTimer]) if (t) clearTimeout(t);
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
-    // Children (usbipd, usbredirserver, dmesg) are killed by core after this returns.
-    // Devices stay bound to usbip-host: established USB/IP attachments live in the kernel and
-    // survive a restart of this service; the next init restarts usbipd for new clients.
+    // Children (usbipd, usbredirect, dmesg) are killed by core after this returns.
+    // On a restart, devices stay bound to usbip-host: established USB/IP attachments live in
+    // the kernel and survive, and the next init restarts usbipd for new clients. Turning the
+    // panel off is a decision to stop sharing, so hand the devices back to their own drivers.
+    if (reason === "disable") await unshareAll();
     usbipd = null;
     redir.clear();
     if (loadedUsbipHost && boundCount() === 0) {
