@@ -1330,12 +1330,14 @@ function mkFirstrun(s: any): string {
 
 interface RpibootResult {
   path: string;
+  chip: rpi.Chip;
   at: number;
   kind: "eeprom-check" | "eeprom-write";
   ok: boolean;
   message: string;
   metadata: Record<string, string> | null;
   board: ReturnType<typeof rpi.decodeBoardRev>;
+  installed: rpi.Installed | null;
 }
 
 // Kept after the op itself is gone: the device leaves boot mode when recovery.bin is
@@ -1372,16 +1374,26 @@ async function doRpiboot(op: Operation): Promise<void> {
 
   const kind = op.type as "eeprom-check" | "eeprom-write";
   let r: rpi.RpibootRun;
+  let image: rpi.EepromImage | undefined;
   if (kind === "eeprom-check") {
     op.message = "Reading bootloader metadata...";
     r = await rpi.readBootloaderInfo(dev, hooks);
   } else {
-    const image = (await rpi.eepromImages(dev.chip)).find((i) => i.id === op.eepromImageId);
+    image = (await rpi.eepromImages(dev.chip)).find((i) => i.id === op.eepromImageId);
     if (!image) throw new Error("Unknown bootloader image");
     op.message = `Writing bootloader ${image.label}...`;
     r = await rpi.writeBootloader(dev, image, op.bootConf || "", hooks);
   }
   if (op.aborted) throw new Error("Cancelled");
+
+  // Remember what was sent unless the module said it failed. A hash match later is
+  // proof on its own, so recording a write whose outcome is unknown can't mislead.
+  if (image && r.imageSha256 && (!r.metadata || r.metadata.EEPROM_UPDATE === "success")) {
+    await rpi.recordWrite({
+      at: Date.now(), chip: dev.chip, mac: r.metadata?.MAC_ADDR || null, imageLabel: image.label, buildDate: image.buildDate,
+      bootConf: op.bootConf || "", hashes: [r.imageSha256, r.metadata?.EEPROM_HASH || ""],
+    }).catch((e) => console.error("could not record bootloader write:", e));
+  }
 
   const md = r.metadata;
   const board = rpi.decodeBoardRev(md?.USER_BOARDREV);
@@ -1402,7 +1414,8 @@ async function doRpiboot(op: Operation): Promise<void> {
         ? `Bootloader update reported "${upd}". The old bootloader is most likely still in place.`
         : `Outcome unknown, no metadata came back (${why}). A rapidly flashing green LED on the module means success. Last output: ${tail()}`;
   }
-  rpibootResults.set(dev.path, { path: dev.path, at: Date.now(), kind, ok, message, metadata: md, board });
+  const installed = md ? await rpi.identifyBootloader(dev.chip, md) : null;
+  rpibootResults.set(dev.path, { path: dev.path, chip: dev.chip, at: Date.now(), kind, ok, message, metadata: md, board, installed });
   op.progress = 100;
   op.status = ok ? "done" : "error";
   op.message = message;
@@ -1418,7 +1431,13 @@ async function rpibootRoute(p: string, req: Request, url: URL): Promise<Response
   if (p === "/api/rpiboot/eeprom/options") {
     const dev = (await rpi.getBootDevices()).find((d) => d.path === url.searchParams.get("path"));
     if (!dev) return Response.json({ ok: false, message: "No such device in USB boot mode" }, { status: 404 });
-    return Response.json({ ok: true, chip: dev.chip, images: await rpi.eepromImages(dev.chip), bootConf: await rpi.defaultBootConf(dev.chip) });
+    // A check (or write) on this port since it was last power-cycled is the only source
+    // of what's installed; see identifyBootloader.
+    const last = rpibootResults.get(dev.path);
+    return Response.json({
+      ok: true, chip: dev.chip, images: await rpi.eepromImages(dev.chip), bootConf: await rpi.defaultBootConf(dev.chip),
+      installed: last?.chip === dev.chip ? last.installed : null, checkedAt: last?.chip === dev.chip ? last.at : null,
+    });
   }
   if (p === "/api/rpiboot/results/clear" && req.method === "POST") {
     const { path } = await req.json();

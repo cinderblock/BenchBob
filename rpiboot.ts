@@ -13,12 +13,13 @@
 // Every rpiboot run is pinned to one USB port path (`-p`), so two CMs on one host
 // can't be confused with each other.
 
-import { readdir, readFile, mkdir, rm, copyFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, mkdir, rm, copyFile, writeFile, stat, rename } from "node:fs/promises";
 
 const USB_ROOT = "/sys/bus/usb/devices";
 const RPIBOOT_DIR = "/usr/share/rpiboot";
 const EEPROM_FW_DIR = "/lib/firmware/raspberrypi";
 const WORK_ROOT = "/tmp/deskypi-rpiboot";
+const HISTORY_PATH = import.meta.dir + "/eeprom-history.json";
 
 // Broadcom vendor 0a5c, product = the SoC's boot ROM.
 const BOOT_ROMS: Record<string, { chip: Chip; label: string }> = {
@@ -46,6 +47,7 @@ export interface EepromImage {
   path: string;
   recoveryBin: string;
   buildDate: string;
+  config: string; // the boot.conf embedded in the image as shipped
 }
 
 async function readAttr(dir: string, name: string): Promise<string | null> {
@@ -114,24 +116,56 @@ export async function eepromImages(chip: Chip): Promise<EepromImage[]> {
   const imgs: EepromImage[] = [];
   const base = `${EEPROM_FW_DIR}/bootloader-${chip}`;
   for (const channel of ["default", "latest"]) {
-    let files: string[] = [];
-    try {
-      files = (await readdir(`${base}/${channel}`)).filter((f) => /^pieeprom-\d{4}-\d{2}-\d{2}\.bin$/.test(f)).sort();
-    } catch {}
-    const newest = files.at(-1);
+    const newest = (await channelImages(`${base}/${channel}`)).at(-1);
     if (!newest) continue;
     const path = `${base}/${channel}/${newest}`;
     const date = buildDate(path);
     if (imgs.some((i) => i.buildDate === date)) continue; // same build in both channels
-    imgs.push({ id: channel, label: `${date} (rpi-eeprom "${channel}" channel)`, path, recoveryBin: `${base}/${channel}/recovery.bin`, buildDate: date });
+    imgs.push({ id: channel, label: `${date} (rpi-eeprom "${channel}" channel)`, path, recoveryBin: `${base}/${channel}/recovery.bin`, buildDate: date, config: (await imageInfo(path))?.config || "" });
   }
-  const stock = `${RPIBOOT_DIR}/firmware/${chip}/pieeprom.bin`;
-  if (await Bun.file(stock).exists()) {
-    const ts = parseInt((await readFile(stock)).toString("latin1").match(/BUILD_TIMESTAMP=(\d+)/)?.[1] || "0");
-    const date = ts ? new Date(ts * 1000).toISOString().slice(0, 10) : "";
-    imgs.push({ id: "rpiboot", label: `${date || "?"} (rpiboot's stock recovery image)`, path: stock, recoveryBin: `${RPIBOOT_DIR}/firmware/${chip}/recovery.bin`, buildDate: date });
+  const stock = await stockImage(chip);
+  if (stock) {
+    imgs.push({ id: "rpiboot", label: `${stock.buildDate || "?"} (rpiboot's stock recovery image)`, path: stock.path, recoveryBin: `${RPIBOOT_DIR}/firmware/${chip}/recovery.bin`, buildDate: stock.buildDate, config: (await imageInfo(stock.path))?.config || "" });
   }
   return imgs;
+}
+
+async function channelImages(dir: string): Promise<string[]> {
+  try {
+    return (await readdir(dir)).filter((f) => /^pieeprom-\d{4}-\d{2}-\d{2}\.bin$/.test(f)).sort();
+  } catch {
+    return [];
+  }
+}
+
+async function stockImage(chip: Chip): Promise<{ path: string; buildDate: string } | null> {
+  const path = `${RPIBOOT_DIR}/firmware/${chip}/pieeprom.bin`;
+  if (!(await Bun.file(path).exists())) return null;
+  const ts = parseInt((await readFile(path)).toString("latin1").match(/BUILD_TIMESTAMP=(\d+)/)?.[1] || "0");
+  return { path, buildDate: ts ? new Date(ts * 1000).toISOString().slice(0, 10) : "" };
+}
+
+function sha256(data: ArrayBuffer): string {
+  return new Bun.CryptoHasher("sha256").update(data).digest("hex");
+}
+
+// sha256 and embedded config of an image file, cached until the file changes (apt
+// upgrades replace them).
+const imageInfoCache = new Map<string, { mtime: number; sha256: string; config: string }>();
+
+async function imageInfo(path: string): Promise<{ sha256: string; config: string } | null> {
+  let mtime: number;
+  try {
+    mtime = (await stat(path)).mtimeMs;
+  } catch {
+    return null;
+  }
+  const hit = imageInfoCache.get(path);
+  if (hit && hit.mtime === mtime) return hit;
+  const cfg = Bun.spawnSync(["rpi-eeprom-config", path]);
+  const info = { mtime, sha256: sha256(await Bun.file(path).arrayBuffer()), config: cfg.exitCode === 0 ? cfg.stdout.toString() : "" };
+  imageInfoCache.set(path, info);
+  return info;
 }
 
 // The boot.conf rpiboot's recovery directory ships for this chip: the documented
@@ -145,6 +179,78 @@ export async function defaultBootConf(chip: Chip): Promise<string> {
   }
 }
 
+// ==================== Identifying the installed bootloader ====================
+//
+// Nothing reads the EEPROM (or its config) back over USB. recovery.bin does report an
+// EEPROM_HASH in its metadata, so the installed image is recognised by hash: against every
+// stock release image, and against every image DeskyPi wrote itself. For our own writes
+// both the sha256 of the file and the hash the module reported straight afterwards are
+// kept, since what EEPROM_HASH covers isn't documented. No match means "unknown", never a
+// guess.
+
+export interface WriteRecord {
+  at: number;
+  chip: Chip;
+  mac: string | null;
+  imageLabel: string;
+  buildDate: string;
+  bootConf: string;
+  hashes: string[];
+}
+
+export interface Installed {
+  source: "deskypi" | "stock" | "unknown";
+  buildDate: string | null;
+  label: string;
+  bootConf: string | null; // the installed config, when the image was recognised
+  writtenAt?: number;
+  // The newest DeskyPi write to this MAC when the installed image isn't it: something
+  // else (self-update, rpi-eeprom-update on the module) has replaced it since.
+  lastWrite?: WriteRecord;
+}
+
+async function readHistory(): Promise<WriteRecord[]> {
+  try {
+    const h = JSON.parse(await readFile(HISTORY_PATH, "utf8"));
+    return Array.isArray(h) ? h : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function recordWrite(rec: WriteRecord): Promise<void> {
+  const hashes = [...new Set(rec.hashes.filter(Boolean).map((x) => x.toLowerCase()))];
+  const h = [...(await readHistory()), { ...rec, mac: rec.mac?.toLowerCase() || null, hashes }].slice(-200);
+  await writeFile(`${HISTORY_PATH}.tmp`, JSON.stringify(h, null, 2) + "\n");
+  await rename(`${HISTORY_PATH}.tmp`, HISTORY_PATH);
+}
+
+export async function identifyBootloader(chip: Chip, metadata: Record<string, string> | null): Promise<Installed> {
+  const hash = metadata?.EEPROM_HASH?.toLowerCase() || null;
+  const mac = metadata?.MAC_ADDR?.toLowerCase() || null;
+  const history = (await readHistory()).filter((r) => r.chip === chip);
+  const lastWrite = mac ? history.filter((r) => r.mac === mac).at(-1) : undefined;
+  if (!hash) return { source: "unknown", buildDate: null, label: "Unknown: the module didn't report an EEPROM hash", bootConf: null, lastWrite };
+
+  const ours = history.filter((r) => r.hashes.includes(hash)).at(-1);
+  if (ours) return { source: "deskypi", buildDate: ours.buildDate, label: `${ours.buildDate}, written by DeskyPi`, bootConf: ours.bootConf, writtenAt: ours.at };
+
+  const base = `${EEPROM_FW_DIR}/bootloader-${chip}`;
+  const paths = new Set<string>();
+  for (const channel of ["default", "latest", "stable", "beta", "critical"]) {
+    for (const f of await channelImages(`${base}/${channel}`)) paths.add(`${base}/${channel}/${f}`);
+  }
+  const stock = await stockImage(chip);
+  if (stock) paths.add(stock.path);
+  for (const path of paths) {
+    const info = await imageInfo(path);
+    if (info?.sha256 !== hash) continue;
+    const date = path === stock?.path ? stock.buildDate : buildDate(path);
+    return { source: "stock", buildDate: date, label: `${date}, a stock release with its default settings`, bootConf: info.config, lastWrite };
+  }
+  return { source: "unknown", buildDate: null, label: "Unrecognised: not a stock release with default settings, and not written by DeskyPi", bootConf: null, lastWrite };
+}
+
 // ==================== Running rpiboot ====================
 
 export interface RpibootRun {
@@ -152,6 +258,7 @@ export interface RpibootRun {
   log: string[];
   metadata: Record<string, string> | null;
   timedOut: boolean;
+  imageSha256?: string; // of the pieeprom.bin sent, for bootloader writes
 }
 
 export interface RunHooks {
@@ -245,8 +352,9 @@ export async function writeBootloader(dev: BootDevice, image: EepromImage, bootC
     const dig = Bun.spawnSync(["rpi-eeprom-digest", "-i", `${dir}/pieeprom.bin`, "-o", `${dir}/pieeprom.sig`]);
     if (dig.exitCode !== 0) throw new Error(`rpi-eeprom-digest: ${dig.stderr.toString().trim() || `exit ${dig.exitCode}`}`);
     hooks.onLine(`Built pieeprom.bin from ${image.label}`);
+    const imageSha256 = sha256(await Bun.file(`${dir}/pieeprom.bin`).arrayBuffer());
     const r = await rpiboot(["-d", dir, "-j", `${dir}/metadata`, "-p", dev.path], hooks, 180_000);
-    return { ...r, metadata: await readMetadata(`${dir}/metadata`) };
+    return { ...r, metadata: await readMetadata(`${dir}/metadata`), imageSha256 };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
