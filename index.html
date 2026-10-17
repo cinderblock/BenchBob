@@ -1874,8 +1874,8 @@ function distroName(id) { return id.split(' › ').pop() || 'Other'; }
 function distroGroup(id) { const p = id.split(' › ').slice(0, -1); return p.length > 1 ? `${p[p.length - 1]}${p[0].startsWith('Freemium') ? ' (paid)' : ''}` : p[0]; }
 function driveOf(dev) { return S?.drives?.find(d => d.name === dev); }
 
-// Saved defaults as flash settings, for Quick Pi. Wi-Fi passwords are never saved with the
-// defaults, so networks without one are left out rather than written as open networks.
+// Saved defaults as flash settings, for Quick Pi. Networks saved without a password (by an
+// older dashboard, which stripped them) are left out rather than written as open networks.
 function quickSettings(hostname) {
   const d = defaults;
   return {
@@ -1926,7 +1926,7 @@ function quickPiModal(dev) {
       <div class="qp-sum">
         <span>Image</span><span>${im ? `${esc(im.name)} · ${esc(cap(im.rpios.release))} · ${fmtSz(im.downloadSize)}` : '—'}</span>
         <span>Login</span><span>${esc(s.username)} · ${s.sshKeys.length} SSH key${s.sshKeys.length === 1 ? '' : 's'} · no password${s.passwordlessSudo ? ' · passwordless sudo' : ''}</span>
-        <span>Wi-Fi</span><span>${s.wifiNetworks.length ? esc(s.wifiNetworks.map(w => w.ssid).join(', ')) : 'none (wired)'}${skipped.length ? ` <span class="dim">· skipped ${esc(skipped.join(', '))}: no saved password</span>` : ''}</span>
+        <span>Wi-Fi</span><span>${s.wifiNetworks.length ? esc(s.wifiNetworks.map(w => w.ssid).join(', ')) : 'none (wired)'}${skipped.length ? ` <span class="dim">· skipped ${esc(skipped.join(', '))}: no saved password, re-save defaults with it</span>` : ''}</span>
         <span>Locale</span><span>${esc(s.timezone)} · ${esc(s.keyboardLayout)} keyboard</span>
       </div>
       ${blocker ? `<div class="fp-warn">${esc(blocker)}</div>` : ''}
@@ -2151,9 +2151,9 @@ async function loadDefaults() {
 
 async function saveDefaults() {
   const s = readSettingsForm();
+  // The login password isn't kept, but Wi-Fi passwords are: without them a saved network
+  // is useless (Quick Pi leaves it out), and defaults.json only lives on this Pi.
   delete s.password;
-  // Strip wifi passwords from defaults for security
-  if (s.wifiNetworks) s.wifiNetworks = s.wifiNetworks.map(w => ({...w, password: ''}));
   try {
     await fetch('/api/defaults', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(s) });
     toast('Defaults saved','success');
