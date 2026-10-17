@@ -385,6 +385,36 @@ details[open] summary{margin-bottom:8px}
 .toast-error{background:#3a1a1a;color:var(--danger);border:1px solid #5c2020}
 .toast-info{background:#1a2640;color:var(--accent);border:1px solid #2a3a60}
 @keyframes fadeIn{from{transform:translateX(60px);opacity:0}to{transform:none;opacity:1}}
+
+/* Peripherals: one section per driver, shown while it has something to show */
+.pr-sec .section-title{display:flex;align-items:baseline;gap:10px}
+.pr-sec .pr-sum{font-weight:400;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-x{background:none;border:none;color:var(--dim);cursor:pointer;font-size:1rem;line-height:1;padding:0 2px}
+.pr-x:hover{color:var(--text)}
+.pr-body{padding:0 18px 16px}
+.pr-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 18px}
+.pr-tools .pr-lbl{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin-right:4px}
+.pr-tool{display:inline-flex;flex-direction:column;align-items:flex-start;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);cursor:pointer;font:inherit;font-size:.8rem;text-align:left}
+.pr-tool:hover{border-color:var(--accent)}
+.pr-tool small{color:var(--dim);font-size:.7rem}
+.pr-gear{margin-left:auto}
+.pr-tbl{width:100%;border-collapse:collapse;font-size:.8rem}
+.pr-tbl th{text-align:left;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);padding:4px 8px;border-bottom:1px solid var(--border)}
+.pr-tbl td{padding:4px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.pr-tbl tr:last-child td{border-bottom:none}
+.pr-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.pr-row label{font-size:.78rem;color:var(--dim);display:inline-flex;gap:4px;align-items:center}
+.pr-row input,.pr-row select{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:3px 6px;font:inherit;font-size:.8rem}
+.pr-card{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-top:10px}
+.pr-card h4{font-size:.85rem;font-weight:600;margin-bottom:4px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.pr-card h4 small{font-weight:400;color:var(--dim);font-size:.75rem}
+.pr-note{font-size:.75rem;color:var(--dim)}
+.pr-pill{display:inline-block;font-size:.68rem;padding:1px 7px;border-radius:9px;background:var(--surface3);color:var(--dim)}
+.pr-pill.on{background:rgba(76,175,125,.18);color:var(--success)}
+.pr-pill.warn{background:rgba(245,166,35,.15);color:var(--warning)}
+.pr-pill.bad{background:rgba(255,92,92,.15);color:var(--danger)}
+.pr-log{background:#07080b;border:1px solid var(--border);border-radius:4px;font-family:'SF Mono',ui-monospace,monospace;font-size:.75rem;padding:6px 8px;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.pr-endpoint{font-family:'SF Mono',ui-monospace,monospace;font-size:.75rem;background:var(--surface3);border-radius:4px;padding:1px 6px;user-select:all}
 </style>
 </head>
 <body>
@@ -451,6 +481,10 @@ details[open] summary{margin-bottom:8px}
     <div class="section-title">Connected Drives</div>
     <div id="drives"><div class="empty">Connecting...</div></div>
   </div>
+
+  <!-- ====== PERIPHERALS (sections built by ui/*.js) ====== -->
+  <div id="periph" style="display:contents"></div>
+  <div class="section" id="periph-tools"></div>
 </main>
 
 <div class="modal-bg hidden" id="modal-bg"><div class="modal" id="modal"></div></div>
@@ -793,6 +827,8 @@ function render() {
 
   // Drives
   renderDrives(s.drives, s.nbdExports);
+
+  renderPeriph(s);
 }
 
 // Under-voltage on this Pi browns out every USB drive (and any Compute Module) hanging
@@ -2442,11 +2478,110 @@ function toast(msg, type) {
   setTimeout(() => t.remove(), 5000);
 }
 
+// ==================== Peripherals ====================
+// Each driver's ui/<id>.js calls periphRegister(id, { mount(el, st, S), update(st, S), unmount() }).
+// mount() runs once when the section first appears and owns everything inside `el`;
+// update() runs on every status push with S.peripherals.state[id]. A section is shown while
+// its driver reports `active` (a device present, something running), or after the user
+// opens it from the Tools strip. Idle sections fold away into that strip.
+const PERIPH = {};
+const periphMounted = {};
+let periphOpen = new Set();
+try { periphOpen = new Set(JSON.parse(localStorage.getItem('periphOpen') || '[]')); } catch {}
+function periphRegister(id, def) { PERIPH[id] = def; if (S) renderPeriph(S); }
+function periphSaveOpen() { try { localStorage.setItem('periphOpen', JSON.stringify([...periphOpen])); } catch {} }
+function periphShow(id) { periphOpen.add(id); periphSaveOpen(); renderPeriph(S); Q('#pr-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+function periphHide(id) { periphOpen.delete(id); periphSaveOpen(); renderPeriph(S); }
+
+function renderPeriph(s) {
+  const P = s?.peripherals; if (!P) return;
+  const host = Q('#periph');
+  const order = P.list.map(d => d.id);
+  const idle = [];
+  for (const d of P.list) {
+    const def = PERIPH[d.id];
+    const st = P.state[d.id];
+    const show = def && !d.disabled && st && (d.active || periphOpen.has(d.id));
+    let sec = Q('#pr-' + d.id);
+    if (!show) {
+      if (sec) { try { def?.unmount?.(); } catch (e) { console.error(e); } sec.remove(); delete periphMounted[d.id]; }
+      if (def && !d.disabled && st) idle.push(d);
+      continue;
+    }
+    if (!sec) {
+      sec = document.createElement('div');
+      sec.className = 'section pr-sec'; sec.id = 'pr-' + d.id;
+      sec.innerHTML = `<div class="section-title"><span>${esc(d.title)}</span><span class="pr-sum"></span><button class="pr-x" aria-label="Fold into Tools" onclick="periphHide('${d.id}')">&times;</button></div><div class="pr-body"></div>`;
+      // Keep driver order stable regardless of when each section appeared.
+      const mine = order.indexOf(d.id);
+      const after = [...host.children].find(c => order.indexOf(c.id.slice(3)) > mine);
+      host.insertBefore(sec, after || null);
+    }
+    sec.querySelector('.pr-sum').textContent = d.summary || '';
+    // Only idle sections the user opened can be folded; an active one would just come back.
+    sec.querySelector('.pr-x').style.visibility = d.active ? 'hidden' : 'visible';
+    try {
+      if (!periphMounted[d.id]) { periphMounted[d.id] = true; def.mount?.(sec.querySelector('.pr-body'), st, s); }
+      def.update?.(st, s);
+    } catch (e) { console.error(`[${d.id}]`, e); }
+  }
+  const tools = Q('#periph-tools');
+  const sig = idle.map(d => d.id + ':' + d.summary).join('|');
+  if (tools.dataset.sig !== sig) {
+    tools.dataset.sig = sig;
+    tools.innerHTML = `<div class="pr-tools"><span class="pr-lbl">Tools</span>${idle.map(d => `<button class="pr-tool" onclick="periphShow('${d.id}')">${esc(d.title)}${d.summary ? `<small>${esc(d.summary)}</small>` : ''}</button>`).join('')}<button class="btn btn-sm pr-gear" onclick="periphSettings()">Peripherals…</button></div>`;
+  }
+}
+
+function periphSettings() {
+  const list = S?.peripherals?.list || [];
+  showModal(`<h3>Peripherals</h3><p class="pr-note">Turn off anything you don't use. A disabled peripheral releases its devices, stops its bridges and captures, and disappears from the dashboard, the API and MCP.</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin:12px 0">${list.map(d => `<label style="display:flex;gap:8px;align-items:flex-start;font-size:.85rem"><input type="checkbox" ${d.disabled ? '' : 'checked'} onchange="periphToggle('${d.id}', !this.checked)"><span><b>${esc(d.title)}</b>${d.description ? `<br><span class="pr-note">${esc(d.description)}</span>` : ''}</span></label>`).join('')}</div>
+    <div class="modal-btns"><button class="btn" onclick="hideModal()">Done</button></div>`);
+}
+async function periphToggle(id, disabled) {
+  try { await papi('POST', '/api/periph/driver', { id, disabled }); } catch {}
+}
+
+// JSON fetch for driver UIs: resolves the parsed body; toasts and throws on failure.
+async function papi(method, url, body) {
+  let r, j;
+  try {
+    r = await fetch(url, { method, headers: body !== undefined ? { 'Content-Type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined });
+    j = await r.json().catch(() => ({}));
+  } catch (e) { toast('Request failed: ' + e.message, 'error'); throw e; }
+  if (!r.ok || j.ok === false) { const m = j.message || r.statusText; toast(m, 'error'); throw new Error(m); }
+  return j;
+}
+
+// Reconnecting WebSocket for driver UIs. Text messages arrive parsed as JSON when they are
+// JSON; binary arrives as an ArrayBuffer. Returns { send(obj|string|ArrayBuffer), close(), ready }.
+function pws(path, { onmessage, onopen, onclose } = {}) {
+  let ws, closed = false, retry = 500;
+  const open = () => {
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + path);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { retry = 500; onopen?.(); };
+    ws.onmessage = e => { let m = e.data; if (typeof m === 'string') { try { m = JSON.parse(m); } catch {} } onmessage?.(m); };
+    ws.onclose = () => { onclose?.(); if (!closed) setTimeout(open, retry = Math.min(retry * 2, 8000)); };
+  };
+  open();
+  return {
+    send(m) { if (ws.readyState === 1) ws.send(typeof m === 'string' || m instanceof ArrayBuffer || ArrayBuffer.isView(m) ? m : JSON.stringify(m)); },
+    close() { closed = true; ws.close(); },
+    get ready() { return ws.readyState === 1; },
+  };
+}
+
+function fmtAgo(ms) { const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? s + 's ago' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago'; }
+function fmtHex(n, w = 2) { return '0x' + Number(n).toString(16).toUpperCase().padStart(w, '0'); }
+
 // ==================== Init ====================
 connect();
 loadCatalog();
 loadDefaults();
 loadLists();
 </script>
+<!--PERIPH_UI-->
 </body>
 </html>

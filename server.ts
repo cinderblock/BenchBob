@@ -2,6 +2,7 @@ import { access, rm } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { analyseDisk, type DiskInfo } from "./osinfo.ts";
 import * as rpi from "./rpiboot.ts";
+import * as periph from "./peripherals/core.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = import.meta.dir + "/defaults.json";
@@ -437,6 +438,7 @@ async function getStatus() {
     rpibootResults: [...rpibootResults.values()],
     filesRoot: FILES_ROOT,
     operations: getAllOps().map(opPublic),
+    peripherals: periph.status(),
     history: histBuf,
   };
 }
@@ -2007,12 +2009,15 @@ const UI_PATH = import.meta.dir + "/index.html";
 // UI_PATH must stay first — getBuild() serves texts[0] as the page.
 // defaults.json, favorites.json and quicklist.json are deliberately excluded: they are user data, rewritten
 // whenever flash settings or stars are saved, and would cause a spurious reload each time.
-const BUILD_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "regf.ts", "rpiboot.ts"].map((f) => `${import.meta.dir}/${f}`)];
+// Peripheral drivers and their dashboard scripts are globbed, so a new driver joins the hash
+// (and its ui/*.js is inlined into the page) without editing this list.
+const CORE_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "regf.ts", "rpiboot.ts"].map((f) => `${import.meta.dir}/${f}`)];
 
 let buildCache: { stamp: string; version: string; html: string } | null = null;
 
 async function getBuild(): Promise<{ version: string; html: string }> {
-  const files = BUILD_FILES.map((p) => Bun.file(p));
+  const uiFiles = periph.uiFiles();
+  const files = [...CORE_FILES, ...periph.buildFiles()].map((p) => Bun.file(p));
   // Cheap staleness check so a git pull is picked up without a restart.
   const stamp = files.map((f) => `${f.lastModified}:${f.size}`).join("|");
   if (!buildCache || buildCache.stamp !== stamp) {
@@ -2020,16 +2025,29 @@ async function getBuild(): Promise<{ version: string; html: string }> {
     // Hash the sources as stored, before substitution, so the value is stable rather
     // than self-referential.
     const version = Bun.hash(texts.join(" ")).toString(16);
-    buildCache = { stamp, version, html: texts[0].replaceAll("__BUILD_VERSION__", version) };
+    // One <script> per driver UI, so a mistake in one can't take down the rest of the page.
+    const uiTexts = texts.slice(files.length - uiFiles.length);
+    const uiScripts = uiTexts.map((t, i) => `<script>/* ${uiFiles[i].split("/").pop()} */\n${t}\n</script>`).join("\n");
+    buildCache = { stamp, version, html: texts[0].replace("<!--PERIPH_UI-->", () => uiScripts).replaceAll("__BUILD_VERSION__", version) };
   }
   return buildCache;
 }
 
+await periph.start(async () => {
+  if (sseClients.size === 0) return;
+  try { broadcast(await getStatus()); } catch {}
+});
+
 Bun.serve({
   port: PORT, hostname: "::",
-  async fetch(req) {
+  websocket: periph.websocket,
+  async fetch(req, server) {
     const url = new URL(req.url);
     const p = url.pathname;
+
+    const pr = await periph.route(req, url, server);
+    if (pr === "upgraded") return undefined;
+    if (pr) return pr;
 
     // no-cache (revalidate every load), not no-store — otherwise a deploy is invisible
     // until the user knows to hard-refresh. The ETag keeps revalidation cheap.
@@ -2040,7 +2058,7 @@ Bun.serve({
       if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
       return new Response(ui.html, { headers });
     }
-    if (p === "/api" || p === "/api/") return Response.json(API_DOCS);
+    if (p === "/api" || p === "/api/") return Response.json({ ...API_DOCS, endpoints: { ...API_DOCS.endpoints, ...periph.docs() } });
     if (p === "/api/status") return Response.json(await getStatus());
 
     if (p === "/api/events") {

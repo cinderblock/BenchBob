@@ -3,3 +3,4 @@ node_modules/
 favorites.json
 eeprom-history.json
 quicklist.json
+peripherals.json
