@@ -20,13 +20,16 @@ import { access, constants, readdir, readlink } from "node:fs/promises";
 import type { ServerWebSocket } from "bun";
 import { body, HttpError, readText, run, type Ctx, type Driver, type Route, type Tool, type WsData } from "../core.ts";
 import * as G from "../lib/gpio-config.ts";
+import { openGpioLevels, type GpioLevels } from "../lib/gpiomem.ts";
 
 const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const CONFIG = process.env.DESKYPI_CONFIG_TXT || "/boot/firmware/config.txt";
 const CONFIG_OVERRIDDEN = !!process.env.DESKYPI_CONFIG_TXT;
 const CMDLINE = process.env.DESKYPI_CMDLINE_TXT || "/boot/firmware/cmdline.txt";
 const STREAM_MS = 100;
-const CONSUMERS_MS = 2000;
+const CONSUMERS_MS = 5000;
+// With direct level reads, pinctrl (function, pull) only needs to run this often.
+const FULL_MS = 1000;
 
 let ctx: Ctx;
 let pinctrlBin: string | null = null;
@@ -114,6 +117,14 @@ const outputEnabled = () => !!ctx.settings.get("outputEnabled", false);
 
 // ---------- streaming ----------
 
+// BCM283x/2711 only: live levels read from the GPIO registers (see lib/gpiomem.ts), so the
+// 10 Hz stream runs pinctrl once a second instead of every tick. null on a Pi 5.
+let levels: GpioLevels | null = null;
+
+function overlayLevels(bits: bigint) {
+  for (const p of snap.pins) if (p.gpio < 58) p.level = Number((bits >> BigInt(p.gpio)) & 1n) as 0 | 1;
+}
+
 function startLoop() {
   if (loop) return;
   const tick = async () => {
@@ -121,7 +132,9 @@ function startLoop() {
       loop = null;
       return;
     }
-    await refresh(Date.now() - snap.linesAt > CONSUMERS_MS);
+    levels ??= openGpioLevels();
+    if (!levels || Date.now() - snap.at > FULL_MS) await refresh(Date.now() - snap.linesAt > CONSUMERS_MS);
+    else overlayLevels(levels.read());
     const msg = JSON.stringify({ type: "state", ...stateView() });
     // Only push changes, plus a heartbeat so clients can show "live".
     const body = msg.replace(/"at":\d+,/, "");
@@ -432,6 +445,8 @@ const driver: Driver = {
     loop = null;
     for (const ws of watchers) ws.close();
     watchers.clear();
+    levels?.close();
+    levels = null;
   },
   status() {
     const on = outputEnabled();
