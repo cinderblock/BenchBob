@@ -458,21 +458,26 @@ export async function route(req: Request, url: URL, server: Server): Promise<Res
     return new Response("Not Found", { status: 404 });
   }
 
+  // The most literal match wins (fewest :params), so "/api/gpio/reboot" isn't swallowed by
+  // "/api/gpio/:pin" whatever order a driver happened to list them in.
+  let best: { l: Loaded; r: Route; params: Record<string, string>; n: number } | null = null;
   for (const l of loaded.values()) {
     for (const r of l.driver.routes || []) {
       if (r.method !== req.method) continue;
       const params = matchPath(r.path, p);
       if (!params) continue;
-      if (!l.started) return Response.json({ ok: false, message: `${l.driver.title} is disabled` }, { status: 409 });
-      try {
-        const res = await r.handler(req, params, url);
-        return res instanceof Response ? res : Response.json(res ?? { ok: true });
-      } catch (e) {
-        return errorResponse(e);
-      }
+      const n = Object.keys(params).length;
+      if (!best || n < best.n) best = { l, r, params, n };
     }
   }
-  return null;
+  if (!best) return null;
+  if (!best.l.started) return Response.json({ ok: false, message: `${best.l.driver.title} is disabled` }, { status: 409 });
+  try {
+    const res = await best.r.handler(req, best.params, url);
+    return res instanceof Response ? res : Response.json(res ?? { ok: true });
+  } catch (e) {
+    return errorResponse(e);
+  }
 }
 
 export const websocket = {
