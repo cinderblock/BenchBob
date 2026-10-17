@@ -32,6 +32,34 @@ apt-get install -y -qq \
   rpi-eeprom \
   > /dev/null
 
+# Peripherals hub: the tools each driver in peripherals/drivers/ drives. Several of these
+# ship a daemon that would otherwise start at boot and hold devices or ports; DeskyPi runs
+# them itself, on demand, as child processes (step 9b masks the units).
+apt-get install -y -qq \
+  iw \
+  i2c-tools \
+  can-utils \
+  usbip \
+  uhubctl \
+  ustreamer \
+  v4l-utils \
+  lldpd \
+  iperf3 \
+  ethtool \
+  bluez \
+  rtl-sdr \
+  rtl-433 \
+  gpsd \
+  gpsd-clients \
+  nut-server \
+  nut-client \
+  openocd \
+  esptool \
+  avrdude \
+  udhcpc \
+  python3-serial \
+  > /dev/null
+
 # Install Bun if not present
 if ! command -v bun &>/dev/null; then
   blue "Installing Bun..."
@@ -51,6 +79,8 @@ blue "Installing application files..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cp "$SCRIPT_DIR"/*.ts "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/index.html" "$INSTALL_DIR/"
+rm -rf "$INSTALL_DIR/peripherals" "$INSTALL_DIR/ui"
+cp -r "$SCRIPT_DIR/peripherals" "$SCRIPT_DIR/ui" "$INSTALL_DIR/"
 
 if [ ! -f "$INSTALL_DIR/defaults.json" ]; then
   cat > "$INSTALL_DIR/defaults.json" << 'DEFAULTS'
@@ -129,6 +159,18 @@ fi
 apt-mark manual dkms > /dev/null
 echo "apfs" > /etc/modules-load.d/apfs.conf
 modprobe apfs 2>/dev/null || true
+
+# ---------- 9b. Peripherals ----------
+blue "Configuring peripherals..."
+# On-demand only: DeskyPi starts these with private configs when a panel needs them.
+for unit in lldpd iperf3 gpsd gpsd.socket nut-server nut-monitor nut-driver-enumerator nut-driver.target nut.target; do
+  systemctl disable --now "$unit" &>/dev/null || true
+  systemctl mask "$unit" &>/dev/null || true
+done
+# /dev/i2c-* nodes for the I2C panel. Enabling the header buses themselves (I2C, SPI, UART,
+# 1-Wire) is a config.txt change the GPIO panel stages with a diff, so it isn't forced here.
+echo "i2c-dev" > /etc/modules-load.d/i2c-dev.conf
+modprobe i2c-dev 2>/dev/null || true
 
 # ---------- 10. Systemd service ----------
 blue "Installing systemd service..."
