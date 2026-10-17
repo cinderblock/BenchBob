@@ -25,7 +25,8 @@ apt-get install -y -qq \
   nfs-kernel-server \
   nbd-server \
   samba \
-  apfs-dkms \
+  dkms \
+  git \
   apfsprogs \
   rpiboot \
   rpi-eeprom \
@@ -111,6 +112,21 @@ fi
 
 # ---------- 9. APFS module ----------
 blue "Configuring APFS support..."
+# Debian's apfs-dkms (0.3.13) stops building at kernel 6.18 (`struct page` lost `index`),
+# which leaves a kernel upgrade half-configured. Build the pinned upstream release under
+# DKMS instead, so every future kernel gets the module rebuilt automatically.
+APFS_VER=0.3.22
+if ! dkms status "linux-apfs-rw/$APFS_VER" 2>/dev/null | grep -q installed; then
+  dpkg -s apfs-dkms &>/dev/null && dpkg -r apfs-dkms > /dev/null
+  rm -rf "/usr/src/linux-apfs-rw-$APFS_VER"
+  git clone -q --depth 1 -b "v$APFS_VER" https://github.com/linux-apfs/linux-apfs-rw "/usr/src/linux-apfs-rw-$APFS_VER"
+  rm -rf "/usr/src/linux-apfs-rw-$APFS_VER/.git"
+  dkms add "linux-apfs-rw/$APFS_VER" > /dev/null
+  for k in /lib/modules/*/build; do
+    dkms install "linux-apfs-rw/$APFS_VER" -k "$(basename "$(dirname "$k")")" > /dev/null
+  done
+fi
+apt-mark manual dkms > /dev/null
 echo "apfs" > /etc/modules-load.d/apfs.conf
 modprobe apfs 2>/dev/null || true
 
