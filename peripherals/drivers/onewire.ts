@@ -648,7 +648,10 @@ const driver: Driver = {
     await loadGpioPins();
     await refresh();
     stopped = false;
-    presenceTimer = setInterval(() => void refresh(), 2000);
+    // Slaves come and go through udev (see udev() below), so this only catches master
+    // attribute changes (search mode, pull-up). Polling faster just churns Bun's file-read
+    // threads: the kernel itself only searches the bus every ~10 s.
+    presenceTimer = setInterval(() => void refresh(), 15_000);
     schedulePoll(200);
   },
   stop() {
