@@ -886,7 +886,8 @@ function summary(): string {
   if (probes.size) parts.push(`${probes.size} probe${probes.size > 1 ? "s" : ""}`);
   for (const p of servers) parts.push(`GDB :${p.session!.ports.gdb}${p.ocd.cpus[0] ? ` ${p.ocd.cpus[0].split(": ")[1]}` : ""}`);
   for (const b of boots.values()) parts.push(b.type.name);
-  return parts.join(" · ");
+  // The Tools strip shows this under the button when idle, so say what it's waiting for.
+  return parts.join(" · ") || "No probe connected";
 }
 
 // ---------- Request helpers ----------
