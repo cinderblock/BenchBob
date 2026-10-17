@@ -2,3 +2,4 @@ defaults.json
 node_modules/
 favorites.json
 eeprom-history.json
+quicklist.json

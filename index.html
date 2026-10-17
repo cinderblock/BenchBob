@@ -258,7 +258,16 @@ details[open] summary{margin-bottom:8px}
 .fp-cell .sz{font-weight:600;font-family:'SF Mono',ui-monospace,monospace;font-size:.8rem}
 .fp-cell .sub{font-size:.66rem;color:var(--dim)}
 .fp-cell .fp-star{position:absolute;top:4px;right:6px}
-.fp-cell .qp-mark{position:absolute;top:4px;left:6px;font-size:.72rem}
+.fp-qk{cursor:pointer;font-size:.8rem;line-height:1;user-select:none;filter:grayscale(1);opacity:.3}
+.fp-qk:hover{opacity:.7}
+.fp-qk.on{filter:none;opacity:1}
+.fp-cell .fp-qk{position:absolute;top:4px;left:6px}
+.fp-imgs .st .fp-qk{margin-left:4px}
+.qp-imgs{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.modal .qp-imgs#qp-imgs{margin-top:10px}
+.fp-chip.qk{border-color:#2d3a66;background:#1a2240;color:#b9c8ff}
+.fp-chip.qk:hover{border-color:var(--accent)}
+.fp-chip.qk.sel{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 .fp-distros{display:grid;grid-template-columns:200px 1fr;gap:10px;height:min(46vh,430px)}
 .fp-side{overflow:auto;border-right:1px solid var(--border);padding-right:8px}
 .fp-side .fb-filter{margin-bottom:4px}
@@ -275,7 +284,7 @@ details[open] summary{margin-bottom:8px}
 .fp-imgs tr:not(.grp):hover{background:var(--surface2)}
 .fp-imgs tr.sel{background:#1e2a52!important;box-shadow:2px 0 0 var(--accent) inset}
 .fp-imgs tr.grp td{font-size:.62rem;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding-top:10px}
-.fp-imgs .st{width:20px}
+.fp-imgs .st{width:20px;white-space:nowrap}
 .fp-imgs .nm .desc{font-size:.7rem;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .fp-imgs .bd{font-size:.7rem;color:var(--dim);white-space:nowrap}
 .fp-imgs .num{text-align:right;font-family:'SF Mono',ui-monospace,monospace;color:var(--dim);font-size:.74rem;white-space:nowrap}
@@ -872,14 +881,14 @@ function renderDrives(drives, nbdExports) {
     if (!hasParts && !busy) {
       // No partitions: show Flash
       h += `<button class="btn btn-primary" onclick="flashDrive('${d.name}')">Flash</button>`;
-      h += `<button class="btn" onclick="quickPiDrive('${d.name}')" title="Raspberry Pi OS Lite 64-bit with the saved defaults; asks only for a hostname">⚡ Quick Pi</button>`;
+      h += `<button class="btn" onclick="quickPiDrive('${d.name}')" title="Flash an image from the Quick Pi list with the saved defaults; asks only for a hostname">⚡ Quick Pi</button>`;
       h += `<button class="btn" onclick="scanDrive('${d.name}')">Scan</button>`;
     }
 
     // Optimistic: allow queueing flash during erase
     if (isErasing && !hasQueued) {
       h += `<button class="btn btn-primary" onclick="flashDrive('${d.name}')">Flash (queue)</button>`;
-      h += `<button class="btn" onclick="quickPiDrive('${d.name}')" title="Queue Raspberry Pi OS Lite 64-bit with the saved defaults">⚡ Quick Pi (queue)</button>`;
+      h += `<button class="btn" onclick="quickPiDrive('${d.name}')" title="Queue an image from the Quick Pi list with the saved defaults">⚡ Quick Pi (queue)</button>`;
     }
 
     // Raw-sector inspection: useful whether or not a filesystem claims to be empty
@@ -1780,9 +1789,11 @@ function renderFileRows() {
 
 // ==================== Flash ====================
 let boards = [];    // catalog board list: { name, tags, description, exclusive }
-let favorites = []; // starred images: { key, label }, keys from the catalog
 let fp = null;      // open flash picker: { dev, sel, tab, distro, q }
-const QUICK_KEY = 'rpios/current/64/lite';
+// Image lists kept on the server, as [{ key, label }] with catalog keys: starred images,
+// and the images Quick Pi offers. They're separate on purpose.
+const lists = { favorites: [], quick: [] };
+const LIST_API = { favorites: '/api/favorites', quick: '/api/quicklist' };
 const POPULAR_DISTROS = ['Ubuntu', 'DietPi', 'Armbian OS', 'Alpine Linux', 'Home Assistant', 'LibreELEC', 'Kali Linux', 'OctoPi'];
 const RPIOS_EDITIONS = [['lite', 'Lite', 'No desktop'], ['desktop', 'Desktop', 'Desktop + basics'], ['full', 'Full', 'Desktop + all apps']];
 const HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i;
@@ -1820,22 +1831,27 @@ async function loadCatalog() {
   } catch { images = []; boards = []; }
 }
 
-async function loadFavorites() {
-  try { favorites = await (await fetch('/api/favorites')).json(); } catch { favorites = []; }
+async function loadLists() {
+  await Promise.all(Object.keys(LIST_API).map(async n => {
+    try { lists[n] = await (await fetch(LIST_API[n])).json(); } catch { lists[n] = []; }
+  }));
 }
 
 function imgByKey(key) { return images.find(i => i.key === key); }
-function isFav(key) { return favorites.some(f => f.key === key); }
+function inList(n, key) { return lists[n].some(f => f.key === key); }
 
-async function toggleFav(key, ev) {
+async function toggleList(n, key, ev) {
   ev?.stopPropagation();
   const im = imgByKey(key);
-  favorites = isFav(key) ? favorites.filter(f => f.key !== key) : [...favorites, { key, label: im ? imgLabel(im) : key }];
-  if (fp) renderPicker();
+  lists[n] = inList(n, key) ? lists[n].filter(f => f.key !== key) : [...lists[n], { key, label: im ? imgLabel(im) : key }];
+  rerenderFlash();
   try {
-    await fetch('/api/favorites', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(favorites) });
-  } catch { toast('Saving favorites failed','error'); }
+    await fetch(LIST_API[n], { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(lists[n]) });
+  } catch { toast('Saving the list failed','error'); }
 }
+
+// Redraw whichever flash dialog is open after a list or Quick Pi choice changes.
+function rerenderFlash() { if (fp) renderPicker(); else if (Q('#qp-imgs')) renderQuickModal(); }
 
 function imgLabel(im) {
   if (!im.rpios) return im.name;
@@ -1887,9 +1903,31 @@ function quickSettings(hostname) {
   };
 }
 
-// Why Quick Pi can't run with the saved defaults, or '' if it can.
-function quickBlocker(s) {
-  if (!imgByKey(QUICK_KEY)) return 'Raspberry Pi OS Lite (64-bit) is not in the catalog right now.';
+// The Quick Pi list's images that are in the catalog, and the one to flash: the last one
+// picked, else the first.
+function quickImages() { return lists.quick.map(f => imgByKey(f.key)).filter(Boolean); }
+function quickImage() {
+  let k; try { k = localStorage.getItem('quickLast'); } catch {}
+  const ims = quickImages();
+  return ims.find(i => i.key === k) || ims[0] || null;
+}
+function pickQuick(key) { try { localStorage.setItem('quickLast', key); } catch {} rerenderFlash(); }
+
+// Chips for choosing the Quick Pi image; entries gone from the catalog can be removed.
+function quickChips() {
+  const cur = quickImage();
+  if (!lists.quick.length) return `<span class="dim">The list is empty. Add images with ⚡ in the flash dialog.</span>`;
+  return lists.quick.map(f => {
+    const im = imgByKey(f.key);
+    if (!im) return `<span class="fp-chip gone" title="Not in the current catalog">${esc(f.label)}<span class="x" onclick="toggleList('quick', '${esc(f.key)}', event)" title="Remove">×</span></span>`;
+    return `<span class="fp-chip qk${cur === im ? ' sel' : ''}" onclick="pickQuick('${esc(im.key)}')" title="${esc(im.name)} · ${fmtSz(im.downloadSize)}">${esc(imgLabel(im))}</span>`;
+  }).join('');
+}
+
+// Why Quick Pi can't run with this image and the saved defaults, or '' if it can.
+function quickBlocker(s, im) {
+  if (!im) return lists.quick.length ? 'None of the Quick Pi images are in the catalog right now.' : 'The Quick Pi list is empty.';
+  if (!takesSettings(im)) return `${im.name} ignores first-boot settings, so Quick Pi can't set its hostname or SSH keys.`;
   if (!s.enableSsh) return 'SSH is off in the saved defaults, so there would be no way in.';
   if (!s.sshKeys.length) return 'No SSH keys are saved in the defaults, and Quick Pi sets no password. Save a key with “Save as Default” first.';
   return '';
@@ -1914,30 +1952,39 @@ function wireHost(input, btn, ok) {
   input.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
 }
 
+function renderQuickModal() {
+  const im = quickImage();
+  const blocker = quickBlocker(quickSettings(''), im);
+  Q('#qp-imgs').innerHTML = quickChips();
+  Q('#qp-img').textContent = im ? `${im.name} · ${fmtSz(im.downloadSize)} download · released ${im.releaseDate || '?'}` : '—';
+  Q('#qp-warn').innerHTML = blocker ? `<div class="fp-warn">${esc(blocker)}</div>` : '';
+  Q('#mk').disabled = !!blocker || !HOSTNAME_RE.test(Q('#qp-host').value.trim());
+}
+
 function quickPiModal(dev) {
   return new Promise(resolve => {
-    const im = imgByKey(QUICK_KEY);
     const s = quickSettings('');
-    const blocker = quickBlocker(s);
     const skipped = (defaults.wifiNetworks || []).filter(w => w.ssid && !w.password).map(w => w.ssid);
     showModal(`<h3>⚡ Quick Pi</h3>
       <div class="modal-dev">${devLine(dev)}</div>
       <div class="fg"><label for="qp-host">Hostname</label>${hostInput('qp-host', '')}</div>
+      <div class="qp-imgs" id="qp-imgs"></div>
       <div class="qp-sum">
-        <span>Image</span><span>${im ? `${esc(im.name)} · ${esc(cap(im.rpios.release))} · ${fmtSz(im.downloadSize)}` : '—'}</span>
+        <span>Image</span><span id="qp-img"></span>
         <span>Login</span><span>${esc(s.username)} · ${s.sshKeys.length} SSH key${s.sshKeys.length === 1 ? '' : 's'} · no password${s.passwordlessSudo ? ' · passwordless sudo' : ''}</span>
         <span>Wi-Fi</span><span>${s.wifiNetworks.length ? esc(s.wifiNetworks.map(w => w.ssid).join(', ')) : 'none (wired)'}${skipped.length ? ` <span class="dim">· skipped ${esc(skipped.join(', '))}: no saved password, re-save defaults with it</span>` : ''}</span>
         <span>Locale</span><span>${esc(s.timezone)} · ${esc(s.keyboardLayout)} keyboard</span>
       </div>
-      ${blocker ? `<div class="fp-warn">${esc(blocker)}</div>` : ''}
+      <div id="qp-warn"></div>
       <div class="modal-btns"><button class="btn" id="qp-more" style="margin-right:auto">More options…</button><button class="btn" id="mc">Cancel</button><button class="btn btn-primary" id="mk" disabled>Flash</button></div>`);
     const host = Q('#qp-host');
-    const ok = () => !blocker && HOSTNAME_RE.test(host.value.trim());
+    const ok = () => !quickBlocker(quickSettings(''), quickImage()) && HOSTNAME_RE.test(host.value.trim());
     wireHost(host, Q('#mk'), ok);
+    renderQuickModal();
     host.focus();
     Q('#mc').onclick = () => { hideModal(); resolve(null); };
     Q('#qp-more').onclick = () => { const h = host.value.trim(); hideModal(); resolve(null); flashDrive(dev, h); };
-    Q('#mk').onclick = () => { if (ok()) { hideModal(); resolve(flashRequest(im, dev, quickSettings(host.value.trim()))); } };
+    Q('#mk').onclick = () => { if (ok()) { hideModal(); resolve(flashRequest(quickImage(), dev, quickSettings(host.value.trim()))); } };
     Q('#modal-bg').onclick = e => { if(e.target===Q('#modal-bg')){hideModal();resolve(null);} };
   });
 }
@@ -1950,15 +1997,14 @@ function flashModal(dev, hostname) {
 
     const d = defaults;
     const savedKeys = Array.isArray(d.sshKeys) ? d.sshKeys.join('\n') : '';
-    const quickBlock = quickBlocker(quickSettings(''));
 
     showModal(`<h3>Flash Image</h3>
       <div class="modal-dev">${devLine(dev)}</div>
       <div class="qp-bar">
-        <span class="qp-title">⚡ Quick Pi</span>
-        <span class="dim">Pi OS Lite 64-bit with the saved defaults</span>
+        <span class="qp-title" title="Flash the chosen image with the saved defaults; only the hostname is asked">⚡ Quick Pi</span>
+        <span class="qp-imgs" id="qpb-imgs"></span>
         ${hostInput('qpb-host', '')}
-        <button class="btn btn-primary btn-sm" id="qpb-go" disabled ${quickBlock ? `title="${esc(quickBlock)}"` : ''}>Flash</button>
+        <button class="btn btn-primary btn-sm" id="qpb-go" disabled>Flash</button>
       </div>
       <div id="fp-favs"></div>
       <div class="fp-bar"><div class="fp-tabs" id="fp-tabs"></div><div class="fp-boards" id="fp-boards"></div></div>
@@ -1990,9 +2036,9 @@ function flashModal(dev, hostname) {
 
     const close = r => { hideModal(); fp = null; resolve(r); };
     const qh = Q('#qpb-host');
-    const quickOk = () => !quickBlock && HOSTNAME_RE.test(qh.value.trim());
+    const quickOk = () => !quickBlocker(quickSettings(''), quickImage()) && HOSTNAME_RE.test(qh.value.trim());
     wireHost(qh, Q('#qpb-go'), quickOk);
-    Q('#qpb-go').onclick = () => { if (quickOk()) close(flashRequest(imgByKey(QUICK_KEY), dev, quickSettings(qh.value.trim()))); };
+    Q('#qpb-go').onclick = () => { if (quickOk()) close(flashRequest(quickImage(), dev, quickSettings(qh.value.trim()))); };
     Q('#sf-host').addEventListener('input', updateFlashBtn);
 
     Q('#mc').onclick = () => close(null);
@@ -2029,18 +2075,31 @@ function fpSearch(q) {
 }
 
 function starBtn(key) {
-  const on = isFav(key);
-  return `<span class="fp-star${on ? ' on' : ''}" onclick="toggleFav('${esc(key)}', event)" title="${on ? 'Remove from favorites' : 'Add to favorites'}">${on ? '★' : '☆'}</span>`;
+  const on = inList('favorites', key);
+  return `<span class="fp-star${on ? ' on' : ''}" onclick="toggleList('favorites', '${esc(key)}', event)" title="${on ? 'Remove from favorites' : 'Add to favorites'}">${on ? '★' : '☆'}</span>`;
+}
+
+// Only images that take first-boot settings can go on the Quick Pi list: it sets the hostname.
+function quickBtn(im) {
+  if (!takesSettings(im)) return '';
+  const on = inList('quick', im.key);
+  return `<span class="fp-qk${on ? ' on' : ''}" onclick="toggleList('quick', '${esc(im.key)}', event)" title="${on ? 'Remove from the Quick Pi list' : 'Add to the Quick Pi list'}">⚡</span>`;
 }
 
 function renderPicker() {
   if (!fp || !Q('#fp-body')) return;
   const board = curBoard();
 
+  Q('#qpb-imgs').innerHTML = quickChips();
+  const quickBlock = quickBlocker(quickSettings(''), quickImage());
+  Q('#qpb-go').title = quickBlock;
+  Q('#qpb-go').disabled = !!quickBlock || !HOSTNAME_RE.test(Q('#qpb-host').value.trim());
+
+  const favorites = lists.favorites;
   Q('#fp-favs').innerHTML = favorites.length
     ? `<div class="fp-favs"><span class="fp-lbl">★ Favorites</span>${favorites.map(f => {
         const im = imgByKey(f.key);
-        if (!im) return `<span class="fp-chip gone" title="Not in the current catalog">${esc(f.label)}<span class="x" onclick="toggleFav('${esc(f.key)}', event)" title="Remove">×</span></span>`;
+        if (!im) return `<span class="fp-chip gone" title="Not in the current catalog">${esc(f.label)}<span class="x" onclick="toggleList('favorites', '${esc(f.key)}', event)" title="Remove">×</span></span>`;
         return `<span class="fp-chip${fp.sel === f.key ? ' sel' : ''}${fitsBoard(im, board) ? '' : ' off'}" onclick="fpPickFav('${esc(f.key)}')" title="${esc(im.name)}">${esc(f.label)}</span>`;
       }).join('')}</div>`
     : `<div class="fp-favs empty">☆ Star an image to pin it here.</div>`;
@@ -2069,8 +2128,7 @@ function renderRpiOs(board) {
         const im = row.find(i => i.rpios.edition === ed);
         if (!im) { h += `<td class="na">—</td>`; continue; }
         const cls = [fp.sel === im.key && 'sel', !fitsBoard(im, board) && 'off'].filter(Boolean).join(' ');
-        const quick = im.key === QUICK_KEY;
-        h += `<td><div class="fp-cell ${cls}" onclick="fpSelect('${esc(im.key)}')" title="${esc(im.name)}${quick ? ' · the Quick Pi image' : ''}">${starBtn(im.key)}${quick ? '<span class="qp-mark">⚡</span>' : ''}<span class="sz">${fmtSz(im.downloadSize)}</span><span class="sub">${fmtSz(im.extractSize)} on disk</span></div></td>`;
+        h += `<td><div class="fp-cell ${cls}" onclick="fpSelect('${esc(im.key)}')" title="${esc(im.name)}">${starBtn(im.key)}${quickBtn(im)}<span class="sz">${fmtSz(im.downloadSize)}</span><span class="sub">${fmtSz(im.extractSize)} on disk</span></div></td>`;
       }
       h += '</tr>';
     }
@@ -2088,7 +2146,7 @@ function renderDistros(board) {
 
   const ids = [...new Set(others.map(distroOf))];
   const count = id => shown.filter(im => distroOf(im) === id).length;
-  const hasFav = id => others.some(im => distroOf(im) === id && isFav(im.key));
+  const hasFav = id => others.some(im => distroOf(im) === id && inList('favorites', im.key));
   const popular = POPULAR_DISTROS.map(n => ids.find(id => distroName(id) === n)).filter(Boolean);
   if (!ids.includes(fp.distro)) fp.distro = popular.find(count) || ids[0];
 
@@ -2113,7 +2171,7 @@ function renderDistros(board) {
     const g = (q ? im.path : im.path.slice(distroDepth(im))).join(' › ');
     if (g !== group) { group = g; if (g) main += `<tr class="grp"><td colspan="5">${esc(g)}</td></tr>`; }
     main += `<tr class="${fp.sel === im.key ? 'sel' : ''}" onclick="fpSelect('${esc(im.key)}')">
-      <td class="st">${starBtn(im.key)}</td>
+      <td class="st">${starBtn(im.key)}${quickBtn(im)}</td>
       <td class="nm"><div>${esc(im.name)}</div><div class="desc">${esc(im.description.replace(/<[^>]*>/g, ''))}</div></td>
       <td class="bd">${esc(imgBoards(im).join(' · ') || 'any')}</td>
       <td class="num">${fmtSz(im.downloadSize)}</td>
@@ -2136,7 +2194,7 @@ function renderSel(board) {
   if (!takesSettings(im)) warns.push(`This image ignores the settings below (first-boot setup: ${initFormatLabel(im.initFormat)}).`);
   if (drive && im.extractSize > drive.size) warns.push(`Needs ${fmtSz(im.extractSize)} but the drive is ${fmtSz(drive.size)}.`);
   Q('#fp-sel').innerHTML = `<div class="fp-selbox">
-    <div class="t">${starBtn(im.key)} <b>${esc(im.name)}</b> <span class="dim">${im.rpios ? '' : esc(im.path.join(' › '))}</span></div>
+    <div class="t">${starBtn(im.key)} ${quickBtn(im)} <b>${esc(im.name)}</b> <span class="dim">${im.rpios ? '' : esc(im.path.join(' › '))}</span></div>
     <div class="dim">${esc(im.description.replace(/<[^>]*>/g, ''))}</div>
     <div class="dim">${fmtSz(im.downloadSize)} download · ${fmtSz(im.extractSize)} on disk · released ${esc(im.releaseDate || '?')} · ${esc(imgBoards(im).join(', ') || 'any board')} · settings via ${esc(initFormatLabel(im.initFormat))}</div>
     ${warns.map(w => `<div class="fp-warn">${esc(w)}</div>`).join('')}
@@ -2262,7 +2320,7 @@ function toast(msg, type) {
 connect();
 loadCatalog();
 loadDefaults();
-loadFavorites();
+loadLists();
 </script>
 </body>
 </html>

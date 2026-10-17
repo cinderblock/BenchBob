@@ -5,7 +5,6 @@ import * as rpi from "./rpiboot.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = import.meta.dir + "/defaults.json";
-const FAVORITES_PATH = import.meta.dir + "/favorites.json";
 const FLASH_DIR = "/var/tmp/deskypi-flash";
 const BOOT_MOUNT = "/tmp/deskypi-boot";
 
@@ -1533,10 +1532,24 @@ function parseRpiOs(url: string) {
   return { release: m[1], arch: m[2] === "arm64" ? "64" : "32", edition: m[3] || "desktop", legacy: /_oldstable_/.test(url) };
 }
 
-// ==================== Favorite Images ====================
+// ==================== Image Lists ====================
+//
+// Lists of catalog keys the flash picker keeps: starred images, and the images Quick Pi
+// offers. Until the Quick Pi list is first edited it holds just the current Pi OS Lite.
 
-async function getFavorites(): Promise<{ key: string; label: string }[]> {
-  try { return await Bun.file(FAVORITES_PATH).json(); } catch { return []; }
+type ImageList = { key: string; label: string }[];
+const IMAGE_LISTS: Record<string, { path: string; initial: ImageList }> = {
+  "/api/favorites": { path: import.meta.dir + "/favorites.json", initial: [] },
+  "/api/quicklist": { path: import.meta.dir + "/quicklist.json", initial: [{ key: "rpios/current/64/lite", label: "Pi OS Lite 64-bit" }] },
+};
+
+async function imageListRoute(list: { path: string; initial: ImageList }, req: Request): Promise<Response> {
+  if (req.method === "GET") { try { return Response.json(await Bun.file(list.path).json()); } catch { return Response.json(list.initial); } }
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+  const body = await req.json();
+  if (!Array.isArray(body) || !body.every((f) => typeof f?.key === "string")) return Response.json({ ok: false, message: "Expected [{ key, label }]" }, { status: 400 });
+  await Bun.write(list.path, JSON.stringify(body.map((f) => ({ key: f.key, label: String(f.label ?? f.key) })), null, 2));
+  return Response.json({ ok: true });
 }
 
 // ==================== Default Settings ====================
@@ -1848,6 +1861,8 @@ const API_DOCS = {
     "GET /api/catalog": "Image catalog with picker metadata (full category path, board tags, stable favorite key, parsed Raspberry Pi OS release/arch/edition) plus the board list",
     "GET /api/favorites": "Starred images: [{ key, label }], keys as in /api/catalog",
     "POST /api/favorites": { body: [{ key: "rpios/current/64/lite", label: "Raspberry Pi OS Lite (64-bit)" }], description: "Replace the starred images" },
+    "GET /api/quicklist": "Images Quick Pi offers: [{ key, label }]. Defaults to the current Pi OS Lite 64-bit until first saved.",
+    "POST /api/quicklist": { body: [{ key: "rpios/current/64/lite", label: "Pi OS Lite 64-bit" }], description: "Replace the Quick Pi list" },
     "GET /api/defaults": "Saved default flash settings",
     "POST /api/rpiboot/msd": { body: { path: "1-1.3" }, description: "Load the mass-storage gadget onto a device in USB boot mode (path from status.bootDevices). Its eMMC/NVMe then appears as a normal drive." },
     "POST /api/rpiboot/eeprom/check": { body: { path: "1-1.3" }, description: "Read OTP metadata (board, MAC, secure-boot state, EEPROM hash) through recovery.bin without writing anything. Result in status.rpibootResults." },
@@ -1882,7 +1897,7 @@ const API_DOCS = {
 const UI_PATH = import.meta.dir + "/index.html";
 
 // UI_PATH must stay first — getBuild() serves texts[0] as the page.
-// defaults.json and favorites.json are deliberately excluded: they are user data, rewritten
+// defaults.json, favorites.json and quicklist.json are deliberately excluded: they are user data, rewritten
 // whenever flash settings or stars are saved, and would cause a spurious reload each time.
 const BUILD_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "regf.ts", "rpiboot.ts"].map((f) => `${import.meta.dir}/${f}`)];
 
@@ -2022,15 +2037,7 @@ Bun.serve({
 
     if (p === "/api/images") return Response.json(await getRpiImages());
     if (p === "/api/catalog") return Response.json(await getCatalog());
-    if (p === "/api/favorites") {
-      if (req.method === "GET") return Response.json(await getFavorites());
-      if (req.method === "POST") {
-        const body = await req.json();
-        if (!Array.isArray(body) || !body.every((f) => typeof f?.key === "string")) return Response.json({ ok: false, message: "Expected [{ key, label }]" }, { status: 400 });
-        await Bun.write(FAVORITES_PATH, JSON.stringify(body.map((f) => ({ key: f.key, label: String(f.label ?? f.key) })), null, 2));
-        return Response.json({ ok: true });
-      }
-    }
+    if (IMAGE_LISTS[p]) return await imageListRoute(IMAGE_LISTS[p], req);
     if (p === "/api/defaults") {
       if (req.method === "GET") { try { return Response.json(await Bun.file(DEFAULTS_PATH).json()); } catch { return Response.json(await getDefaultSettings()); } }
       if (req.method === "POST") { await Bun.write(DEFAULTS_PATH, JSON.stringify(await req.json(), null, 2)); return Response.json({ ok: true }); }
