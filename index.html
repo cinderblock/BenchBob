@@ -207,6 +207,85 @@ main{padding:20px 24px;max-width:1100px;margin:0 auto;display:flex;flex-directio
 .check input{accent-color:var(--accent);width:15px;height:15px}
 details summary{cursor:pointer;font-size:.82rem;font-weight:600;color:var(--accent);padding:6px 0;user-select:none}
 details[open] summary{margin-bottom:8px}
+.dim{color:var(--dim)}
+.fg input.bad{border-color:var(--danger)}
+
+/* Flash picker */
+.modal.flash{display:flex;flex-direction:column;gap:12px}
+.modal.flash>h3,.modal.flash>.modal-dev,.modal.flash>.modal-btns,.modal.flash details[open] summary{margin:0}
+.modal.flash>details>.settings-grid{margin-top:8px}
+.qp-bar{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;padding:9px 12px;border:1px solid #2d3a66;border-radius:8px;background:linear-gradient(90deg,#1a2240,var(--surface2));font-size:.8rem}
+.qp-bar .qp-title{font-weight:700}
+.qp-bar input{flex:1;min-width:140px;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:5px 9px;color:var(--text);font-size:.82rem;font-family:inherit;outline:none}
+.qp-bar input:focus{border-color:var(--accent)}
+.qp-bar input.bad{border-color:var(--danger)}
+.qp-sum{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:12px 0 4px;font-size:.8rem}
+.qp-sum>:nth-child(odd){color:var(--dim);font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.fp-favs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:.78rem}
+.fp-favs.empty{color:var(--dim);font-size:.74rem}
+.fp-lbl{font-size:.66rem;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-right:2px}
+.fp-chip{padding:3px 10px;border-radius:12px;border:1px solid #5c4a10;background:#2a2410;color:#f5d27a;cursor:pointer;user-select:none}
+.fp-chip:hover{border-color:var(--warning)}
+.fp-chip.sel{background:var(--warning);color:#1a1405;border-color:var(--warning);font-weight:600}
+.fp-chip.off{opacity:.45}
+.fp-chip.gone{border-style:dashed;color:var(--dim);background:none;cursor:default;text-decoration:line-through}
+.fp-chip .x{margin-left:6px;cursor:pointer;text-decoration:none;display:inline-block}
+.fp-bar{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.fp-tabs{display:flex;gap:2px}
+.fp-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--dim);padding:6px 12px;font-size:.82rem;font-weight:600;cursor:pointer;font-family:inherit}
+.fp-tab:hover{color:var(--text)}
+.fp-tab.on{color:var(--text);border-bottom-color:var(--accent)}
+.fp-boards{display:flex;align-items:center;gap:6px;padding-bottom:5px}
+.fp-boards select{background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:3px 6px;color:var(--text);font-size:.78rem;font-family:inherit;outline:none}
+.fp-star{cursor:pointer;color:var(--dim);font-size:.95rem;line-height:1;user-select:none}
+.fp-star:hover{color:#f5d27a}
+.fp-star.on{color:var(--warning)}
+.fp-tag{display:inline-block;font-size:.6rem;padding:0 5px;border-radius:3px;background:var(--surface3);color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.04em;vertical-align:1px}
+.fp-note{font-size:.72rem;color:var(--dim);margin-top:6px}
+.fp-note a{cursor:pointer}
+.fp-empty{padding:20px;text-align:center;color:var(--dim);font-size:.82rem}
+.fp-warn{color:var(--warning);font-size:.76rem;margin-top:4px}
+.fp-warn::before{content:'⚠️ '}
+.fp-rpios{width:100%;border-collapse:separate;border-spacing:6px;margin:0 -6px;font-size:.8rem}
+.fp-rpios thead th{font-weight:700;text-align:center;padding-bottom:0}
+.fp-rpios th small{display:block;font-weight:400;color:var(--dim);font-size:.68rem}
+.fp-rpios tbody th{text-align:left;font-weight:400;white-space:nowrap;padding-right:6px;width:1%}
+.fp-rpios td.na{text-align:center;color:var(--dim)}
+.fp-cell{position:relative;display:flex;flex-direction:column;align-items:center;padding:9px 6px 7px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);cursor:pointer;transition:border-color .12s,background .12s}
+.fp-cell:hover{border-color:var(--accent)}
+.fp-cell.sel{border-color:var(--accent);background:#1e2a52;box-shadow:0 0 0 1px var(--accent) inset}
+.fp-cell.off{opacity:.35}
+.fp-cell .sz{font-weight:600;font-family:'SF Mono',ui-monospace,monospace;font-size:.8rem}
+.fp-cell .sub{font-size:.66rem;color:var(--dim)}
+.fp-cell .fp-star{position:absolute;top:4px;right:6px}
+.fp-cell .qp-mark{position:absolute;top:4px;left:6px;font-size:.72rem}
+.fp-distros{display:grid;grid-template-columns:200px 1fr;gap:10px;height:min(46vh,430px)}
+.fp-side{overflow:auto;border-right:1px solid var(--border);padding-right:8px}
+.fp-side .fb-filter{margin-bottom:4px}
+.fp-dgrp{font-size:.6rem;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin:8px 0 2px;padding:0 6px}
+.fp-di{display:flex;justify-content:space-between;gap:6px;padding:3px 6px;border-radius:4px;cursor:pointer;font-size:.8rem}
+.fp-di:hover{background:var(--surface2)}
+.fp-di.on{background:var(--surface3);color:var(--text);font-weight:600}
+.fp-di.off{opacity:.4}
+.fp-di .n{color:var(--dim);font-size:.7rem;font-family:'SF Mono',ui-monospace,monospace}
+.fp-main{overflow:auto}
+.fp-imgs{width:100%;border-collapse:collapse;font-size:.8rem}
+.fp-imgs td{padding:5px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
+.fp-imgs tr:not(.grp){cursor:pointer}
+.fp-imgs tr:not(.grp):hover{background:var(--surface2)}
+.fp-imgs tr.sel{background:#1e2a52!important;box-shadow:2px 0 0 var(--accent) inset}
+.fp-imgs tr.grp td{font-size:.62rem;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding-top:10px}
+.fp-imgs .st{width:20px}
+.fp-imgs .nm .desc{font-size:.7rem;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.fp-imgs .bd{font-size:.7rem;color:var(--dim);white-space:nowrap}
+.fp-imgs .num{text-align:right;font-family:'SF Mono',ui-monospace,monospace;color:var(--dim);font-size:.74rem;white-space:nowrap}
+.fp-ok,.fp-no{font-size:.66rem;padding:1px 6px;border-radius:3px;white-space:nowrap}
+.fp-ok{background:#16301f;color:var(--success)}
+.fp-no{background:var(--surface3);color:var(--dim)}
+.fp-selbox{border:1px solid var(--border);border-radius:7px;padding:9px 12px;background:var(--surface2);font-size:.78rem;display:flex;flex-direction:column;gap:2px}
+.fp-selbox.none{color:var(--dim);text-align:center}
+.fp-selbox .t{font-size:.86rem}
+@media (max-width:640px){.fp-distros{grid-template-columns:1fr;height:auto}.fp-side{max-height:30vh;border-right:none}.fp-imgs .bd,.fp-imgs .fs{display:none}.fp-rpios{border-spacing:4px;margin:0 -4px}.fp-rpios tbody th{white-space:normal}.fp-rpios tbody th small,.fp-cell .sub{display:none}.fp-cell{padding:16px 2px 8px}.fp-cell .sz{font-size:.72rem}}
 
 /* WiFi entries */
 .wifi-entry{display:flex;gap:6px;align-items:center}
@@ -767,12 +846,14 @@ function renderDrives(drives, nbdExports) {
     if (!hasParts && !busy) {
       // No partitions: show Flash
       h += `<button class="btn btn-primary" onclick="flashDrive('${d.name}')">Flash</button>`;
+      h += `<button class="btn" onclick="quickPiDrive('${d.name}')" title="Raspberry Pi OS Lite 64-bit with the saved defaults; asks only for a hostname">⚡ Quick Pi</button>`;
       h += `<button class="btn" onclick="scanDrive('${d.name}')">Scan</button>`;
     }
 
     // Optimistic: allow queueing flash during erase
     if (isErasing && !hasQueued) {
       h += `<button class="btn btn-primary" onclick="flashDrive('${d.name}')">Flash (queue)</button>`;
+      h += `<button class="btn" onclick="quickPiDrive('${d.name}')" title="Queue Raspberry Pi OS Lite 64-bit with the saved defaults">⚡ Quick Pi (queue)</button>`;
     }
 
     // Raw-sector inspection: useful whether or not a filesystem claims to be empty
@@ -1357,20 +1438,368 @@ function renderFileRows() {
 }
 
 // ==================== Flash ====================
-async function flashDrive(dev) {
-  if (!images.length) await loadImages();
-  const result = await flashModal(dev);
-  if (!result) return;
+let boards = [];    // catalog board list: { name, tags, description, exclusive }
+let favorites = []; // starred images: { key, label }, keys from the catalog
+let fp = null;      // open flash picker: { dev, sel, tab, distro, q }
+const QUICK_KEY = 'rpios/current/64/lite';
+const POPULAR_DISTROS = ['Ubuntu', 'DietPi', 'Armbian OS', 'Alpine Linux', 'Home Assistant', 'LibreELEC', 'Kali Linux', 'OctoPi'];
+const RPIOS_EDITIONS = [['lite', 'Lite', 'No desktop'], ['desktop', 'Desktop', 'Desktop + basics'], ['full', 'Full', 'Desktop + all apps']];
+const HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+async function flashDrive(dev, hostname) {
+  await ensureCatalog();
+  const result = await flashModal(dev, hostname);
+  if (result) await startFlash(result);
+}
+
+async function quickPiDrive(dev) {
+  await ensureCatalog();
+  const result = await quickPiModal(dev);
+  if (result) await startFlash(result);
+}
+
+async function startFlash(result) {
+  try { localStorage.setItem('flashLast', result.imageKey); } catch {}
   try {
     const r = await (await fetch('/api/flash', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(result) })).json();
     if (!r.ok) toast(r.message, 'error');
   } catch(e) { toast('Flash failed','error'); }
 }
 
-async function loadImages() {
+async function ensureCatalog() {
+  await Promise.all([!images.length && loadCatalog(), !Object.keys(defaults).length && loadDefaults()]);
+}
+
+async function loadCatalog() {
   try {
-    images = await (await fetch('/api/images')).json();
-  } catch { images = []; }
+    const c = await (await fetch('/api/catalog')).json();
+    images = c.images || [];
+    themeFolders = null;
+    boards = (c.devices || []).filter(b => b.tags.length);
+  } catch { images = []; boards = []; }
+}
+
+async function loadFavorites() {
+  try { favorites = await (await fetch('/api/favorites')).json(); } catch { favorites = []; }
+}
+
+function imgByKey(key) { return images.find(i => i.key === key); }
+function isFav(key) { return favorites.some(f => f.key === key); }
+
+async function toggleFav(key, ev) {
+  ev?.stopPropagation();
+  const im = imgByKey(key);
+  favorites = isFav(key) ? favorites.filter(f => f.key !== key) : [...favorites, { key, label: im ? imgLabel(im) : key }];
+  if (fp) renderPicker();
+  try {
+    await fetch('/api/favorites', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(favorites) });
+  } catch { toast('Saving favorites failed','error'); }
+}
+
+function imgLabel(im) {
+  if (!im.rpios) return im.name;
+  const ed = RPIOS_EDITIONS.find(e => e[0] === im.rpios.edition)?.[1] || im.rpios.edition;
+  return `Pi OS ${ed} ${im.rpios.arch}-bit${im.rpios.legacy ? ' (legacy)' : ''}`;
+}
+
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : '';
+function boardShort(name) { return name.replace(/^Raspberry Pi /, '').replace(/^(\d)/, 'Pi $1'); }
+function imgBoards(im) { return boards.filter(b => b.tags.some(t => im.devices.includes(t))).map(b => boardShort(b.name)); }
+function fitsBoard(im, b) { return !b || (im.devices.length ? b.tags.some(t => im.devices.includes(t)) : !b.exclusive); }
+function takesSettings(im) { return ['systemd', 'cloudinit', 'cloudinit-rpi'].includes(im.initFormat); }
+function curBoard() { let n; try { n = localStorage.getItem('flashBoard'); } catch {} return boards.find(b => b.name === n) || null; }
+function setBoard(name) { try { localStorage.setItem('flashBoard', name); } catch {} renderPicker(); }
+// A distro is usually the second folder (Ubuntu, Apertis). Themed folders like "Home
+// automation" hold one folder per project instead, so go a level deeper there. A sub-folder
+// that starts with its parent's name ("Apertis (daily build)") is still the same distro, and
+// a lone sub-folder (Bass OS › Bass ARM) doesn't make a theme.
+let themeFolders = null;
+function isThemeFolder(id) {
+  if (!themeFolders) {
+    const kids = new Map();
+    for (const { path: p } of images) {
+      if (p.length < 3 || p[2].startsWith(p[1])) continue;
+      const k = p.slice(0, 2).join(' › ');
+      if (!kids.has(k)) kids.set(k, new Set());
+      kids.get(k).add(p[2]);
+    }
+    themeFolders = new Set([...kids].filter(([, s]) => s.size > 1).map(([k]) => k));
+  }
+  return themeFolders.has(id);
+}
+function distroDepth(im) { return im.path.length > 2 && isThemeFolder(im.path.slice(0, 2).join(' › ')) ? 3 : 2; }
+function distroOf(im) { return im.path.slice(0, distroDepth(im)).join(' › '); }
+function distroName(id) { return id.split(' › ').pop() || 'Other'; }
+function distroGroup(id) { const p = id.split(' › ').slice(0, -1); return p.length > 1 ? `${p[p.length - 1]}${p[0].startsWith('Freemium') ? ' (paid)' : ''}` : p[0]; }
+function driveOf(dev) { return S?.drives?.find(d => d.name === dev); }
+
+// Saved defaults as flash settings, for Quick Pi. Wi-Fi passwords are never saved with the
+// defaults, so networks without one are left out rather than written as open networks.
+function quickSettings(hostname) {
+  const d = defaults;
+  return {
+    hostname, username: d.username || 'pi', password: '',
+    enableSsh: d.enableSsh !== false, passwordlessSudo: !!d.passwordlessSudo,
+    sshKeys: Array.isArray(d.sshKeys) ? d.sshKeys.filter(Boolean) : [],
+    wifiNetworks: (Array.isArray(d.wifiNetworks) ? d.wifiNetworks : []).filter(w => w.ssid && w.password),
+    timezone: d.timezone || 'UTC', keyboardLayout: d.keyboardLayout || 'us',
+  };
+}
+
+// Why Quick Pi can't run with the saved defaults, or '' if it can.
+function quickBlocker(s) {
+  if (!imgByKey(QUICK_KEY)) return 'Raspberry Pi OS Lite (64-bit) is not in the catalog right now.';
+  if (!s.enableSsh) return 'SSH is off in the saved defaults, so there would be no way in.';
+  if (!s.sshKeys.length) return 'No SSH keys are saved in the defaults, and Quick Pi sets no password. Save a key with “Save as Default” first.';
+  return '';
+}
+
+function flashRequest(im, dev, settings) {
+  return { imageUrl: im.url, imageName: im.name, imageKey: im.key, extractSize: im.extractSize, device: dev, settings };
+}
+
+function devLine(dev) {
+  const d = driveOf(dev);
+  return `/dev/${esc(dev)}${d ? ` · ${esc(d.model || '')} · ${fmtSz(d.size)}` : ''}`;
+}
+
+function hostInput(id, value) {
+  return `<input type="text" id="${id}" value="${esc(value || '')}" placeholder="e.g. garage-pi" autocomplete="off" spellcheck="false">`;
+}
+
+// Wire a hostname box: flag invalid names, and Enter presses the given button.
+function wireHost(input, btn, ok) {
+  input.addEventListener('input', () => { btn.disabled = !ok(); input.classList.toggle('bad', !!input.value && !HOSTNAME_RE.test(input.value.trim())); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') btn.click(); });
+}
+
+function quickPiModal(dev) {
+  return new Promise(resolve => {
+    const im = imgByKey(QUICK_KEY);
+    const s = quickSettings('');
+    const blocker = quickBlocker(s);
+    const skipped = (defaults.wifiNetworks || []).filter(w => w.ssid && !w.password).map(w => w.ssid);
+    showModal(`<h3>⚡ Quick Pi</h3>
+      <div class="modal-dev">${devLine(dev)}</div>
+      <div class="fg"><label for="qp-host">Hostname</label>${hostInput('qp-host', '')}</div>
+      <div class="qp-sum">
+        <span>Image</span><span>${im ? `${esc(im.name)} · ${esc(cap(im.rpios.release))} · ${fmtSz(im.downloadSize)}` : '—'}</span>
+        <span>Login</span><span>${esc(s.username)} · ${s.sshKeys.length} SSH key${s.sshKeys.length === 1 ? '' : 's'} · no password${s.passwordlessSudo ? ' · passwordless sudo' : ''}</span>
+        <span>Wi-Fi</span><span>${s.wifiNetworks.length ? esc(s.wifiNetworks.map(w => w.ssid).join(', ')) : 'none (wired)'}${skipped.length ? ` <span class="dim">· skipped ${esc(skipped.join(', '))}: no saved password</span>` : ''}</span>
+        <span>Locale</span><span>${esc(s.timezone)} · ${esc(s.keyboardLayout)} keyboard</span>
+      </div>
+      ${blocker ? `<div class="fp-warn">${esc(blocker)}</div>` : ''}
+      <div class="modal-btns"><button class="btn" id="qp-more" style="margin-right:auto">More options…</button><button class="btn" id="mc">Cancel</button><button class="btn btn-primary" id="mk" disabled>Flash</button></div>`);
+    const host = Q('#qp-host');
+    const ok = () => !blocker && HOSTNAME_RE.test(host.value.trim());
+    wireHost(host, Q('#mk'), ok);
+    host.focus();
+    Q('#mc').onclick = () => { hideModal(); resolve(null); };
+    Q('#qp-more').onclick = () => { const h = host.value.trim(); hideModal(); resolve(null); flashDrive(dev, h); };
+    Q('#mk').onclick = () => { if (ok()) { hideModal(); resolve(flashRequest(im, dev, quickSettings(host.value.trim()))); } };
+    Q('#modal-bg').onclick = e => { if(e.target===Q('#modal-bg')){hideModal();resolve(null);} };
+  });
+}
+
+function flashModal(dev, hostname) {
+  return new Promise(resolve => {
+    let last; try { last = localStorage.getItem('flashLast'); } catch {}
+    const lastIm = imgByKey(last);
+    fp = { dev, sel: lastIm?.key || null, tab: lastIm && !lastIm.rpios ? 'other' : 'rpios', distro: lastIm && !lastIm.rpios ? distroOf(lastIm) : null, q: '' };
+
+    const d = defaults;
+    const savedKeys = Array.isArray(d.sshKeys) ? d.sshKeys.join('\n') : '';
+    const quickBlock = quickBlocker(quickSettings(''));
+
+    showModal(`<h3>Flash Image</h3>
+      <div class="modal-dev">${devLine(dev)}</div>
+      <div class="qp-bar">
+        <span class="qp-title">⚡ Quick Pi</span>
+        <span class="dim">Pi OS Lite 64-bit with the saved defaults</span>
+        ${hostInput('qpb-host', '')}
+        <button class="btn btn-primary btn-sm" id="qpb-go" disabled ${quickBlock ? `title="${esc(quickBlock)}"` : ''}>Flash</button>
+      </div>
+      <div id="fp-favs"></div>
+      <div class="fp-bar"><div class="fp-tabs" id="fp-tabs"></div><div class="fp-boards" id="fp-boards"></div></div>
+      <div id="fp-body"></div>
+      <div id="fp-sel"></div>
+      <div class="fg fp-host"><label for="sf-host">Hostname</label>${hostInput('sf-host', hostname || d.hostname || 'raspberrypi')}</div>
+      <details><summary>More settings</summary>
+        <div class="settings-grid">
+          <div class="fg"><label>Username</label><input type="text" id="sf-user" value="${esc(d.username||'pi')}"></div>
+          <div class="fg"><label>Password</label><input type="password" id="sf-pass" placeholder="Blank = key-only SSH"></div>
+          <div class="fg full"><div class="check"><input type="checkbox" id="sf-ssh" ${d.enableSsh!==false?'checked':''}><label for="sf-ssh">Enable SSH</label></div><div class="check"><input type="checkbox" id="sf-sudo" ${d.passwordlessSudo?'checked':''}><label for="sf-sudo">Passwordless sudo</label></div></div>
+          <div class="fg full"><label>SSH Authorized Keys</label><textarea id="sf-keys" rows="3" placeholder="ssh-ed25519 AAAA... user@host (one per line)" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:7px 10px;color:var(--text);font-size:.8rem;font-family:'SF Mono',ui-monospace,monospace;resize:vertical;outline:none;width:100%">${esc(savedKeys)}</textarea></div>
+          <div class="fg full" style="margin-top:8px">
+            <label>WiFi Networks</label>
+            <div id="wifi-list" style="display:flex;flex-direction:column;gap:6px"></div>
+            <button class="btn btn-sm" onclick="addWifiRow('','','US')" type="button" style="margin-top:6px">+ Add WiFi Network</button>
+          </div>
+          <div class="fg"><label>Timezone</label><input type="text" id="sf-tz" value="${esc(d.timezone||'UTC')}"></div>
+          <div class="fg"><label>Keyboard</label><input type="text" id="sf-kb" value="${esc(d.keyboardLayout||'us')}"></div>
+          <div class="fg full" style="justify-content:flex-end"><button class="btn btn-sm" onclick="saveDefaults()" type="button">Save as Default</button></div>
+        </div>
+      </details>
+      <div class="modal-btns"><button class="btn" id="mc">Cancel</button><button class="btn btn-primary" id="mk" disabled>Flash</button></div>`, 'wide flash');
+
+    // Populate saved WiFi networks
+    const nets = Array.isArray(d.wifiNetworks) ? d.wifiNetworks : [];
+    for (const w of nets) addWifiRow(w.ssid, w.password||'', w.country||'US');
+    if (nets.length === 0) addWifiRow('','','US');
+
+    const close = r => { hideModal(); fp = null; resolve(r); };
+    const qh = Q('#qpb-host');
+    const quickOk = () => !quickBlock && HOSTNAME_RE.test(qh.value.trim());
+    wireHost(qh, Q('#qpb-go'), quickOk);
+    Q('#qpb-go').onclick = () => { if (quickOk()) close(flashRequest(imgByKey(QUICK_KEY), dev, quickSettings(qh.value.trim()))); };
+    Q('#sf-host').addEventListener('input', updateFlashBtn);
+
+    Q('#mc').onclick = () => close(null);
+    Q('#mk').onclick = () => {
+      const im = imgByKey(fp?.sel);
+      if (im && hostOk()) close(flashRequest(im, dev, readSettingsForm()));
+    };
+    Q('#modal-bg').onclick = e => { if (e.target === Q('#modal-bg')) close(null); };
+    renderPicker();
+  });
+}
+
+function hostOk() { const v = Q('#sf-host')?.value.trim() || ''; return !v || HOSTNAME_RE.test(v); }
+
+function updateFlashBtn() {
+  Q('#sf-host')?.classList.toggle('bad', !hostOk());
+  if (Q('#mk')) Q('#mk').disabled = !imgByKey(fp?.sel) || !hostOk();
+}
+
+function fpSelect(key) { fp.sel = key; renderPicker(); }
+function fpTab(tab) { fp.tab = tab; renderPicker(); }
+function fpDistro(id) { fp.distro = id; fp.q = ''; renderPicker(); }
+function fpPickFav(key) {
+  const im = imgByKey(key);
+  if (!im) return;
+  fp.sel = key;
+  if (im.rpios) fp.tab = 'rpios'; else { fp.tab = 'other'; fp.distro = distroOf(im); fp.q = ''; }
+  renderPicker();
+}
+function fpSearch(q) {
+  fp.q = q;
+  renderPicker();
+  const el = Q('#fp-q'); el.focus(); el.setSelectionRange(q.length, q.length);
+}
+
+function starBtn(key) {
+  const on = isFav(key);
+  return `<span class="fp-star${on ? ' on' : ''}" onclick="toggleFav('${esc(key)}', event)" title="${on ? 'Remove from favorites' : 'Add to favorites'}">${on ? '★' : '☆'}</span>`;
+}
+
+function renderPicker() {
+  if (!fp || !Q('#fp-body')) return;
+  const board = curBoard();
+
+  Q('#fp-favs').innerHTML = favorites.length
+    ? `<div class="fp-favs"><span class="fp-lbl">★ Favorites</span>${favorites.map(f => {
+        const im = imgByKey(f.key);
+        if (!im) return `<span class="fp-chip gone" title="Not in the current catalog">${esc(f.label)}<span class="x" onclick="toggleFav('${esc(f.key)}', event)" title="Remove">×</span></span>`;
+        return `<span class="fp-chip${fp.sel === f.key ? ' sel' : ''}${fitsBoard(im, board) ? '' : ' off'}" onclick="fpPickFav('${esc(f.key)}')" title="${esc(im.name)}">${esc(f.label)}</span>`;
+      }).join('')}</div>`
+    : `<div class="fp-favs empty">☆ Star an image to pin it here.</div>`;
+
+  Q('#fp-tabs').innerHTML = [['rpios', 'Raspberry Pi OS'], ['other', 'Other OSes']]
+    .map(([t, l]) => `<button class="fp-tab${fp.tab === t ? ' on' : ''}" onclick="fpTab('${t}')">${l}</button>`).join('');
+  Q('#fp-boards').innerHTML = `<label class="fp-lbl" for="fp-board">Board</label><select id="fp-board" onchange="setBoard(this.value)"><option value="">Any</option>${
+    boards.map(b => `<option value="${esc(b.name)}" ${board === b ? 'selected' : ''}>${esc(boardShort(b.name))}</option>`).join('')}</select>`;
+
+  Q('#fp-body').innerHTML = fp.tab === 'rpios' ? renderRpiOs(board) : renderDistros(board);
+  renderSel(board);
+  updateFlashBtn();
+}
+
+// Raspberry Pi OS as a grid: release × arch down the side, edition across the top.
+function renderRpiOs(board) {
+  const pios = images.filter(i => i.rpios);
+  if (!pios.length) return `<div class="fp-empty">Raspberry Pi OS isn't in the catalog right now (offline?).</div>`;
+  let h = `<table class="fp-rpios"><thead><tr><th></th>${RPIOS_EDITIONS.map(([, l, sub]) => `<th>${l}<small>${sub}</small></th>`).join('')}</tr></thead><tbody>`;
+  for (const legacy of [false, true]) {
+    for (const arch of ['64', '32']) {
+      const row = pios.filter(i => i.rpios.legacy === legacy && i.rpios.arch === arch);
+      if (!row.length) continue;
+      h += `<tr><th><b>${esc(cap(row[0].rpios.release))}</b> ${arch}-bit${legacy ? ' <span class="fp-tag">legacy</span>' : ''}<small>${esc(imgBoards(row[0]).join(' · '))}</small></th>`;
+      for (const [ed] of RPIOS_EDITIONS) {
+        const im = row.find(i => i.rpios.edition === ed);
+        if (!im) { h += `<td class="na">—</td>`; continue; }
+        const cls = [fp.sel === im.key && 'sel', !fitsBoard(im, board) && 'off'].filter(Boolean).join(' ');
+        const quick = im.key === QUICK_KEY;
+        h += `<td><div class="fp-cell ${cls}" onclick="fpSelect('${esc(im.key)}')" title="${esc(im.name)}${quick ? ' · the Quick Pi image' : ''}">${starBtn(im.key)}${quick ? '<span class="qp-mark">⚡</span>' : ''}<span class="sz">${fmtSz(im.downloadSize)}</span><span class="sub">${fmtSz(im.extractSize)} on disk</span></div></td>`;
+      }
+      h += '</tr>';
+    }
+  }
+  return h + `</tbody></table><div class="fp-note">Released ${esc(pios[0].releaseDate)}. Legacy is the previous Debian release. Sizes are download / written.</div>`;
+}
+
+// Everything else: a distro menu on the left, that distro's images on the right.
+function renderDistros(board) {
+  const others = images.filter(i => !i.rpios && !(i.path[0] || '').startsWith('Raspberry Pi OS'));
+  const q = fp.q.trim().toLowerCase();
+  const match = im => !q || [im.name, im.description, ...im.path].some(s => s.toLowerCase().includes(q));
+  const shown = others.filter(im => match(im) && fitsBoard(im, board));
+  const hidden = others.filter(im => match(im) && !fitsBoard(im, board)).length;
+
+  const ids = [...new Set(others.map(distroOf))];
+  const count = id => shown.filter(im => distroOf(im) === id).length;
+  const hasFav = id => others.some(im => distroOf(im) === id && isFav(im.key));
+  const popular = POPULAR_DISTROS.map(n => ids.find(id => distroName(id) === n)).filter(Boolean);
+  if (!ids.includes(fp.distro)) fp.distro = popular.find(count) || ids[0];
+
+  const item = id => {
+    const n = count(id);
+    return `<div class="fp-di${!q && fp.distro === id ? ' on' : ''}${n ? '' : ' off'}" onclick="fpDistro('${esc(id)}')"><span>${hasFav(id) ? '<span class="fp-star on">★</span> ' : ''}${esc(distroName(id))}</span><span class="n">${n}</span></div>`;
+  };
+  let side = `<input type="search" id="fp-q" class="fb-filter" placeholder="Search all images…" value="${esc(fp.q)}" oninput="fpSearch(this.value)">`;
+  const commonShown = popular.filter(id => !q || count(id));
+  if (commonShown.length) side += `<div class="fp-dgrp">Common</div>${commonShown.map(item).join('')}`;
+  for (const grp of [...new Set(ids.map(distroGroup))]) {
+    const inGrp = ids.filter(id => distroGroup(id) === grp && !popular.includes(id) && (!q || count(id)));
+    if (inGrp.length) side += `<div class="fp-dgrp">${esc(grp)}</div>${inGrp.map(item).join('')}`;
+  }
+
+  const list = q ? shown : shown.filter(im => distroOf(im) === fp.distro);
+  let main = `<table class="fp-imgs"><tbody>`;
+  let group = null;
+  for (const im of list) {
+    // Search results span distros, so group by full path; a distro's own list only by
+    // its sub-folders (Apertis has three).
+    const g = (q ? im.path : im.path.slice(distroDepth(im))).join(' › ');
+    if (g !== group) { group = g; if (g) main += `<tr class="grp"><td colspan="5">${esc(g)}</td></tr>`; }
+    main += `<tr class="${fp.sel === im.key ? 'sel' : ''}" onclick="fpSelect('${esc(im.key)}')">
+      <td class="st">${starBtn(im.key)}</td>
+      <td class="nm"><div>${esc(im.name)}</div><div class="desc">${esc(im.description.replace(/<[^>]*>/g, ''))}</div></td>
+      <td class="bd">${esc(imgBoards(im).join(' · ') || 'any')}</td>
+      <td class="num">${fmtSz(im.downloadSize)}</td>
+      <td class="fs">${takesSettings(im) ? '<span class="fp-ok" title="Hostname, user, SSH and Wi-Fi are applied on first boot">settings ✓</span>' : '<span class="fp-no" title="This image ignores the flash settings">no settings</span>'}</td>
+    </tr>`;
+  }
+  if (!list.length) main += `<tr><td class="fp-empty" colspan="5">${q ? 'No images match.' : 'Nothing here for this board.'}</td></tr>`;
+  main += '</tbody></table>';
+  if (hidden) main += `<div class="fp-note">${hidden} more image${hidden === 1 ? '' : 's'} hidden: not for the ${esc(boardShort(board.name))}. <a onclick="setBoard('')">Show all boards</a></div>`;
+
+  return `<div class="fp-distros"><div class="fp-side">${side}</div><div class="fp-main">${main}</div></div>`;
+}
+
+function renderSel(board) {
+  const im = imgByKey(fp.sel);
+  if (!im) { Q('#fp-sel').innerHTML = `<div class="fp-selbox none">Pick an image above.</div>`; return; }
+  const drive = driveOf(fp.dev);
+  const warns = [];
+  if (!fitsBoard(im, board)) warns.push(`Not listed for the ${boardShort(board.name)}.`);
+  if (!takesSettings(im)) warns.push(`This image ignores the settings below (first-boot setup: ${initFormatLabel(im.initFormat)}).`);
+  if (drive && im.extractSize > drive.size) warns.push(`Needs ${fmtSz(im.extractSize)} but the drive is ${fmtSz(drive.size)}.`);
+  Q('#fp-sel').innerHTML = `<div class="fp-selbox">
+    <div class="t">${starBtn(im.key)} <b>${esc(im.name)}</b> <span class="dim">${im.rpios ? '' : esc(im.path.join(' › '))}</span></div>
+    <div class="dim">${esc(im.description.replace(/<[^>]*>/g, ''))}</div>
+    <div class="dim">${fmtSz(im.downloadSize)} download · ${fmtSz(im.extractSize)} on disk · released ${esc(im.releaseDate || '?')} · ${esc(imgBoards(im).join(', ') || 'any board')} · settings via ${esc(initFormatLabel(im.initFormat))}</div>
+    ${warns.map(w => `<div class="fp-warn">${esc(w)}</div>`).join('')}
+  </div>`;
 }
 
 async function loadDefaults() {
@@ -1444,6 +1873,7 @@ function showModal(html, cls) {
 function hideModal() {
   Q('#modal-bg').classList.add('hidden');
   fb = null; fbSeq++; // drop any file-browser state and in-flight listing with it
+  fp = null;
   maybeReload();
 }
 
@@ -1477,70 +1907,6 @@ function eraseModal(dev, model, size) {
   });
 }
 
-function flashModal(dev) {
-  return new Promise(resolve => {
-    let imgOpts = '<option value="">Choose an image...</option>';
-    let lastCat = '';
-    for (let i = 0; i < images.length; i++) {
-      const im = images[i];
-      if (im.category !== lastCat) { if(lastCat) imgOpts+='</optgroup>'; imgOpts+=`<optgroup label="${esc(im.category||'Raspberry Pi OS')}">`;lastCat=im.category; }
-      imgOpts += `<option value="${i}">${esc(im.name)}</option>`;
-    }
-    if(lastCat) imgOpts+='</optgroup>';
-
-    const d = defaults;
-    const savedKeys = Array.isArray(d.sshKeys) ? d.sshKeys.join('\n') : '';
-
-    showModal(`<h3>Flash RPi Image</h3>
-      <div class="flash-form" style="max-height:70vh;overflow-y:auto">
-        <div class="fg"><label>Image</label><select id="sf-img">${imgOpts}</select><div class="img-detail" id="sf-imgd"></div></div>
-        <details><summary>Configure Settings</summary>
-          <div class="settings-grid">
-            <div class="fg"><label>Hostname</label><input type="text" id="sf-host" value="${esc(d.hostname||'raspberrypi')}"></div>
-            <div class="fg"><label>Username</label><input type="text" id="sf-user" value="${esc(d.username||'pi')}"></div>
-            <div class="fg"><label>Password</label><input type="password" id="sf-pass" placeholder="Blank = key-only SSH"></div>
-            <div class="fg"><label>&nbsp;</label><div class="check"><input type="checkbox" id="sf-ssh" ${d.enableSsh!==false?'checked':''}><label for="sf-ssh">Enable SSH</label></div><div class="check"><input type="checkbox" id="sf-sudo" ${d.passwordlessSudo?'checked':''}><label for="sf-sudo">Passwordless sudo</label></div></div>
-            <div class="fg full"><label>SSH Authorized Keys</label><textarea id="sf-keys" rows="3" placeholder="ssh-ed25519 AAAA... user@host (one per line)" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:7px 10px;color:var(--text);font-size:.8rem;font-family:'SF Mono',ui-monospace,monospace;resize:vertical;outline:none;width:100%">${esc(savedKeys)}</textarea></div>
-            <div class="fg full" style="margin-top:8px">
-              <label>WiFi Networks</label>
-              <div id="wifi-list" style="display:flex;flex-direction:column;gap:6px"></div>
-              <button class="btn btn-sm" onclick="addWifiRow('','','US')" type="button" style="margin-top:6px">+ Add WiFi Network</button>
-            </div>
-            <div class="fg"><label>Timezone</label><input type="text" id="sf-tz" value="${esc(d.timezone||'UTC')}"></div>
-            <div class="fg"><label>Keyboard</label><input type="text" id="sf-kb" value="${esc(d.keyboardLayout||'us')}"></div>
-            <div class="fg full" style="justify-content:flex-end"><button class="btn btn-sm" onclick="saveDefaults()" type="button">Save as Default</button></div>
-          </div>
-        </details>
-      </div>
-      <div class="modal-btns"><button class="btn" id="mc">Cancel</button><button class="btn btn-primary" id="mk" disabled>Flash</button></div>`);
-
-    // Populate saved WiFi networks
-    const nets = Array.isArray(d.wifiNetworks) ? d.wifiNetworks : [];
-    for (const w of nets) addWifiRow(w.ssid, w.password||'', w.country||'US');
-    if (nets.length === 0) addWifiRow('','','US');
-
-    Q('#sf-img').addEventListener('change', function() {
-      const idx = parseInt(this.value);
-      Q('#mk').disabled = isNaN(idx);
-      if (!isNaN(idx) && images[idx]) {
-        const im = images[idx];
-        Q('#sf-imgd').textContent = `${(im.description||'').replace(/<[^>]*>/g,'').slice(0,100)} | DL: ${fmtSz(im.downloadSize)} | Size: ${fmtSz(im.extractSize)} | Settings: ${initFormatLabel(im.initFormat)}`;
-      } else Q('#sf-imgd').textContent = '';
-    });
-
-    Q('#mc').onclick = () => { hideModal(); resolve(null); };
-    Q('#mk').onclick = () => {
-      const idx = parseInt(Q('#sf-img').value);
-      if (isNaN(idx) || !images[idx]) return;
-      const im = images[idx];
-      const settings = readSettingsForm();
-      hideModal();
-      resolve({ imageUrl: im.url, imageName: im.name, extractSize: im.extractSize, device: dev, settings });
-    };
-    Q('#modal-bg').onclick = e => { if(e.target===Q('#modal-bg')){hideModal();resolve(null);} };
-  });
-}
-
 // ==================== Toast ====================
 function toast(msg, type) {
   const c = Q('#toasts');
@@ -1553,8 +1919,9 @@ function toast(msg, type) {
 
 // ==================== Init ====================
 connect();
-loadImages();
+loadCatalog();
 loadDefaults();
+loadFavorites();
 </script>
 </body>
 </html>

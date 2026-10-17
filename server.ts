@@ -5,6 +5,7 @@ import * as rpi from "./rpiboot.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = import.meta.dir + "/defaults.json";
+const FAVORITES_PATH = import.meta.dir + "/favorites.json";
 const FLASH_DIR = "/var/tmp/deskypi-flash";
 const BOOT_MOUNT = "/tmp/deskypi-boot";
 
@@ -1446,6 +1447,7 @@ async function rpibootRoute(p: string, req: Request, url: URL): Promise<Response
 // ==================== RPi Image Catalog ====================
 
 let imageCache: any = null;
+let deviceCache: any[] = [];
 let imageCacheTime = 0;
 
 async function getRpiImages() {
@@ -1454,6 +1456,9 @@ async function getRpiImages() {
     const resp = await fetch("https://downloads.raspberrypi.com/os_list_imagingutility_v4.json");
     const data: any = await resp.json();
     imageCache = flattenImages(data.os_list || []);
+    // "exclusive" boards (Pi 5) only match images that list them; others also take
+    // images with no board list, as Imager does.
+    deviceCache = (data.imager?.devices || []).map((d: any) => ({ name: d.name, tags: d.tags || [], description: d.description || "", exclusive: d.matching_type === "exclusive" }));
     imageCacheTime = Date.now();
     return imageCache;
   } catch {
@@ -1461,13 +1466,58 @@ async function getRpiImages() {
   }
 }
 
-function flattenImages(items: any[], category = ""): any[] {
+// Images plus the board list, for the flash picker.
+async function getCatalog() {
+  return { images: await getRpiImages(), devices: deviceCache };
+}
+
+function flattenImages(items: any[], path: string[] = []): any[] {
   const r: any[] = [];
   for (const i of items) {
-    if (i.subitems) r.push(...flattenImages(i.subitems, i.name));
-    else if (i.url) r.push({ name: i.name, description: i.description || "", category, url: i.url, extractSize: i.extract_size || 0, downloadSize: i.image_download_size || 0, releaseDate: i.release_date || "", icon: i.icon || "", initFormat: i.init_format || "none" });
+    if (i.subitems) r.push(...flattenImages(i.subitems, [...path, i.name]));
+    else if (i.url) {
+      const rpios = parseRpiOs(i.url);
+      r.push({
+        name: i.name, description: i.description || "", category: path[path.length - 1] || "", path, url: i.url,
+        extractSize: i.extract_size || 0, downloadSize: i.image_download_size || 0, releaseDate: i.release_date || "",
+        icon: i.icon || "", initFormat: i.init_format || "none", devices: [...new Set<string>(i.devices || [])],
+        key: rpios ? `rpios/${rpios.legacy ? "legacy" : "current"}/${rpios.arch}/${rpios.edition}` : [...path, i.name].join("/"),
+        ...(rpios && { rpios }),
+      });
+    }
+  }
+  if (!path.length) {
+    // A few names repeat with different boards (DietPi, Alpine); tell them apart so a
+    // favorite points at one image. Some even share the boards (PINN, FullPageOS
+    // nightlies), so those fall back to catalog order.
+    const count = (key: (im: any) => string) => {
+      const n = new Map<string, number>();
+      for (const im of r) n.set(key(im), (n.get(key(im)) || 0) + 1);
+      return n;
+    };
+    const byName = count((im) => im.key);
+    for (const im of r) if (byName.get(im.key)! > 1) im.key += `@${im.devices.join(",")}`;
+    const byBoards = count((im) => im.key), nth = new Map<string, number>();
+    for (const im of r) if (byBoards.get(im.key)! > 1) { const i = (nth.get(im.key) || 0) + 1; nth.set(im.key, i); im.key += `#${i}`; }
   }
   return r;
+}
+
+// Raspberry Pi OS images are named <date>-raspios-<release>-<arm64|armhf>[-lite|-full].img.xz,
+// under a raspios[_oldstable][_lite|_full]_<arch>/ directory. "Legacy" comes from that
+// directory rather than the codename, so this keeps working when the next Debian release
+// takes over. Third-party images built on Pi OS (SatNOGS, nymea) live on other hosts.
+function parseRpiOs(url: string) {
+  if (!url.startsWith("https://downloads.raspberrypi.com/")) return null;
+  const m = url.match(/\/[^/]*-raspios-([a-z]+)-(arm64|armhf)(?:-(lite|full))?\.img\.xz$/);
+  if (!m || !/\/raspios(_oldstable)?(_lite|_full)?_(arm64|armhf)\//.test(url)) return null;
+  return { release: m[1], arch: m[2] === "arm64" ? "64" : "32", edition: m[3] || "desktop", legacy: /_oldstable_/.test(url) };
+}
+
+// ==================== Favorite Images ====================
+
+async function getFavorites(): Promise<{ key: string; label: string }[]> {
+  try { return await Bun.file(FAVORITES_PATH).json(); } catch { return []; }
 }
 
 // ==================== Default Settings ====================
@@ -1776,6 +1826,9 @@ const API_DOCS = {
     "GET /api/download?path=LABEL/dir/file": "Download one file. Supports Range requests, so interrupted downloads can resume (curl -C -).",
     "GET /api/osinfo?device=sda": "What's installed on a USB disk and how it boots: per-partition role, EFI loaders (with Windows BCD entries, GRUB targets, systemd-boot entries, fallback-loader identity), Windows edition/build/PC name, Linux os-release, Raspberry Pi bootfs, macOS version. Only mounted partitions are inspected.",
     "GET /api/images": "Official RPi OS image catalog (cached 1hr)",
+    "GET /api/catalog": "Image catalog with picker metadata (full category path, board tags, stable favorite key, parsed Raspberry Pi OS release/arch/edition) plus the board list",
+    "GET /api/favorites": "Starred images: [{ key, label }], keys as in /api/catalog",
+    "POST /api/favorites": { body: [{ key: "rpios/current/64/lite", label: "Raspberry Pi OS Lite (64-bit)" }], description: "Replace the starred images" },
     "GET /api/defaults": "Saved default flash settings",
     "POST /api/rpiboot/msd": { body: { path: "1-1.3" }, description: "Load the mass-storage gadget onto a device in USB boot mode (path from status.bootDevices). Its eMMC/NVMe then appears as a normal drive." },
     "POST /api/rpiboot/eeprom/check": { body: { path: "1-1.3" }, description: "Read OTP metadata (board, MAC, secure-boot state, EEPROM hash) through recovery.bin without writing anything. Result in status.rpibootResults." },
@@ -1810,8 +1863,8 @@ const API_DOCS = {
 const UI_PATH = import.meta.dir + "/index.html";
 
 // UI_PATH must stay first — getBuild() serves texts[0] as the page.
-// defaults.json is deliberately excluded: it is user data, rewritten every time flash
-// settings are saved, and would cause a spurious reload on each save.
+// defaults.json and favorites.json are deliberately excluded: they are user data, rewritten
+// whenever flash settings or stars are saved, and would cause a spurious reload each time.
 const BUILD_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "regf.ts", "rpiboot.ts"].map((f) => `${import.meta.dir}/${f}`)];
 
 let buildCache: { stamp: string; version: string; html: string } | null = null;
@@ -1949,6 +2002,16 @@ Bun.serve({
     if (p.startsWith("/api/rpiboot/")) return await rpibootRoute(p, req, url);
 
     if (p === "/api/images") return Response.json(await getRpiImages());
+    if (p === "/api/catalog") return Response.json(await getCatalog());
+    if (p === "/api/favorites") {
+      if (req.method === "GET") return Response.json(await getFavorites());
+      if (req.method === "POST") {
+        const body = await req.json();
+        if (!Array.isArray(body) || !body.every((f) => typeof f?.key === "string")) return Response.json({ ok: false, message: "Expected [{ key, label }]" }, { status: 400 });
+        await Bun.write(FAVORITES_PATH, JSON.stringify(body.map((f) => ({ key: f.key, label: String(f.label ?? f.key) })), null, 2));
+        return Response.json({ ok: true });
+      }
+    }
     if (p === "/api/defaults") {
       if (req.method === "GET") { try { return Response.json(await Bun.file(DEFAULTS_PATH).json()); } catch { return Response.json(await getDefaultSettings()); } }
       if (req.method === "POST") { await Bun.write(DEFAULTS_PATH, JSON.stringify(await req.json(), null, 2)); return Response.json({ ok: true }); }
