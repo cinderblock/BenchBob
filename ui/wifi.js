@@ -213,13 +213,28 @@
       labels.push(b);
       if (labels.length >= 10) break;
     }
+    // Stack labels down from each hump's top, testing real text extents (~5.3 px per char at
+    // 9 px). Where a crowded channel runs out of room above the axis, the rest fold into a
+    // "+N more" note instead of spilling over the channel numbers.
     const placed = [];
+    const more = new Map();
     for (const b of labels) {
       const x = fx(b.centerFreq);
+      const text = ssidLabel(b).slice(0, 22);
+      const half = (text.length * 5.3) / 2;
       let y = fy(b.signal) - 3;
-      while (placed.some((p) => Math.abs(p.x - x) < 70 && Math.abs(p.y - y) < 10)) y += 10;
-      placed.push({ x, y });
-      g += `<text x="${x}" y="${y}" fill="${ssidColor(b)}" font-size="9" text-anchor="middle">${esc(ssidLabel(b).slice(0, 22))}</text>`;
+      while (placed.some((p) => Math.abs(p.x - x) < p.half + half + 4 && Math.abs(p.y - y) < 10)) y += 10;
+      if (y > yb - 4) {
+        const k = Math.round(x);
+        more.set(k, (more.get(k) || 0) + 1);
+        continue;
+      }
+      placed.push({ x, y, half });
+      g += `<text x="${x}" y="${y}" fill="${ssidColor(b)}" font-size="9" text-anchor="middle">${esc(text)}</text>`;
+    }
+    for (const [x, n] of more) {
+      const top = Math.min(...placed.filter((p) => Math.abs(p.x - x) < 2).map((p) => p.y), yb);
+      g += `<text x="${x}" y="${Math.max(top - 11, 10)}" fill="#7a7f94" font-size="8" text-anchor="middle">+${n} more</text>`;
     }
     const empty = list.length ? '' : `<text x="${VW / 2}" y="${(top + yb) / 2}" fill="#7a7f94" font-size="11" text-anchor="middle">nothing seen on ${bandName[band]}</text>`;
     return `<svg class="wf-chart" viewBox="0 0 ${VW} ${H}" role="img" aria-label="${bandName[band]} channel occupancy">${g}${empty}</svg>`;
