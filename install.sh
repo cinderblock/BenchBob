@@ -40,6 +40,7 @@ apt-get install -y -qq \
   i2c-tools \
   can-utils \
   usbip \
+  usbredirect \
   uhubctl \
   ustreamer \
   v4l-utils \
@@ -54,6 +55,9 @@ apt-get install -y -qq \
   nut-server \
   nut-client \
   openocd \
+  dfu-util \
+  picotool \
+  gdb-multiarch \
   esptool \
   avrdude \
   udhcpc \

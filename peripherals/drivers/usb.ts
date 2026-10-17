@@ -461,10 +461,20 @@ function applyRules(all = false) {
 
 const redir = new Map<string, { proc: Subprocess; port: number; since: number; log: string[] }>();
 
+// usbredir 0.13 replaced usbredirserver with usbredirect (Debian trixie ships only the latter).
+// Both take busnum-devnum, which pins this exact device (two identical adapters share a VID:PID).
+function redirCmd(): ((port: number, dev: string) => string[]) | null {
+  const direct = which("usbredirect");
+  if (direct) return (port, dev) => [direct, "--device", dev, "--as", `0.0.0.0:${port}`];
+  const server = which("usbredirserver");
+  if (server) return (port, dev) => [server, "-p", String(port), dev];
+  return null;
+}
+
 function startRedir(busid: string) {
   const d = mustDev(busid);
-  const bin = which("usbredirserver");
-  if (!bin) throw new HttpError(501, "usbredirserver isn't installed (apt: usbredirserver)");
+  const cmd = redirCmd();
+  if (!cmd) throw new HttpError(501, "usbredir isn't installed (apt: usbredirect)");
   if (redir.has(busid)) return { ok: true, already: true, port: redir.get(busid)!.port };
   if (d.usbip) throw new HttpError(409, "Shared over USB/IP; unshare it first (a device can only go to one remote at a time)");
   const block = shareBlock(d);
@@ -472,8 +482,7 @@ function startRedir(busid: string) {
   const used = new Set([...redir.values()].map((r) => r.port));
   let port = redirBase();
   while (used.has(port)) port++;
-  // busnum-devnum pins this exact device (two identical adapters share a VID:PID).
-  const proc = ctx.spawn(["sudo", "-n", bin, "-p", String(port), `${d.bus}-${d.devnum}`], { stdout: "pipe", stderr: "pipe" });
+  const proc = ctx.spawn(["sudo", "-n", ...cmd(port, `${d.bus}-${d.devnum}`)], { stdout: "pipe", stderr: "pipe" });
   const me = { proc, port, since: Date.now(), log: [] as string[] };
   redir.set(busid, me);
   const keep = (l: string) => {
@@ -724,7 +733,7 @@ const routes: Route[] = [
       return { ok: true, rules: getRules() };
     },
   },
-  { method: "POST", path: "/api/usb/redir/start", doc: { body: busidParam, description: "Serve a device with usbredirserver (for QEMU/libvirt usb-redir). Exclusive with USB/IP." }, handler: async (req) => startRedir(String((await body(req)).busid)) },
+  { method: "POST", path: "/api/usb/redir/start", doc: { body: busidParam, description: "Serve a device with usbredirect (for QEMU/libvirt usb-redir). Exclusive with USB/IP." }, handler: async (req) => startRedir(String((await body(req)).busid)) },
   {
     method: "POST",
     path: "/api/usb/redir/stop",
@@ -839,7 +848,7 @@ function status() {
       peers: usbipd ? peers.filter((p) => p.local === usbipd!.port).map((p) => p.peer) : [],
       shared,
     },
-    redir: { available: !!which("usbredirserver"), apt: "usbredirserver", basePort: redirBase(), sessions: redir.size },
+    redir: { available: !!redirCmd(), apt: "usbredirect", basePort: redirBase(), sessions: redir.size },
     rules: getRules(),
     kernelLog: { error: dmesgError },
     timeline: timelineEntries(),
