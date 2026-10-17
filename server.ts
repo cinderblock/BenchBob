@@ -215,25 +215,6 @@ async function getNetworkInfo() {
   }
 }
 
-// ==================== USB Adapters ====================
-
-async function getUsbAdapters() {
-  const { out } = await run(["lsusb"]);
-  return out
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const m = line.match(/Bus (\d+) Device (\d+): ID ([0-9a-f:]+)\s+(.*)/i);
-      if (!m) return null;
-      return { bus: m[1], device: m[2], id: m[3], name: m[4] };
-    })
-    .filter((d): d is NonNullable<typeof d> => {
-      if (!d) return false;
-      const n = d.name.toLowerCase();
-      return !n.includes("root hub") && !n.includes("hub");
-    });
-}
-
 // ==================== USB Speed ====================
 
 async function getUsbSpeed(devName: string): Promise<string | null> {
@@ -327,13 +308,6 @@ async function getDevices() {
     d.usbVersion = await getUsbSpeed(d.name);
     d.hasPartitions = !!(d.children && d.children.length > 0);
     d.operations = getOpsForDevice(d.name).map(opPublic);
-    // Get USB vendor:model ID for adapter correlation
-    try {
-      const { out: udevOut } = await run(["udevadm", "info", "-q", "property", `/dev/${d.name}`]);
-      const vid = udevOut.match(/ID_USB_VENDOR_ID=([0-9a-f]+)/i)?.[1];
-      const mid = udevOut.match(/ID_USB_MODEL_ID=([0-9a-f]+)/i)?.[1];
-      if (vid && mid) d.usbId = `${vid}:${mid}`;
-    } catch {}
     usbDrives.push(d);
   }
 
@@ -407,7 +381,6 @@ async function getStatus() {
   const { rootDevice, drives } = await getDevices();
   const nbdExports = await getNbdExports();
   const bootDevices = await rpi.getBootDevices();
-  const usbAdapters = await getUsbAdapters();
   const hostname = await readSysFile("/etc/hostname");
   const uptimeStr = await readSysFile("/proc/uptime");
   const power = await getPower();
@@ -430,7 +403,6 @@ async function getStatus() {
     network,
     rootStorage,
     rootDevice,
-    usbAdapters,
     drives,
     nbdExports,
     bootDevices,

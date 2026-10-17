@@ -40,7 +40,7 @@
   const devName = d => [d.vendor, d.product].filter(Boolean).join(' ') || d.vidpid;
   const pill = (t, cls = '') => `<span class="pr-pill ${cls}">${esc(t)}</span>`;
   const btn = (act, label, data = {}, cls = '') => `<button class="btn btn-sm ${cls}" data-act="${act}"${Object.entries(data).map(([k, v]) => ` data-${k}="${esc(v)}"`).join('')}>${esc(label)}</button>`;
-  const panelLink = p => !p ? '' : (p === 'drives' || (typeof PERIPH !== 'undefined' && PERIPH[p])) ? ` → <button class="usb-link" data-act="panel" data-panel="${esc(p)}">${esc(PANELS[p] || p)} panel</button>` : ` → ${esc(PANELS[p] || p)}`;
+  const panelLink = (p, dev = '') => !p ? '' : (p === 'drives' || (typeof PERIPH !== 'undefined' && PERIPH[p])) ? ` → <button class="usb-link" data-act="panel" data-panel="${esc(p)}" data-dev="${esc(dev)}">${esc(PANELS[p] || p)} panel</button>` : ` → ${esc(PANELS[p] || p)}`;
 
   function portChips(d) {
     const pw = d.power;
@@ -93,7 +93,7 @@
     let l2 = '';
     if (!d.hub) {
       const ifs = d.interfaces.map(i => `${esc(i.clsName)} → ${i.driver ? esc(i.driver) : '<span class="nd">no driver</span>'}`).join(' · ');
-      const nodes = d.nodes.map(n => `${esc(n.dev)}${n.label ? ` (${esc(n.label)})` : ''}${panelLink(n.panel)}`).join(' · ');
+      const nodes = d.nodes.map(n => `${esc(n.dev)}${n.label ? ` (${esc(n.label)})` : ''}${panelLink(n.panel, n.dev)}`).join(' · ');
       const hint = d.hint ? `${esc(d.hint.label)}${panelLink(d.hint.panel)}` : '';
       const usbipNote = d.usbip ? 'Detached from local drivers while shared' : '';
       l2 = [ifs, nodes, hint, usbipNote].filter(Boolean).map(x => `<div class="usb-l2">${x}</div>`).join('');
@@ -234,7 +234,11 @@
       case 'chip': sel = sel && sel.hub === d.hub && sel.port === +d.port ? null : { hub: d.hub, port: +d.port }; sig.tree = null; render(); break;
       case 'power': doPower(b); break;
       case 'more': open.has(d.busid) ? open.delete(d.busid) : open.add(d.busid); sig.tree = null; render(); break;
-      case 'panel': if (d.panel === 'drives') Q('#drives')?.scrollIntoView({ behavior: 'smooth' }); else periphShow(d.panel); break;
+      case 'panel':
+        if (d.panel !== 'drives') periphShow(d.panel);
+        else if (document.getElementById('drive-' + d.dev.replace('/dev/', ''))) scrollToDrive(d.dev.replace('/dev/', ''));
+        else Q('#drives')?.scrollIntoView({ behavior: 'smooth' });
+        break;
       case 'share': b.disabled = true; try { const r = await papi('POST', '/api/usb/share', { busid: d.busid }); toast(`Shared ${d.busid}. Attach with: ${r.attach}`, 'success'); } catch {} b.disabled = false; break;
       case 'unshare': b.disabled = true; try { await papi('POST', '/api/usb/unshare', { busid: d.busid }); toast(`Stopped sharing ${d.busid}`, 'success'); } catch {} b.disabled = false; break;
       case 'redir-start': try { const r = await papi('POST', '/api/usb/redir/start', { busid: d.busid }); toast(`usbredir on TCP ${r.port}`, 'success'); } catch {} break;

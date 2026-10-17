@@ -115,16 +115,6 @@ main{padding:20px 24px;max-width:1100px;margin:0 auto;display:flex;flex-directio
 /* Stretch a sparkline to its container instead of its drawn width */
 .spark-fit svg{width:100%}
 
-/* USB adapters table */
-.adapter-tbl{width:100%;border-collapse:collapse;font-size:.82rem;table-layout:fixed}
-.adapter-tbl th{text-align:left;font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);padding:6px 8px;border-bottom:1px solid var(--border)}
-.adapter-tbl td{padding:6px 8px;border-bottom:1px solid var(--border)}
-.adapter-tbl tr:last-child td{border-bottom:none}
-.adapter-name{color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
-.adapter-link{color:var(--accent);cursor:pointer;font-family:'SF Mono',ui-monospace,monospace;font-size:.78rem}
-.adapter-link:hover{text-decoration:underline}
-.adapter-none{color:var(--dim);font-style:italic;font-size:.78rem}
-
 /* Drive highlight animation */
 @keyframes driveHighlight{0%{box-shadow:0 0 0 2px var(--accent)}50%{box-shadow:0 0 12px 3px var(--accent)}100%{box-shadow:none}}
 .drive-card.highlight{animation:driveHighlight 1.5s ease-out}
@@ -459,10 +449,6 @@ details[open] summary{margin-bottom:8px}
         <table class="net-tbl" id="net-info"><tbody></tbody></table>
       </div>
     </div>
-    <div id="usb-adapters" style="padding:12px 18px;border-top:1px solid var(--border)">
-      <div class="stat-label">USB Adapters</div>
-      <table class="adapter-tbl" id="adapter-list"><tbody></tbody></table>
-    </div>
     <button class="root-toggle" id="root-toggle" onclick="toggleRoot()">
       <span class="arrow">&#9654;</span>
       <span id="root-summary">Root Device</span>
@@ -565,17 +551,6 @@ function showNetTip(el, idx) {
     h += tipRow('Signal', `${n.wifi.signal} dBm`);
     h += tipRow('Bitrate', n.wifi.bitrate);
   }
-  h += `<div style="padding:3px 12px;font-size:.58rem;color:var(--dim);text-align:center;margin-top:2px">click any row to copy</div>`;
-  showTip(el, h);
-}
-
-function showAdapterTip(el, name, id, bus, dev) {
-  clearTimeout(tipTimer);
-  let h = `<div style="padding:3px 12px 5px;font-weight:600;font-size:.82rem;color:var(--text);white-space:normal">${esc(name)}</div>`;
-  h += '<div class="tip-sep"></div>';
-  h += tipRow('ID', id);
-  h += tipRow('Bus', bus);
-  h += tipRow('Device', dev);
   h += `<div style="padding:3px 12px;font-size:.58rem;color:var(--dim);text-align:center;margin-top:2px">click any row to copy</div>`;
   showTip(el, h);
 }
@@ -791,23 +766,6 @@ function render() {
   }
   nh += '</tbody>';
   Q('#net-info').innerHTML = nh;
-
-  // USB Adapters as table with drive links
-  if (s.usbAdapters.length) {
-    Q('#usb-adapters').style.display = '';
-    let ah = '<colgroup><col style="width:55%"><col style="width:15%"><col style="width:30%"></colgroup><thead><tr><th>Device</th><th>ID</th><th>Connected Drive</th></tr></thead><tbody>';
-    for (const a of s.usbAdapters) {
-      const drive = s.drives.find(d => d.usbId === a.id);
-      const driveCell = drive
-        ? `<span class="adapter-link" onclick="scrollToDrive('${drive.name}')">${drive.name} — ${esc(drive.model || drive.name)} (${fmtSz(drive.size)})</span>`
-        : '<span class="adapter-none">No disk</span>';
-      ah += `<tr><td><span class="adapter-name tip-trigger" onmouseenter="showAdapterTip(this,${esc(JSON.stringify(a.name))},${esc(JSON.stringify(a.id))},${esc(JSON.stringify(a.bus))},${esc(JSON.stringify(a.device))})" onmouseleave="hideTip()">${esc(a.name)}</span></td><td class="mono" style="font-size:.72rem;color:var(--dim)">${a.id}</td><td>${driveCell}</td></tr>`;
-    }
-    ah += '</tbody>';
-    Q('#adapter-list').innerHTML = ah;
-  } else {
-    Q('#usb-adapters').style.display = 'none';
-  }
 
   // Root device
   Q('#root-toggle').style.display = s.rootDevice ? '' : 'none';
