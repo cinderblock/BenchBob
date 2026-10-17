@@ -1382,11 +1382,23 @@ function wsClose(ws: ServerWebSocket<WsData>) {
 
 // ---------- Timers ----------
 
-let tickTimer: ReturnType<typeof setInterval> | null = null;
-let tickN = 0;
+let tickTimer: ReturnType<typeof setTimeout> | null = null;
+let tickN = 0; // counts 50 ms units, so the modulo schedules below hold at either pace
 
-function tick() {
-  tickN++;
+// 50 ms only while a WebSocket client is watching (frame batches, stats snapshots);
+// otherwise once a second is plenty for rates, and an idle Pi isn't woken 20 times a second.
+function scheduleTick() {
+  const watching = [...hubs.values()].some((h) => h.clients.size > 0);
+  tickTimer = setTimeout(() => {
+    tick(watching ? 1 : 20);
+    if (tickTimer) scheduleTick();
+  }, watching ? 50 : 1000);
+}
+
+function tick(units: number) {
+  const before = tickN;
+  tickN += units;
+  const crossed = (every: number) => Math.floor(tickN / every) > Math.floor(before / every);
   // 50 ms: flush batched frames.
   for (const hub of hubs.values()) {
     for (const ws of hub.clients) {
@@ -1403,7 +1415,7 @@ function tick() {
     }
   }
   // 250 ms: stats snapshots.
-  if (tickN % 5 === 0) {
+  if (crossed(5)) {
     for (const hub of hubs.values()) {
       let snap: string | null = null;
       for (const ws of hub.clients) {
@@ -1416,10 +1428,11 @@ function tick() {
   }
   // 1 s: rates; poll `ip` for controller state and error counters while a real controller is
   // up. vcan has neither, so otherwise every 5 s is enough to notice links changed from a shell.
-  if (tickN % 20 === 0) {
+  if (crossed(20)) {
     for (const hub of hubs.values()) hub.tick();
     const ctrlUp = [...ifaces.values()].some((i) => i.up && i.kind === "can");
-    if (ctrlUp || tickN % 100 === 0) refresh();
+    // With no interfaces at all, udev hotplug (see udev()) is what notices a new one.
+    if (ctrlUp || (ifaces.size && crossed(100))) refresh();
   }
 }
 
@@ -1459,11 +1472,11 @@ const driver: Driver = {
     refreshRecordings();
     startSocketcand();
     startBeacon();
-    tickTimer = setInterval(tick, 50);
+    scheduleTick();
   },
 
   async stop() {
-    if (tickTimer) clearInterval(tickTimer);
+    if (tickTimer) clearTimeout(tickTimer);
     tickTimer = null;
     stopBeacon();
     stopSocketcand();
