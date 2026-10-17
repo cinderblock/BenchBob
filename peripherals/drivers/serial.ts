@@ -2057,7 +2057,7 @@ const driver: Driver = {
         ? `${open[0].name} open · ${T.configLabel(open[0].cfg)}`
         : shown.length || open.length
           ? `${shown.length} port${shown.length === 1 ? "" : "s"}${open.length ? ` · ${open.length} open` : ""}`
-          : "";
+          : "No USB serial ports";
     return { active: shown.length > 0 || open.length > 0, summary, offset: OFFSET, ports: listPorts() };
   },
 
