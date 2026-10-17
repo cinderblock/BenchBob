@@ -1682,8 +1682,9 @@ async function getDefaultSettings() {
 
 const sseClients = new Set<ReadableStreamDefaultController>();
 
-function broadcast(status: any) {
-  const enc = new TextEncoder().encode(`data: ${JSON.stringify(status)}\n\n`);
+// `event` names a non-default SSE event; without one it's the full status message.
+function broadcast(status: any, event?: string) {
+  const enc = new TextEncoder().encode(`${event ? `event: ${event}\n` : ""}data: ${JSON.stringify(status)}\n\n`);
   for (const c of sseClients) {
     try { c.enqueue(enc); } catch { sseClients.delete(c); }
   }
@@ -2033,9 +2034,13 @@ async function getBuild(): Promise<{ version: string; html: string }> {
   return buildCache;
 }
 
-await periph.start(async () => {
+// A peripheral change only pushes the peripherals part, as its own event. A full getStatus()
+// spawns a dozen processes and re-samples CPU/IO rates over a sub-second window, and every
+// full message adds a point to the dashboard's sparklines, so drivers that change often
+// would both load the Pi and distort those graphs. The 2 s tick still carries everything.
+await periph.start(() => {
   if (sseClients.size === 0) return;
-  try { broadcast(await getStatus()); } catch {}
+  try { broadcast(periph.status(), "periph"); } catch {}
 });
 
 Bun.serve({

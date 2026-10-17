@@ -614,6 +614,8 @@ function connect() {
   Q('#dot').className = 'dot';
   let seeded = false;
   es.onmessage = e => { S = JSON.parse(e.data); if (!seeded && S.history) { seedHist(S.history); seeded = true; } checkBuildVersion(S.buildVersion); render(); };
+  // Peripheral changes between full status pushes: only that part of S, only that part of the page.
+  es.addEventListener('periph', e => { if (!S) return; S.peripherals = JSON.parse(e.data); renderPeriph(S); });
   es.onerror = () => { Q('#dot').className = 'dot off'; es.close(); setTimeout(connect, 3000); };
 }
 
