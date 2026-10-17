@@ -156,6 +156,7 @@ async function pollSysfs() {
     const d = `/sys/class/net/${i.name}`;
     const [carrier, changes, oper, mtu, mac] = await Promise.all(["carrier", "carrier_changes", "operstate", "mtu", "address"].map((f) => readText(`${d}/${f}`)));
     const was = i.carrier;
+    const prevOper = i.operstate;
     i.carrier = carrier === "1";
     i.carrierChanges = +changes || 0;
     i.operstate = oper;
@@ -165,6 +166,7 @@ async function pollSysfs() {
       ctx.event(`${i.name}: link ${i.carrier ? "up" : "down"}`);
       pollFull(i).catch(() => {});
     }
+    if (was !== i.carrier || oper !== prevOper) ctx.changed();
   }
 }
 
@@ -252,7 +254,28 @@ async function lldpStart() {
     ctx.changed();
   });
   ctx.changed();
-  setTimeout(() => lldpQuery().catch(() => {}), 3000);
+  setTimeout(() => {
+    lldpQuery().catch(() => {});
+    lldpWatch(p);
+  }, 3000);
+}
+
+// `lldpcli watch` prints a block whenever a neighbour is added, updated or expires, so one
+// long-lived child replaces polling. (Polling went through sudo every 10 s, and each sudo
+// writes three journal lines.) Every block triggers one full query for the detailed view.
+function lldpWatch(daemon: ReturnType<Ctx["spawn"]>) {
+  if (lldp.proc !== daemon) return;
+  const w = ctx.spawn(["sudo", "-n", bin("lldpcli"), "-u", `${LLDP_DIR}/ctl.sock`, "watch"], { stdout: "pipe", stderr: "ignore" });
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  (async () => {
+    for await (const _ of w.stdout as any as ReadableStream<Uint8Array>) {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => lldpQuery().catch(() => {}), 500);
+    }
+  })();
+  daemon.exited.then(() => w.kill());
+  // The watcher only dies on its own if lldpd's socket went away; retry while lldpd lives.
+  w.exited.then(() => setTimeout(() => lldpWatch(daemon), 5000));
 }
 
 async function lldpStop() {
@@ -564,9 +587,12 @@ const driver: Driver = {
     rescanIfaces();
     await pollSysfs();
     pollAll();
-    timers.push(setInterval(() => pollSysfs().then(() => ctx.changed()).catch(() => {}), 5000));
-    timers.push(setInterval(() => pollAll().catch(() => {}), 15_000));
-    timers.push(setInterval(() => lldpQuery().catch(() => {}), 10_000));
+    // Carrier is checked often (a link change triggers a full poll at once); the ethtool
+    // view is otherwise near-static, so it refreshes once a minute.
+    timers.push(setInterval(() => pollSysfs().catch(() => {}), 5000));
+    timers.push(setInterval(() => pollAll().catch(() => {}), 60_000));
+    // Safety net only: lldpWatch() picks up changes as they happen.
+    timers.push(setInterval(() => lldpQuery().catch(() => {}), 300_000));
     await serverKillStale();
     if (lldpEnabled()) lldpStart().catch((e) => (lldp.error = e.message));
   },
