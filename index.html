@@ -673,6 +673,19 @@ function memSparkSvg(w, h, color) {
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block">${bars}${deltas}</svg>`;
 }
 
+// Signal history is raw dBm (negative), so map a fixed -90..-30 dBm window onto the height
+function wifiSparkSvg(w, h) {
+  const d = hist['wifi'] || [];
+  if (!d.length) return `<svg width="${w}" height="${h}"></svg>`;
+  const bw = w / HIST_N;
+  let bars = '';
+  for (let i = 0; i < d.length; i++) {
+    const bh = Math.max(1, Math.min(1, Math.max(0, (d[i] + 90) / 60)) * h);
+    bars += `<rect x="${(HIST_N - d.length + i) * bw}" y="${h - bh}" width="${Math.max(bw - 0.5, 0.5)}" height="${bh}" fill="${wifiColor(d[i])}" rx="0.5"/>`;
+  }
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block">${bars}</svg>`;
+}
+
 function pctColor(pct) {
   if (pct < 60) return '#6c8cff';
   if (pct < 85) return '#f5a623';
@@ -732,7 +745,7 @@ function render() {
       nh += `<tr><td colspan="4" style="padding:4px 8px 8px;white-space:normal">
         <div class="wifi-info">
           <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px">
-            ${sparkSvg('wifi', 70, 18, wifiColor(dbm))}
+            ${wifiSparkSvg(70, 18)}
             <span style="color:${wifiColor(dbm)};font-weight:600;font-size:.82rem">${dbm} dBm</span>
             <span>${esc(n.wifi.ssid)} · ${esc(n.wifi.bitrate)}</span>
           </div>
