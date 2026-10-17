@@ -115,9 +115,18 @@ async function sampleIO(): Promise<void> {
 // ==================== System Info ====================
 
 let piModel = "";
+let ramMB = 0;
 (async () => {
   piModel = await readSysFile("/proc/device-tree/model");
   piModel = piModel.replace(/\0/g, "");
+  // Installed RAM from the board revision code (bits 20-22 of a new-style code), since
+  // MemTotal is short by whatever the GPU reserved. Old-style codes: round MemTotal up.
+  const rev = parseInt((await readSysFile("/proc/cpuinfo")).match(/^Revision\s*:\s*([0-9a-f]+)/im)?.[1] || "", 16);
+  if (rev & 0x800000) ramMB = 256 << ((rev >> 20) & 7);
+  else {
+    const kb = parseInt((await readSysFile("/proc/meminfo")).match(/^MemTotal:\s+(\d+)/m)?.[1] || "");
+    if (kb) ramMB = 2 ** Math.ceil(Math.log2(kb / 1024));
+  }
 })();
 
 async function getSystemInfo() {
@@ -132,6 +141,7 @@ async function getSystemInfo() {
 
   return {
     model: piModel,
+    ramMB,
     cores: cores || 4,
     cpuUsage: Math.round(cpuUsage * 10) / 10,
     cpuTemp: Math.round(temp * 10) / 10,
@@ -248,6 +258,43 @@ async function getUsbSpeed(devName: string): Promise<string | null> {
   }
 }
 
+// ==================== Root Storage ====================
+//
+// What this Pi is running from. Found from the / mount rather than by guessing the SD
+// card, so NVMe, USB and netboot hosts are described (and protected) correctly.
+
+let rootDisk: { name: string | null; kind: string; size: number; source: string; fstype: string } | null = null;
+
+async function getRootStorage() {
+  const { out } = await run(["findmnt", "-n", "-J", "-b", "-o", "SOURCE,FSTYPE,SIZE,USE%", "/"]);
+  let fs: any;
+  try {
+    fs = JSON.parse(out).filesystems[0];
+  } catch {
+    return null;
+  }
+  if (!rootDisk || rootDisk.source !== fs.source) {
+    const source: string = fs.source, fstype: string = fs.fstype;
+    rootDisk = { name: null, kind: fstype, size: 0, source, fstype };
+    if (/^nfs/.test(fstype)) rootDisk.kind = "Netboot";
+    else if (source.startsWith("/dev/")) {
+      const parent = (await run(["lsblk", "-no", "PKNAME", source])).out.trim();
+      const name = parent || source.slice(5);
+      let d: any = {};
+      try {
+        d = JSON.parse((await run(["lsblk", "-dn", "-J", "-b", "-o", "NAME,TRAN,SIZE", `/dev/${name}`])).out).blockdevices[0];
+      } catch {}
+      rootDisk.name = name;
+      rootDisk.size = Number(d.size) || 0;
+      if (name.startsWith("nvme") || d.tran === "nvme") rootDisk.kind = "NVMe";
+      else if (name.startsWith("mmcblk")) rootDisk.kind = (await readSysFile(`/sys/block/${name}/device/type`)) === "MMC" ? "eMMC" : "microSD";
+      else if (d.tran === "usb") rootDisk.kind = "USB";
+      else if (d.tran) rootDisk.kind = d.tran.toUpperCase();
+    }
+  }
+  return { ...rootDisk, usePercent: parseInt(fs["use%"]) || 0 };
+}
+
 // ==================== Block Devices ====================
 
 async function getDevices() {
@@ -271,10 +318,11 @@ async function getDevices() {
   };
   all = all.map(enrich);
 
-  const rootDev = all.find((d) => d.tran === "mmc" || d.name.startsWith("mmcblk"));
+  // A USB-booted host must never offer its own root disk for erasing or flashing.
+  const rootDev = all.find((d) => d.name === rootDisk?.name);
   const usbDrives: any[] = [];
 
-  for (const d of all.filter((d) => d.tran === "usb" && d.type === "disk" && d.size > 0)) {
+  for (const d of all.filter((d) => d.tran === "usb" && d.type === "disk" && d.size > 0 && d !== rootDev)) {
     d.usbVersion = await getUsbSpeed(d.name);
     d.hasPartitions = !!(d.children && d.children.length > 0);
     d.operations = getOpsForDevice(d.name).map(opPublic);
@@ -354,6 +402,7 @@ async function getStatus() {
   await sampleIO();
   const system = await getSystemInfo();
   const network = await getNetworkInfo();
+  const rootStorage = await getRootStorage();
   const { rootDevice, drives } = await getDevices();
   const nbdExports = await getNbdExports();
   const bootDevices = await rpi.getBootDevices();
@@ -378,6 +427,7 @@ async function getStatus() {
     system,
     power,
     network,
+    rootStorage,
     rootDevice,
     usbAdapters,
     drives,

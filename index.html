@@ -15,11 +15,16 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 a{color:var(--accent);text-decoration:none}
 header{
   display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:4px 20px;
   padding:14px 24px;border-bottom:1px solid var(--border);
   background:var(--surface);position:sticky;top:0;z-index:10;
 }
 header h1{font-size:1.15rem;font-weight:700;letter-spacing:-.5px}
-.hdr-right{display:flex;gap:14px;align-items:center;font-size:.82rem;color:var(--dim)}
+.hdr-id{display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap}
+.hdr-board{font-size:.82rem;color:var(--dim)}
+.hdr-right{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:.82rem;color:var(--dim)}
+.hdr-right b{color:var(--text);font-weight:600}
+.hdr-warn{color:var(--warning)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block}
 .dot.off{background:var(--danger)}
 main{padding:20px 24px;max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
@@ -263,8 +268,13 @@ details[open] summary{margin-bottom:8px}
 <body>
 
 <header>
-  <h1 id="title">DeskyPi</h1>
+  <div class="hdr-id">
+    <h1 id="title">DeskyPi</h1>
+    <span class="hdr-board" id="hdr-board"></span>
+  </div>
   <div class="hdr-right">
+    <span id="hdr-storage"></span>
+    <span class="mono" id="hdr-ip"></span>
     <span id="uptime"></span>
     <span id="dot" class="dot"></span>
   </div>
@@ -291,7 +301,6 @@ details[open] summary{margin-bottom:8px}
             <div class="stat-sub" id="mem-detail"></div>
           </div>
         </div>
-        <div class="stat-sub" id="pi-model" style="margin-top:8px"></div>
       </div>
       <div>
         <div class="stat-label">Network</div>
@@ -457,6 +466,14 @@ function QA(s) { return document.querySelectorAll(s); }
 function esc(s) { return s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmtSz(b) { b=Number(b); if(!b) return '0 B'; const u=['B','KB','MB','GB','TB']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),u.length-1); return (b/Math.pow(1024,i)).toFixed(i>0?1:0)+' '+u[i]; }
 function fmtRate(b) { b=Number(b); if(!b||b<1) return '0 B/s'; const u=['B/s','KB/s','MB/s','GB/s']; const i=Math.min(Math.floor(Math.log(b)/Math.log(1024)),u.length-1); return (b/Math.pow(1024,i)).toFixed(i>0?1:0)+' '+u[i]; }
+function fmtRam(mb) { return mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`; }
+// "microSD 14.9 GB", "NVMe 476.9 GB", "Netboot 10.0.0.1:/srv/root"; rootfs fullness only once it's worth a warning
+function fmtRootStorage(r) {
+  if (!r) return '';
+  let h = `<b>${esc(r.kind)}</b> ${r.kind === 'Netboot' ? esc(r.source) : r.size ? fmtSz(r.size) : esc(r.source)}`;
+  if (r.usePercent >= 85) h += ` <span class="hdr-warn">${r.usePercent}% full</span>`;
+  return h;
+}
 function fmtUp(s) { s=Math.floor(s); const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60); return 'up '+(d?d+'d ':'')+(d||h?h+'h ':'')+m+'m'; }
 
 // ==================== Sparkline Histogram ====================
@@ -553,6 +570,9 @@ function render() {
   Q('#title').textContent = s.hostname || 'DeskyPi';
   document.title = s.hostname || 'DeskyPi';
   Q('#uptime').textContent = fmtUp(s.uptime);
+  Q('#hdr-board').textContent = s.system.model + (s.system.ramMB ? ` · ${fmtRam(s.system.ramMB)} RAM` : '');
+  Q('#hdr-storage').innerHTML = fmtRootStorage(s.rootStorage);
+  Q('#hdr-ip').textContent = s.network.find(n => n.ip)?.ip || '';
 
   // CPU & Memory sparklines
   pushH('cpu', s.system.cpuUsage);
@@ -560,13 +580,12 @@ function render() {
   Q('#cpu-val').textContent = `${s.system.cpuUsage.toFixed(1)}%`;
   Q('#cpu-val').style.color = pctColor(s.system.cpuUsage);
   Q('#cpu-spark').innerHTML = sparkSvgLinear('cpu', 140, 28, pctColor(s.system.cpuUsage), 100);
-  Q('#cpu-temp').textContent = `${s.system.cpuTemp.toFixed(1)}°C · ${s.system.cores} cores`;
+  Q('#cpu-temp').textContent = `${s.system.cpuTemp.toFixed(1)}°C · ${s.system.cores} cores` + (s.power?.inputVolts ? ` · ${s.power.inputVolts.toFixed(2)} V in` : '');
   Q('#mem-val').textContent = `${s.system.memPercent}%`;
   Q('#mem-val').style.color = pctColor(s.system.memPercent);
   Q('#mem-spark').innerHTML = memSparkSvg(140, 28, pctColor(s.system.memPercent));
   const memUsed = s.system.memTotal - s.system.memAvailable;
   Q('#mem-detail').textContent = `${fmtSz(memUsed*1024)} / ${fmtSz(s.system.memTotal*1024)}`;
-  Q('#pi-model').textContent = s.system.model + (s.power?.inputVolts ? ` · ${s.power.inputVolts.toFixed(2)} V in` : '');
   renderPower(s.power);
 
   // Network (sorted by metric on server)
@@ -619,6 +638,8 @@ function render() {
   }
 
   // Root device
+  Q('#root-toggle').style.display = s.rootDevice ? '' : 'none';
+  if (!s.rootDevice) Q('#root-detail').classList.remove('open');
   if (s.rootDevice) {
     Q('#root-summary').textContent = `Root Device (${s.rootDevice.name} · ${fmtSz(s.rootDevice.size)})`;
     let rh = '';
