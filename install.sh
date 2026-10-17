@@ -171,6 +171,9 @@ done
 # 1-Wire) is a config.txt change the GPIO panel stages with a diff, so it isn't forced here.
 echo "i2c-dev" > /etc/modules-load.d/i2c-dev.conf
 modprobe i2c-dev 2>/dev/null || true
+# Debian's rtl-sdr package ships no blacklist, so the kernel's DVB-T TV driver would claim
+# an RTL-SDR stick before rtl_tcp/rtl_433 can open it.
+printf 'blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830\n' > /etc/modprobe.d/blacklist-rtl-sdr.conf
 
 # ---------- 10. Systemd service ----------
 blue "Installing systemd service..."
