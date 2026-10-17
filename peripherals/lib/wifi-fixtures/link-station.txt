@@ -1,0 +1,31 @@
+Connected to 00:00:00:00:00:01 (on wlan0)
+	SSID: TwillTech
+	freq: 5220.0
+	RX: 245206 bytes (892 packets)
+	TX: 10757 bytes (49 packets)
+	signal: -57 dBm
+	rx bitrate: 200.0 MBit/s
+	tx bitrate: 180.0 MBit/s
+	bss flags: 
+	dtim period: 3
+	beacon int: 100
+====
+Station 00:00:00:00:00:01 (on wlan0)
+	inactive time:	0 ms
+	rx bytes:	245306
+	rx packets:	893
+	tx bytes:	10757
+	tx packets:	49
+	tx failed:	0
+	signal:  	-57 dBm
+	tx bitrate:	180.0 MBit/s
+	rx bitrate:	200.0 MBit/s
+	authorized:	yes
+	authenticated:	yes
+	associated:	yes
+	WMM/WME:	yes
+	TDLS peer:	no
+	DTIM period:	3
+	beacon interval:100
+	connected time:	49 seconds
+	current time:	1792226150646 ms

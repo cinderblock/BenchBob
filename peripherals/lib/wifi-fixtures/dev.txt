@@ -1,0 +1,14 @@
+phy#0
+	Interface wlan0
+		ifindex 3
+		wdev 0x1
+		addr dc:a6:32:03:fc:37
+		ssid TwillTech
+		type managed
+		channel 44 (5220 MHz), width: 40 MHz, center1: 5230 MHz
+		txpower 31.00 dBm
+	Unnamed/non-netdev interface
+		wdev 0x2
+		addr de:a6:32:03:fc:37
+		type P2P-device
+		txpower 31.00 dBm
