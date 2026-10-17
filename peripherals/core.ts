@@ -68,6 +68,17 @@ export interface Socket {
   close?(ws: ServerWebSocket<WsData>): void;
 }
 
+const MCP_CONTENT = Symbol("mcpContent");
+
+/**
+ * Return this from a tool handler to send MCP content blocks as-is (images, several text
+ * blocks) instead of the default single JSON text block. `structured` becomes
+ * structuredContent. Example: mcpContent([{ type: "image", data: b64, mimeType: "image/jpeg" }], meta)
+ */
+export function mcpContent(content: Record<string, any>[], structured?: Record<string, any>) {
+  return { [MCP_CONTENT]: content, structured };
+}
+
 export interface Tool {
   name: string; // unique across drivers, e.g. "serial_write"
   description: string;
@@ -531,6 +542,8 @@ async function mcpOne(msg: any): Promise<any | null> {
       if (!hit) return fail(-32602, `Unknown tool: ${params?.name}`);
       try {
         const result = await hit.tool.handler(params?.arguments || {});
+        if (result && typeof result === "object" && MCP_CONTENT in result)
+          return reply({ content: result[MCP_CONTENT], ...(result.structured ? { structuredContent: result.structured } : {}) });
         const text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
         return reply({ content: [{ type: "text", text }], ...(typeof result === "object" && result !== null && !Array.isArray(result) ? { structuredContent: result } : {}) });
       } catch (e: any) {

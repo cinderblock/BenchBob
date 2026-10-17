@@ -15,7 +15,7 @@
 
 import { hostname } from "node:os";
 import type { Ctx, Driver, Props, UdevEvent } from "../core.ts";
-import { HttpError, body, run, usbName } from "../core.ts";
+import { HttpError, body, mcpContent, run, usbName } from "../core.ts";
 import {
   cameraKey, cameraKind, capsCanCapture, chooseStream, isUsbCaptureNode, isUserControl,
   parseControls, parseDeviceCaps, parseFormats, parseLibcameraList, ustreamerFormat,
@@ -585,14 +585,14 @@ const driver: Driver = {
     },
     {
       name: "camera_snapshot",
-      description: "Capture a JPEG from a camera now. Returns a URL to fetch the image (it stays available until the next snapshot) plus its size and time. Use camera_list first to get the id.",
+      description: "Capture a JPEG from a camera now and return the image itself, plus a URL to fetch it again (valid until the next snapshot), its size and time. Use camera_list first to get the id.",
       inputSchema: { type: "object", properties: { id: { type: "string", description: "Camera id from camera_list, e.g. video0. Optional when exactly one camera is connected." } } },
       async handler(args) {
         const id = args.id || (cams.size === 1 ? [...cams.keys()][0] : "");
         if (!id) throw new HttpError(400, cams.size ? `Several cameras; pass id (${[...cams.keys()].join(", ")})` : "No camera connected");
         const c = cam(id);
         const jpeg = await snapshot(c);
-        return {
+        const meta = {
           url: `${baseUrl()}/api/camera/${c.id}/last.jpg?t=${c.last!.t}`,
           path: `/api/camera/${c.id}/last.jpg`,
           camera: c.name,
@@ -601,6 +601,11 @@ const driver: Driver = {
           height: c.stream?.h,
           takenAt: new Date(c.last!.t).toISOString(),
         };
+        // Agents can look at the picture directly instead of fetching the URL.
+        return mcpContent(
+          [{ type: "image", data: Buffer.from(jpeg).toString("base64"), mimeType: "image/jpeg" }, { type: "text", text: JSON.stringify(meta, null, 2) }],
+          meta,
+        );
       },
     },
   ],
