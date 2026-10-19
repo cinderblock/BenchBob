@@ -1,0 +1,2 @@
+# BenchBob: USB drives, mounted read-only under /srv/nfs/drives, shared with everyone.
+/srv/nfs  *(ro,fsid=0,no_subtree_check,root_squash,crossmnt)

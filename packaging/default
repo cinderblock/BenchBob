@@ -1,0 +1,11 @@
+# Environment for benchbob.service. Restart the service after editing:
+#   sudo systemctl restart benchbob
+
+# Dashboard, REST API and MCP port.
+#PORT=80
+
+# Shift every peripheral listener port (serial bridges, usbredir, OpenOCD, ...) by this much.
+#BENCHBOB_PORT_OFFSET=0
+
+# Where settings live. The default is /var/lib/benchbob (systemd's StateDirectory=).
+#BENCHBOB_STATE_DIR=/var/lib/benchbob

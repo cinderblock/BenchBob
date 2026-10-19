@@ -1,0 +1,147 @@
+#!/bin/bash
+# BenchBob system setup. The package runs `benchbob-setup configure` on every install and
+# upgrade; run it again by hand after installing something it configures (Samba, say).
+#
+#   benchbob-setup configure   shares, on-demand daemons, kernel modules (idempotent)
+#   benchbob-setup apfs        build the APFS kernel module under DKMS (needs the network)
+set -euo pipefail
+
+STATE_DIR=/var/lib/benchbob
+SERVICE_USER=benchbob
+
+blue() { echo -e "\033[1;34m$*\033[0m"; }
+have() { command -v "$1" &>/dev/null; }
+unit_exists() { [ -n "$(systemctl list-unit-files --no-legend "$1" 2>/dev/null)" ]; }
+systemd_running() { [ -d /run/systemd/system ]; }
+
+if [ "$EUID" -ne 0 ]; then
+  echo "Run as root: sudo benchbob-setup ${1:-configure}" >&2
+  exit 1
+fi
+
+# ---------- DeskyPi → BenchBob ----------
+# install.sh used to set up deskypi-web.service running from a checkout (or /opt/deskypi)
+# as `pi`. Move its settings over, retire the old service and its udev rule, once.
+migrate_deskypi() {
+  local unit=/etc/systemd/system/deskypi-web.service
+  [ -f "$unit" ] || return 0
+  blue "Migrating from DeskyPi..."
+  local old_dir
+  old_dir=$(sed -n 's/^WorkingDirectory=//p' "$unit" | head -1)
+  if systemd_running; then
+    systemctl disable --now deskypi-web.service &>/dev/null || true
+  fi
+  if [ -n "$old_dir" ] && [ -d "$old_dir" ]; then
+    for f in defaults.json favorites.json quicklist.json eeprom-history.json peripherals.json; do
+      if [ -f "$old_dir/$f" ] && [ ! -e "$STATE_DIR/$f" ]; then
+        cp -p "$old_dir/$f" "$STATE_DIR/$f"
+        echo "  settings: $old_dir/$f → $STATE_DIR/$f"
+      fi
+    done
+  fi
+  if [ -d /var/tmp/deskypi-can ] && [ ! -e /var/tmp/benchbob-can ]; then
+    mv /var/tmp/deskypi-can /var/tmp/benchbob-can
+    echo "  CAN recordings: /var/tmp/deskypi-can → /var/tmp/benchbob-can"
+  fi
+  [ -d /var/tmp/benchbob-can ] && chown -R "$SERVICE_USER:$SERVICE_USER" /var/tmp/benchbob-can
+  # Renamed rather than deleted, so nothing hand-edited is lost. udev only reads *.rules.
+  local rule=/etc/udev/rules.d/90-nfs-drive-export.rules
+  [ -f "$rule" ] && mv "$rule" "$rule.deskypi-old" && echo "  retired $rule"
+  mv "$unit" "$unit.deskypi-old" && echo "  retired $unit"
+  # The old installer appended this export; /etc/exports.d/benchbob.exports has it now.
+  if grep -qx '/srv/nfs  \*(ro,fsid=0,no_subtree_check,root_squash,crossmnt)' /etc/exports 2>/dev/null; then
+    sed -i 's|^/srv/nfs  \*(ro,fsid=0,no_subtree_check,root_squash,crossmnt)$|# moved to /etc/exports.d/benchbob.exports: &|' /etc/exports
+  fi
+  systemd_running && systemctl daemon-reload
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
+}
+
+configure() {
+  mkdir -p "$STATE_DIR" /srv/nfs/drives
+  chown "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
+  chmod 0750 "$STATE_DIR"
+
+  migrate_deskypi
+
+  # NBD: one config fragment per exported drive, written by the drive handler.
+  if have nbd-server; then
+    mkdir -p /etc/nbd-server/conf.d
+    if ! grep -q 'includedir = /etc/nbd-server/conf.d' /etc/nbd-server/config 2>/dev/null; then
+      blue "Configuring NBD server..."
+      cat > /etc/nbd-server/config << 'NBD'
+# Written by benchbob-setup. Drives are exported from conf.d as they're plugged in.
+[generic]
+	allowlist = true
+	user = root
+	group = root
+	includedir = /etc/nbd-server/conf.d
+NBD
+    fi
+  fi
+
+  # Samba has no drop-in directory, so the share is appended once.
+  if [ -f /etc/samba/smb.conf ] && ! grep -q '^\[drives\]' /etc/samba/smb.conf; then
+    blue "Adding the Samba share..."
+    cat >> /etc/samba/smb.conf << 'SMB'
+
+# Added by benchbob-setup: USB drives, read-only.
+[drives]
+   comment = USB Drives
+   path = /srv/nfs/drives
+   browseable = yes
+   read only = yes
+   guest ok = yes
+   force user = root
+SMB
+  fi
+
+  # Daemons BenchBob starts itself, on demand, with private configs: their own units
+  # would otherwise start at boot and hold the devices or ports.
+  if systemd_running; then
+    for unit in lldpd iperf3 gpsd gpsd.socket nut-server nut-monitor nut-driver-enumerator nut-driver.target nut.target; do
+      if unit_exists "$unit"; then
+        systemctl disable --now "$unit" &>/dev/null || true
+        systemctl mask "$unit" &>/dev/null || true
+      fi
+    done
+  fi
+
+  modprobe i2c-dev 2>/dev/null || true
+
+  if systemd_running; then
+    for unit in nfs-kernel-server nbd-server smbd nmbd; do
+      unit_exists "$unit.service" && systemctl enable --now "$unit" &>/dev/null || true
+    done
+  fi
+  have exportfs && exportfs -ra 2>/dev/null || true
+  udevadm control --reload-rules 2>/dev/null || true
+}
+
+# Debian's apfs-dkms (0.3.13) stops building at kernel 6.18 (`struct page` lost `index`),
+# which leaves a kernel upgrade half-configured. Build the pinned upstream release under
+# DKMS instead, so every future kernel gets the module rebuilt automatically.
+apfs() {
+  local ver=0.3.22
+  for t in dkms git; do have "$t" || { echo "apfs needs $t: sudo apt install dkms git" >&2; exit 1; }; done
+  if ! dkms status "linux-apfs-rw/$ver" 2>/dev/null | grep -q installed; then
+    blue "Building linux-apfs-rw $ver under DKMS..."
+    dpkg -s apfs-dkms &>/dev/null && dpkg -r apfs-dkms > /dev/null
+    rm -rf "/usr/src/linux-apfs-rw-$ver"
+    git clone -q --depth 1 -b "v$ver" https://github.com/linux-apfs/linux-apfs-rw "/usr/src/linux-apfs-rw-$ver"
+    rm -rf "/usr/src/linux-apfs-rw-$ver/.git"
+    dkms add "linux-apfs-rw/$ver" > /dev/null
+    for k in /lib/modules/*/build; do
+      dkms install "linux-apfs-rw/$ver" -k "$(basename "$(dirname "$k")")" > /dev/null
+    done
+  fi
+  apt-mark manual dkms > /dev/null
+  echo "apfs" > /etc/modules-load.d/apfs.conf
+  modprobe apfs 2>/dev/null || true
+  blue "APFS ready."
+}
+
+case "${1:-configure}" in
+  configure) configure ;;
+  apfs) apfs ;;
+  *) echo "usage: benchbob-setup [configure|apfs]" >&2; exit 2 ;;
+esac

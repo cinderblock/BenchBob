@@ -2,7 +2,7 @@
 # Mount a drive for NFS export — called via systemd-run from udev handler
 DEVNAME="$1"
 MOUNTPOINT="$2"
-LOGFILE="/var/log/nfs-drive-handler.log"
+LOGFILE="/var/log/benchbob-drives.log"
 
 sleep 1
 

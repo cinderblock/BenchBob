@@ -1,0 +1,6 @@
+# BenchBob erases and flashes drives, mounts filesystems, edits config.txt, moves Wi-Fi
+# radios between network namespaces and more, through sudo. Several of those (dd, tee, sh)
+# can write anything, so a narrower rule would not stop the service becoming root: treat
+# the benchbob user as root-equivalent. What this buys is that the server and the daemons
+# it starts run unprivileged, except for those explicit sudo calls.
+benchbob ALL=(ALL) NOPASSWD: ALL

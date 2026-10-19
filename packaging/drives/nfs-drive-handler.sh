@@ -8,7 +8,7 @@ DEVTYPE="$3"  # "disk" or "partition"
 
 EXPORT_BASE="/srv/nfs/drives"
 NBD_CONF_DIR="/etc/nbd-server/conf.d"
-LOGFILE="/var/log/nfs-drive-handler.log"
+LOGFILE="/var/log/benchbob-drives.log"
 
 log() { echo "$(date -Is) $*" >> "$LOGFILE"; }
 
@@ -71,7 +71,7 @@ case "$ACTION" in
           systemd-run --no-block --collect \
             --unit="$UNIT" \
             --property="Type=oneshot" \
-            /usr/local/bin/nfs-drive-mount.sh "$DEVNAME" "$MOUNTPOINT" \
+            /usr/lib/benchbob/drives/nfs-drive-mount.sh "$DEVNAME" "$MOUNTPOINT" \
             2>>"$LOGFILE"
         fi
       fi

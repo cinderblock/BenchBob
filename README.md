@@ -1,7 +1,12 @@
 # BenchBob
 
-A Raspberry Pi bench server with a web dashboard. Plug things into it and use them from
-anywhere on the LAN, from a browser, a script or an AI agent.
+A bench server with a web dashboard, for a Raspberry Pi or any other Linux box. Plug
+things into it and use them from anywhere on the LAN, from a browser, a script or an AI
+agent.
+
+> **No login.** Anyone who can reach BenchBob can use the dashboard, the API and MCP to
+> erase and flash drives, change the boot config, reboot, and drive GPIO and USB power.
+> Run it only on a network you trust.
 
 - **Drives**: USB disks are auto-mounted and shared read-only over NFS, NBD and SMB. The
   dashboard can browse and download files, identify what's installed (Windows, Linux,
@@ -65,6 +70,8 @@ Apart from the dashboard and socketcand, nothing listens on the LAN until you tu
 
 There is no authentication: BenchBob assumes a trusted LAN.
 
+The examples here use `benchbob.local`: substitute your machine's name or address.
+
 ### For agents (MCP)
 
 Point an MCP client at `http://benchbob.local/mcp` (Streamable HTTP, stateless). Every panel
@@ -83,15 +90,52 @@ claude mcp add --transport http benchbob http://benchbob.local/mcp
 - `peripherals/drivers/<id>.ts`: one file per panel (auto-discovered)
 - `peripherals/lib/`: parsers, FFI layers (termios, SocketCAN, I²C, gpiomem), tests
 - `ui/<id>.js`: each panel's dashboard script, inlined into `index.html` at serve time
-- `install.sh`: packages, services, udev rules; `peripherals.json` holds panel settings
+- `paths.ts`: where settings live (`/var/lib/benchbob` when installed), the version
+- `packaging/`: the `.deb` build, systemd unit, udev rule, drive handler, `benchbob-setup`
 
 Serial, CAN, I²C and GPIO talk to the kernel through `bun:ffi`. There are no npm
 dependencies: Bun runs the TypeScript directly.
 
-## Install and develop
+## Install
+
+BenchBob runs on 64-bit Debian-family Linux: Raspberry Pi OS, Debian or Ubuntu, on arm64 or
+amd64. The Raspberry Pi gets the most (header, `config.txt`, bootloader tools); other
+machines get everything that isn't Pi-specific. There is no 32-bit build, because Bun has
+none.
 
 ```sh
-sudo ./install.sh          # on the Pi
-bun test peripherals/      # unit tests (also run on Windows)
-PORT=8090 bun run server.ts  # a side instance; BENCHBOB_PORT_OFFSET shifts peripheral ports
+curl -fLO https://github.com/cinderblock/BenchBob/releases/latest/download/benchbob_arm64.deb
+sudo apt install ./benchbob_arm64.deb    # benchbob_amd64.deb on a PC
 ```
+
+The dashboard is then on port 80. apt also installs the tools behind each panel
+(Recommends); `--no-install-recommends` leaves them out, and the panels say what's
+missing. Settings are kept in `/var/lib/benchbob`, and `/etc/default/benchbob` sets the
+port. For APFS drives, build the module once with `sudo benchbob-setup apfs`.
+
+Installing over a DeskyPi (`install.sh`) setup moves its settings over and retires
+`deskypi-web.service`.
+
+### Privileges
+
+The service runs as the `benchbob` user, in the device groups (dialout, gpio, i2c, video,
+…), so the server itself isn't root. Erasing, flashing, mounting and
+`config.txt` changes go through sudo, and `/etc/sudoers.d/benchbob` allows that without a
+password. That includes `dd` and `sh`, so the account is root-equivalent: another reason
+to keep BenchBob on a trusted network.
+
+## Develop
+
+```sh
+bun test peripherals/        # unit tests (also run on Windows)
+PORT=8090 bun run server.ts  # a side instance; BENCHBOB_PORT_OFFSET shifts peripheral ports
+./install.sh                 # on the box: build the .deb from this checkout and install it
+packaging/build-deb.sh arm64 # just build it (CI, any Debian box, WSL)
+```
+
+Running from a checkout, settings are kept next to the code unless `BENCHBOB_STATE_DIR`
+says otherwise.
+
+## License
+
+MIT

@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  remove)
+    rm -rf /var/cache/benchbob
+    if [ -d /run/systemd/system ]; then
+      systemctl disable benchbob.service > /dev/null 2>&1 || true
+      systemctl daemon-reload || true
+    fi
+    udevadm control --reload-rules 2>/dev/null || true
+    ;;
+  purge)
+    # Settings go; the benchbob user stays, as Debian leaves system users in place.
+    rm -rf /var/lib/benchbob /var/cache/benchbob
+    ;;
+esac

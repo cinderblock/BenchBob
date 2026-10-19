@@ -4,7 +4,7 @@ import { constants as zlibConstants, createGzip } from "node:zlib";
 import { analyseDisk, type DiskInfo } from "./osinfo.ts";
 import * as rpi from "./rpiboot.ts";
 import * as periph from "./peripherals/core.ts";
-import { statePath } from "./paths.ts";
+import { statePath, VERSION } from "./paths.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = statePath("defaults.json");
@@ -402,6 +402,7 @@ async function getStatus() {
     hostname,
     uptime: parseFloat(uptimeStr.split(" ")[0]) || 0,
     timestamp: Date.now(),
+    version: VERSION,
     buildVersion: (await getBuild()).version,
     // Alias kept so dashboards still open from the previous deploy — which compare
     // `uiVersion` — see the change and reload themselves once.
@@ -1967,7 +1968,7 @@ async function getOsInfo(device: string): Promise<DiskInfo> {
 // ==================== API Docs ====================
 
 const API_DOCS = {
-  name: "BenchBob API", version: "1.0", base: "http://benchbob.local", // rewritten to the host asked, per request
+  name: "BenchBob API", version: "1.0", appVersion: VERSION, base: "http://benchbob.local", // rewritten to the host asked, per request
   endpoints: {
     "GET /api": "This documentation",
     "GET /api/status": "System status snapshot (same data as SSE)",

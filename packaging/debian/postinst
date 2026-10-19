@@ -1,0 +1,35 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+  if ! getent passwd benchbob > /dev/null; then
+    useradd --system --user-group --home-dir /var/lib/benchbob --no-create-home \
+      --shell /usr/sbin/nologin --comment "BenchBob" benchbob
+  fi
+  # Device access without sudo: serial ports, GPIO, I²C, SPI, cameras, USB, Bluetooth.
+  # Only the groups this system has; Raspberry Pi OS has them all.
+  for g in dialout plugdev gpio i2c spi video bluetooth netdev input; do
+    getent group "$g" > /dev/null && usermod -aG "$g" benchbob
+  done
+
+  /usr/lib/benchbob/system/benchbob-setup configure
+
+  # Transpiled copies of the previous version's sources: never needed again.
+  rm -rf /var/cache/benchbob/* /var/lib/benchbob/.bun
+
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable benchbob.service > /dev/null 2>&1
+    systemctl restart benchbob.service
+  fi
+
+  cat << 'EOF'
+
+BenchBob is running on port 80: http://<this host>/
+
+  WARNING: BenchBob has no login. Anyone who can reach this machine can use the
+  dashboard, the API and MCP to erase and flash drives, change the boot config,
+  reboot, and drive GPIO and USB power. Only run it on a network you trust.
+
+EOF
+fi
