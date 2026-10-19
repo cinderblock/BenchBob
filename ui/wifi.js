@@ -9,6 +9,7 @@
     seq: { radios: -1, scan: -1, results: -1, profiles: -1 },
     radios: null, scan: null, results: [], profiles: [],
     sort: { key: 'signal', dir: -1 }, group: false, band: '', open: new Set(), openRes: new Set(), showChans: new Set(),
+    win: 30, hl: '', watchId: Math.random().toString(36).slice(2), watchTimer: null,
   };
 
   // Styles that only this section needs; the rest reuse .pr-* from index.html.
@@ -20,6 +21,8 @@
 .wf-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .wf-chart{display:block;min-width:560px;width:100%;height:auto;background:#0a0c11;border:1px solid var(--border);border-radius:6px;margin-top:6px}
 .wf-chart text{font-family:system-ui,sans-serif}
+.wf-leg{display:flex;flex-wrap:wrap;gap:3px 10px;margin-top:4px;font-size:.72rem}
+.wf-leg span{cursor:pointer;white-space:nowrap}.wf-leg>span.dim{opacity:.4}
 .wf-chans{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}
 .wf-ch{font-size:.68rem;font-family:'SF Mono',ui-monospace,monospace;padding:1px 5px;border-radius:4px;background:var(--surface3);color:var(--text)}
 .wf-ch.off{color:var(--dim);text-decoration:line-through;opacity:.6}
@@ -75,7 +78,7 @@
     } catch { return; }
     if (!W.el) return;
     if (what === 'radios') { renderRadios(); renderCharts(); syncForm(); }
-    if (what === 'scan') { renderScanMeta(); renderCharts(); renderTable(); syncForm(); }
+    if (what === 'scan') { renderScanMeta(); renderCharts(); renderHistory(); renderTable(); syncForm(); }
     if (what === 'results') renderResults();
     if (what === 'profiles') syncForm();
   }
@@ -135,7 +138,8 @@
     if (ctl.dataset.sig !== sigc) { ctl.dataset.sig = sigc; ctl.innerHTML = `
       <select class="wf-scanradio">${radios.map((r) => `<option value="${r.phy}" ${auto.radio === r.phy ? 'selected' : ''}>${esc(r.label || r.phy)} (${esc(r.ifaces.find((i) => i.name)?.name || '-')})</option>`).join('')}</select>
       <button class="btn btn-sm btn-primary" data-act="scan" ${busy ? 'disabled' : ''}>${busy ? 'Scanning…' : 'Scan now'}</button>
-      <label class="pr-note"><input type="checkbox" class="wf-auto" ${auto.enabled ? 'checked' : ''}> every</label>
+      <label class="pr-note">While open, every <select class="wf-watchint">${[15, 30, 60, 120].map((v) => `<option value="${v}" ${(auto.watchIntervalS || 30) === v ? 'selected' : ''}>${v < 60 ? v + ' s' : v / 60 + ' min'}</option>`).join('')}</select></label>
+      <label class="pr-note"><input type="checkbox" class="wf-auto" ${auto.enabled ? 'checked' : ''}> also in the background, every</label>
       <select class="wf-autoint">${[15, 30, 60, 120, 300, 600].map((v) => `<option value="${v}" ${auto.intervalS === v ? 'selected' : ''}>${v < 60 ? v + ' s' : v / 60 + ' min'}</option>`).join('')}</select>
       <label class="pr-note"><input type="checkbox" class="wf-group" ${W.group ? 'checked' : ''}> group by SSID</label>
       <select class="wf-band"><option value="">all bands</option>${['2.4', '5', '6'].map((b) => `<option value="${b}" ${W.band === b ? 'selected' : ''}>${bandName[b]}</option>`).join('')}</select>
@@ -144,6 +148,7 @@
     if (s?.at) note = `Last scan ${fmtAgo(s.at)} on ${esc(s.iface || s.radio)} via ${esc(s.method === 'nm' ? 'NetworkManager rescan + iw scan dump' : 'iw scan')} in ${secs(s.durationMs)}: ${s.count} BSS · ${W.scan.bss.length} remembered (1 h)`;
     if (s?.error) note += ` · <span style="color:var(--danger)">${esc(s.error)}</span>`;
     if (s?.at) note += s.survey ? '' : ` · channel survey: not supported by this driver`;
+    if (st?.watchers) note += ` · scanning every ${auto.watchIntervalS || 30} s while ${st.watchers > 1 ? `${st.watchers} viewers have the panel` : 'this panel is'} open`;
     $('.wf-scanmeta').innerHTML = note || 'No scan yet. Scans don’t disturb an existing connection.';
     const sv = s?.survey;
     $('.wf-survey').innerHTML = sv ? `<details><summary>Channel survey: ${sv.length} channels, busiest ${Math.max(...sv.map((x) => x.busyPct ?? 0))}%</summary><div class="wf-scroll"><table class="pr-tbl"><thead><tr><th>Freq</th><th>Ch</th><th>Busy</th><th>Noise</th><th>Active</th></tr></thead><tbody>${sv.map((x) => `<tr><td>${x.freq}${x.inUse ? ' <span class="pr-pill on">in use</span>' : ''}</td><td>${chOf(x.freq)}</td><td>${x.busyPct != null ? x.busyPct + '%' : '-'}</td><td>${x.noise ?? '-'} dBm</td><td>${x.activeMs ?? '-'} ms</td></tr>`).join('')}</tbody></table></div></details>` : '';
@@ -254,6 +259,58 @@
     }
     if (!has6 && !W.band) h += '<div class="pr-note">No 6 GHz chart: no radio here supports 6 GHz.</div>';
     $('.wf-charts').innerHTML = h;
+  }
+
+  // Signal over time: one line per BSS (the 12 strongest seen in the window, after the band
+  // filter), coloured by SSID like the humps. A line breaks where a BSS went unseen for more
+  // than ~2.5 scan intervals, so a dropout reads as a gap rather than a slope.
+  function history() {
+    const VW = 640, H = 200, top = 10, bottom = 22, left = 30, right = 8;
+    const now = Date.now(), span = W.win * 60000, t0 = now - span;
+    const ivS = W.st?.scan?.auto?.watchIntervalS || 30;
+    const gapMs = Math.max(90000, ivS * 2500);
+    const cur = (b) => (now - b.lastSeen < gapMs ? b.signal ?? -200 : -300); // gone ones sort last
+    const list = W.scan.bss
+      .filter((b) => (!W.band || b.band === W.band) && b.history.some((p) => p[0] >= t0))
+      .sort((a, b) => cur(b) - cur(a) || Math.max(...b.history.map((p) => p[1])) - Math.max(...a.history.map((p) => p[1])))
+      .slice(0, 12);
+    const fx = (t) => left + ((t - t0) / span) * (VW - left - right);
+    const fy = (dbm) => top + (1 - Math.max(0, Math.min(1, (dbm + 95) / 70))) * (H - top - bottom);
+    let g = '';
+    for (const d of [-90, -80, -70, -60, -50, -40, -30]) g += `<line x1="${left}" x2="${VW - right}" y1="${fy(d)}" y2="${fy(d)}" stroke="#2a2f40" stroke-width="0.5"/><text x="${left - 3}" y="${fy(d) + 3}" fill="#7a7f94" font-size="8" text-anchor="end">${d}</text>`;
+    const step = W.win <= 10 ? 2 : W.win <= 30 ? 5 : 10;
+    for (let m = 0; m <= W.win; m += step) {
+      const x = fx(now - m * 60000);
+      g += `<line x1="${x}" x2="${x}" y1="${top}" y2="${H - bottom}" stroke="#2a2f40" stroke-width="0.5"/><text x="${x}" y="${H - bottom + 12}" fill="#7a7f94" font-size="8" text-anchor="${m === 0 ? 'end' : m === W.win ? 'start' : 'middle'}">${m ? `−${m} min` : 'now'}</text>`;
+    }
+    for (const b of [...list].reverse()) { // strongest drawn last, on top
+      const c = ssidColor(b), on = !W.hl || W.hl === b.bssid;
+      const pts = b.history.filter((p) => p[0] >= t0);
+      const runs = [[]];
+      pts.forEach((p, i) => { if (i && p[0] - pts[i - 1][0] > gapMs) runs.push([]); runs[runs.length - 1].push(p); });
+      const sw = (b.associated ? 2.2 : 1.3) * (W.hl === b.bssid ? 1.6 : 1);
+      const op = on ? 0.95 : 0.15;
+      for (const r of runs) {
+        if (r.length === 1) g += `<circle cx="${fx(r[0][0]).toFixed(1)}" cy="${fy(r[0][1]).toFixed(1)}" r="${sw}" fill="${c}" fill-opacity="${op}"/>`;
+        else if (r.length) g += `<polyline points="${r.map((p) => `${fx(p[0]).toFixed(1)},${fy(p[1]).toFixed(1)}`).join(' ')}" fill="none" stroke="${c}" stroke-width="${sw}" stroke-opacity="${op}" stroke-linejoin="round"${b.hidden ? ' stroke-dasharray="3,2"' : ''}/>`;
+      }
+    }
+    if (!list.length) g += `<text x="${VW / 2}" y="${H / 2}" fill="#7a7f94" font-size="11" text-anchor="middle">No samples in the last ${W.win} min yet. While this panel is open it scans every ${ivS} s.</text>`;
+    const leg = list.map((b) => `<span data-hl="${b.bssid}" class="${W.hl && W.hl !== b.bssid ? 'dim' : ''}" title="${b.bssid}"><span style="color:${ssidColor(b)}">━</span> ${esc(ssidLabel(b))} <span class="wf-dim">ch ${b.channel} · ${now - b.lastSeen < gapMs ? `${b.signal} dBm` : 'gone'}</span></span>`).join('');
+    return `<div class="pr-note" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="color:var(--text)">Signal over time</b>${W.band ? ` · ${bandName[W.band]}` : ''}${list.length ? ` · ${list.length} strongest` : ''}
+      <select class="wf-win">${[10, 30, 60].map((v) => `<option value="${v}" ${W.win === v ? 'selected' : ''}>last ${v} min</option>`).join('')}</select></div>
+      <div class="wf-scroll"><svg class="wf-chart" viewBox="0 0 ${VW} ${H}" role="img" aria-label="Signal strength over time">${g}</svg></div><div class="wf-leg">${leg}</div>`;
+  }
+
+  function renderHistory() {
+    if (!W.scan || !W.el) return;
+    $('.wf-history').innerHTML = history();
+  }
+
+  function setHl(bssid) {
+    if (W.hl === bssid) return;
+    W.hl = bssid;
+    renderHistory();
   }
 
   const COLS = [
@@ -422,7 +479,7 @@
     W.seq = { radios: -1, scan: -1, results: -1, profiles: -1 };
     el.innerHTML = `
       <div class="wf-blk"><h4>Radios</h4><div class="wf-radios"><div class="pr-note">Loading…</div></div></div>
-      <div class="wf-blk"><h4>Scanner</h4><div class="pr-row wf-scanctl"></div><div class="pr-note wf-scanmeta"></div><div class="wf-charts"></div><div class="wf-survey"></div><div class="wf-table" style="margin-top:8px"></div></div>
+      <div class="wf-blk"><h4>Scanner</h4><div class="pr-row wf-scanctl"></div><div class="pr-note wf-scanmeta"></div><div class="wf-charts"></div><div class="wf-history"></div><div class="wf-survey"></div><div class="wf-table" style="margin-top:8px"></div></div>
       <div class="wf-blk"><h4>Client test</h4>
         <div class="pr-note">Associates a radio inside its own network namespace (its address, routes and DNS never touch eth0 or the main routing table), then runs the checks below. The radio is always given back afterwards.</div>
         <div class="wf-form">
@@ -458,12 +515,27 @@
     el.addEventListener('click', onClick);
     el.addEventListener('change', onChange);
     el.addEventListener('input', (e) => { if (e.target.name === 'ssid' || e.target.name === 'security') formVis(); });
+    // Hovering a table row or legend entry highlights that BSS's line.
+    el.addEventListener('mouseover', (e) => { const r = e.target.closest('tr.wf-r,[data-hl]'); setHl(r ? r.dataset.bssid || r.dataset.hl : ''); });
+    el.addEventListener('mouseleave', () => setHl(''));
+    watch();
+    W.watchTimer = setInterval(watch, 20000);
+    document.addEventListener('visibilitychange', watch);
     update(st);
+  }
+
+  // "Someone is looking": the driver scans on its own schedule while any viewer's lease is
+  // fresh. Plain fetch, not papi: a missed renewal isn't worth a toast.
+  function watch() {
+    if (!W.el || document.visibilityState !== 'visible') return;
+    fetch('/api/wifi/watch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: W.watchId }) }).catch(() => {});
   }
 
   async function onClick(e) {
     const th = e.target.closest('th[data-sort]');
     if (th) { const k = th.dataset.sort; W.sort = { key: k, dir: W.sort.key === k ? -W.sort.dir : k === 'ssid' || k === 'security' ? 1 : -1 }; renderTable(); return; }
+    const hl = e.target.closest('[data-hl]');
+    if (hl) return;
     const tr = e.target.closest('tr.wf-r');
     if (tr && !e.target.closest('button')) { const b = tr.dataset.bssid; W.open.has(b) ? W.open.delete(b) : W.open.add(b); renderTable(); return; }
     const a = e.target.closest('[data-act]');
@@ -504,7 +576,9 @@
   async function onChange(e) {
     const t = e.target;
     if (t.classList.contains('wf-group')) { W.group = t.checked; renderTable(); }
-    else if (t.classList.contains('wf-band')) { W.band = t.value; renderCharts(); renderTable(); }
+    else if (t.classList.contains('wf-band')) { W.band = t.value; renderCharts(); renderHistory(); renderTable(); }
+    else if (t.classList.contains('wf-win')) { W.win = +t.value; renderHistory(); }
+    else if (t.classList.contains('wf-watchint')) { try { await papi('PUT', '/api/wifi/autoscan', { watchIntervalS: +t.value }); } catch {} }
     else if (t.classList.contains('wf-auto') || t.classList.contains('wf-autoint')) {
       try { await papi('PUT', '/api/wifi/autoscan', { enabled: $('.wf-auto').checked, intervalS: +$('.wf-autoint').value, radio: $('.wf-scanradio').value }); } catch {}
     } else if (t.name === 'profile') loadProfile(t.value);
@@ -527,7 +601,12 @@
     renderRunning();
   }
 
-  function unmount() { W.el = null; }
+  function unmount() {
+    W.el = null;
+    clearInterval(W.watchTimer);
+    document.removeEventListener('visibilitychange', watch);
+    fetch('/api/wifi/watch', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: W.watchId }) }).catch(() => {});
+  }
 
   periphRegister('wifi', { mount, update, unmount });
 })();
