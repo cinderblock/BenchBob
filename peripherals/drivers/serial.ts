@@ -1,6 +1,7 @@
 // ==================== Serial ports ====================
 //
-// USB-serial adapters (FTDI, CP210x, CH34x, PL2303, CDC-ACM boards) and the onboard UART.
+// USB-serial adapters (FTDI, CP210x, CH34x, PL2303, CDC-ACM boards) and the onboard UARTs
+// (serial0/serial1, plus any uart2–5 a Pi 4 overlay adds, named from the device tree).
 // DeskyPi is the single owner of each open port: it holds the fd and fans the received bytes
 // out to every client at once (dashboard terminal, WebSocket, raw TCP, RFC 2217, REST/MCP
 // agents), keeping a timestamped ring of recent traffic so a late joiner gets history.
@@ -22,6 +23,7 @@ import { hostname } from "node:os";
 import { HttpError, body, readText, usbName, type Ctx, type Driver, type Props, type UdevEvent, type WsData } from "../core.ts";
 import * as T from "../lib/termios.ts";
 import { Rfc2217Session } from "../lib/rfc2217.ts";
+import { onboardUarts } from "../lib/gpio-config.ts";
 
 // ---------- Device identification ----------
 
@@ -665,6 +667,7 @@ function rescan() {
   for (const d of ctx.devices(isUsbTty)) add(describeUsb(d));
 
   // Onboard UARTs by their stable aliases.
+  const aliased = new Set<string>();
   for (const alias of ["serial0", "serial1"]) {
     const link = `/dev/${alias}`;
     if (!existsSync(link)) continue;
@@ -674,8 +677,16 @@ function rescan() {
     } catch {
       continue;
     }
+    aliased.add(real);
     const cons = isConsole(alias, real);
     add({ id: alias, path: link, devpath: "", kind: "onboard", name: `Onboard UART ${alias} (${real})`, vendor: "", model: "", vidpid: "", serial: "", usbDriver: "", byId: "", family: "onboard", console: cons });
+  }
+  // The rest (dtoverlay=uart2…uart5 on a Pi 4) have no /dev alias; the device tree says which
+  // controller each ttyAMA is, so they're named and keyed by that, not the tty number.
+  for (const u of onboardUarts()) {
+    const path = `/dev/${u.tty}`;
+    if (aliased.has(u.tty) || !existsSync(path)) continue;
+    add({ id: u.uart, path, devpath: "", kind: "onboard", name: `Onboard ${u.uart.toUpperCase()}${u.pins ? ` (${u.pins})` : ""} ${u.tty}`, vendor: "", model: "", vidpid: "", serial: "", usbDriver: "", byId: "", family: "onboard", console: isConsole(u.tty, u.tty) });
   }
 
   for (const path of ctx.settings.get<string[]>("manual", [])) {
