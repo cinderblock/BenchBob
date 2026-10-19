@@ -1,5 +1,6 @@
 import { access, rm } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
+import { constants as zlibConstants, createGzip } from "node:zlib";
 import { analyseDisk, type DiskInfo } from "./osinfo.ts";
 import * as rpi from "./rpiboot.ts";
 import * as periph from "./peripherals/core.ts";
@@ -1652,15 +1653,52 @@ async function getDefaultSettings() {
 
 // ==================== SSE ====================
 
-const sseClients = new Set<ReadableStreamDefaultController>();
+// Gzipped where the browser accepts it: one gzip stream per client, flushed after every
+// message, so each arrives at once and repeats of a nearly identical ~20 KB status cost a
+// few hundred bytes on the wire instead of the whole thing every 2 s.
+interface SseClient { send(b: Uint8Array): void; close(): void }
+const sseClients = new Set<SseClient>();
+
+function sseClient(ctrl: ReadableStreamDefaultController, gzip: boolean): SseClient {
+  if (!gzip) return { send: (b) => ctrl.enqueue(b), close() {} };
+  const gz = createGzip();
+  const c: SseClient = {
+    send(b) { gz.write(b); gz.flush(zlibConstants.Z_SYNC_FLUSH); },
+    close() { sseClients.delete(c); gz.destroy(); },
+  };
+  gz.on("data", (chunk: Buffer) => { try { ctrl.enqueue(new Uint8Array(chunk)); } catch { c.close(); } });
+  gz.on("error", () => c.close());
+  return c;
+}
 
 // `event` names a non-default SSE event; without one it's the full status message.
 function broadcast(status: any, event?: string) {
   const enc = new TextEncoder().encode(`${event ? `event: ${event}\n` : ""}data: ${JSON.stringify(status)}\n\n`);
   for (const c of sseClients) {
-    try { c.enqueue(enc); } catch { sseClients.delete(c); }
+    try { c.send(enc); } catch { c.close(); }
   }
 }
+
+// ==================== Compression ====================
+// JSON answers over 1 KB and the page itself, when the client takes gzip. Streams are left
+// alone: SSE has its own above, and a JSON body that streams on purpose (slowJson's
+// keep-alive spaces) says so with X-Accel-Buffering: no. Downloads are octet-stream.
+
+const acceptsGzip = (req: Request) => /\bgzip\b/.test(req.headers.get("accept-encoding") || "");
+
+async function compress(req: Request, res: Response): Promise<Response> {
+  const h = res.headers;
+  if (res.status !== 200 || !res.body || h.has("content-encoding") || h.get("x-accel-buffering") === "no" || !/^application\/json/.test(h.get("content-type") || "") || !acceptsGzip(req)) return res;
+  const raw = new Uint8Array(await res.arrayBuffer());
+  const headers = new Headers(h);
+  headers.append("Vary", "Accept-Encoding");
+  if (raw.length < 1024) return new Response(raw, { status: res.status, headers });
+  headers.set("Content-Encoding", "gzip");
+  headers.delete("Content-Length");
+  return new Response(Bun.gzipSync(raw), { status: res.status, headers });
+}
+
+let gzPage: { version: string; body: Uint8Array } | null = null;
 
 setInterval(async () => {
   if (sseClients.size === 0) return;
@@ -2023,6 +2061,13 @@ Bun.serve({
   idleTimeout: 120,
   websocket: periph.websocket,
   async fetch(req, server) {
+    const res = await handle(req, server);
+    return res ? compress(req, res) : res;
+  },
+});
+
+async function handle(req: Request, server: Parameters<typeof periph.route>[2]): Promise<Response | undefined> {
+  {
     const url = new URL(req.url);
     const p = url.pathname;
 
@@ -2035,20 +2080,24 @@ Bun.serve({
     if (p === "/" || p === "/index.html") {
       const ui = await getBuild();
       const etag = `"${ui.version}"`;
-      const headers = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", ETag: etag };
+      const headers: Record<string, string> = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", ETag: etag, Vary: "Accept-Encoding" };
       if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-      return new Response(ui.html, { headers });
+      if (!acceptsGzip(req)) return new Response(ui.html, { headers });
+      // ~430 KB of HTML with every driver UI inlined; gzip it once per build.
+      if (gzPage?.version !== ui.version) gzPage = { version: ui.version, body: Bun.gzipSync(new TextEncoder().encode(ui.html)) };
+      return new Response(gzPage.body, { headers: { ...headers, "Content-Encoding": "gzip" } });
     }
     if (p === "/api" || p === "/api/") return Response.json({ ...API_DOCS, endpoints: { ...API_DOCS.endpoints, ...periph.docs() } });
     if (p === "/api/status") return Response.json(await getStatus());
 
     if (p === "/api/events") {
-      let ctrl: ReadableStreamDefaultController;
+      let client: SseClient;
+      const gzip = acceptsGzip(req);
       const stream = new ReadableStream({
-        start(c) { ctrl = c; sseClients.add(c); getStatus().then((s) => { try { c.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(s)}\n\n`)); } catch {} }); },
-        cancel() { sseClients.delete(ctrl); },
+        start(c) { client = sseClient(c, gzip); sseClients.add(client); getStatus().then((s) => { try { client.send(new TextEncoder().encode(`data: ${JSON.stringify(s)}\n\n`)); } catch {} }); },
+        cancel() { client.close(); sseClients.delete(client); },
       });
-      return new Response(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
+      return new Response(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", Vary: "Accept-Encoding", ...(gzip ? { "Content-Encoding": "gzip" } : {}) } });
     }
 
     if (p === "/api/eject" && req.method === "POST") {
@@ -2177,7 +2226,7 @@ Bun.serve({
     }
 
     return new Response("Not Found", { status: 404 });
-  },
-});
+  }
+}
 
 console.log(`DeskyPi running on http://[::]:${PORT} (dual-stack: IPv6 + IPv4)`);

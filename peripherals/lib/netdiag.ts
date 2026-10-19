@@ -406,5 +406,6 @@ export function slowJson(work: Promise<any>): Response {
       clearInterval(timer);
     },
   });
-  return new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  // X-Accel-Buffering: the keep-alive spaces must flow, so server.ts must not buffer this to gzip it.
+  return new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
 }
