@@ -1,0 +1,85 @@
+name: CI
+
+# Every push and PR: unit tests, both packages, and a real install of each on a matching
+# runner. A v* tag also publishes the packages as a GitHub Release.
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun test peripherals/
+
+  package:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe needs the tags
+      - name: Build
+        id: build
+        run: echo "deb=$(packaging/build-deb.sh ${{ matrix.arch }})" >> "$GITHUB_OUTPUT"
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "${{ steps.build.outputs.deb }}"
+      - name: Smoke test
+        run: |
+          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && break; sleep 2; done
+          jq -e '.name == "BenchBob API"' api.json
+          curl -fsS http://localhost/api/status | jq -e '.version != "dev"'
+          curl -fsS http://localhost/ | grep -q '<h1 id="title">BenchBob</h1>'
+          systemctl is-active benchbob
+          sudo -u benchbob sudo -n true
+          test -d /var/lib/benchbob
+      - name: Service log
+        if: always()
+        run: sudo journalctl -u benchbob --no-pager -n 200
+      - name: Remove and purge
+        run: |
+          sudo apt-get purge -y benchbob
+          if systemctl is-active --quiet benchbob; then echo "still running" >&2; exit 1; fi
+          test ! -e /var/lib/benchbob
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: ${{ steps.build.outputs.deb }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          merge-multiple: true
+      # Unversioned copies too, so README links can use releases/latest/download/.
+      - run: |
+          for a in amd64 arm64; do cp benchbob_*_$a.deb benchbob_$a.deb; done
+          sha256sum *.deb > SHA256SUMS
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --generate-notes ./*.deb SHA256SUMS
