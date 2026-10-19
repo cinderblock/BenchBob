@@ -1,0 +1,6 @@
+# Files that run on Linux keep LF, even in a Windows checkout: a CRLF shell script, udev
+# rule or unit file breaks once it is copied to the box.
+*.sh text eol=lf
+*.rules text eol=lf
+*.service text eol=lf
+packaging/** text eol=lf
