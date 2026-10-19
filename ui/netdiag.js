@@ -174,7 +174,8 @@
       return `<div class="pr-card" data-host="${esc(h)}"><h4>${esc(h)} ${st}</h4>
         <div class="pr-row"><label>User <input class="nl-user" value="${esc(a?.username || 'deskypi')}" ${inp} size="10"></label>
           <label>Password <input class="nl-pw" type="password" autocomplete="new-password" placeholder="${a?.hasPassword ? '(unchanged)' : ''}" ${inp} size="14"></label>
-          <button class="btn btn-sm" data-i="${i}" data-act="gen">Generate</button></div>
+          <button class="btn btn-sm" data-i="${i}" data-act="gen">Generate</button>
+          <label title="iperf3 3.16 and older (e.g. Ubuntu 24.04) only accept PKCS#1 padding"><input type="checkbox" class="nl-pkcs1" ${a?.pkcs1 ? 'checked' : ''}> Older server (≤3.16)</label></div>
         <textarea class="nl-key" spellcheck="false" placeholder="${a?.hasKey ? '(server public key set; paste to replace)' : 'Server public key: -----BEGIN PUBLIC KEY----- …'}" ${inp.replace('"', '"width:100%;min-height:54px;font-family:\'SF Mono\',ui-monospace,monospace;')}></textarea>
         ${a?.usersLine ? `<div class="pr-note">Server users file line: <span class="pr-endpoint" style="word-break:break-all">${esc(a.usersLine)}</span></div>` : ''}
         <div class="pr-row"><button class="btn btn-sm btn-primary" data-act="save">Save</button>${a ? '<button class="btn btn-sm" data-act="del">Forget</button>' : ''}</div></div>`;
@@ -189,7 +190,7 @@
       const v = s => c.querySelector(s).value.trim();
       try {
         if (b.dataset.act === 'del') await papi('DELETE', '/api/netdiag/iperf/auth', { host });
-        else await papi('PUT', '/api/netdiag/iperf/auth', { host, username: v('.nl-user'), ...(b.dataset.act === 'gen' ? { generate: true } : v('.nl-pw') ? { password: c.querySelector('.nl-pw').value } : {}), ...(v('.nl-key') ? { publicKey: v('.nl-key') } : {}) });
+        else await papi('PUT', '/api/netdiag/iperf/auth', { host, username: v('.nl-user'), pkcs1: c.querySelector('.nl-pkcs1').checked, ...(b.dataset.act === 'gen' ? { generate: true } : v('.nl-pw') ? { password: c.querySelector('.nl-pw').value } : {}), ...(v('.nl-key') ? { publicKey: v('.nl-key') } : {}) });
         last = await papi('GET', '/api/netdiag'); ndLogins();
       } catch {}
     };

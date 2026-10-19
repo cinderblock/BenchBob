@@ -289,7 +289,7 @@ export function iperfError(raw: string, host: string, port: number): string {
   if (/no route|unreachable/i.test(why)) return `can't reach ${host} (${why})`;
   if (/name or service|not known|getaddrinfo|resolve|invalid argument/i.test(why) && why !== s) return `couldn't connect to ${at} (${why}): check the host name`;
   if (/busy/i.test(s)) return `the iperf3 server on ${at} is busy with another test; try again shortly`;
-  if (/authoriz|authenticat/i.test(s)) return `${at} refused the login: check the username, password and the server's public key (Edit hosts…)`;
+  if (/authoriz|authenticat/i.test(s)) return `${at} refused the login: check the username, password and the server's public key (Logins…); a server on iperf3 3.16 or older also needs "older server" ticked`;
   return why || s || "iperf3 gave no result";
 }
 

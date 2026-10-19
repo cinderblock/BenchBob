@@ -115,10 +115,12 @@ const iperfPresets = () => ctx.settings.get<Preset[]>("iperfPresets", DEFAULT_IP
 const pingTargets = () => ctx.settings.get<Preset[]>("pingTargets", DEFAULT_PING_TARGETS);
 // Logins for iperf3 servers that require one, by host. Like Wi-Fi PSKs, the password never
 // leaves the driver: the API shows hasPassword and the users-file line (a hash) instead.
-type IperfAuth = { username: string; password: string; publicKey: string };
+// pkcs1: iperf3 ≤3.16 servers (Ubuntu 24.04's) only decrypt PKCS#1 v1.5; 3.17+ clients send
+// OAEP unless told --use-pkcs1-padding. Weaker, but the password only gates running tests.
+type IperfAuth = { username: string; password: string; publicKey: string; pkcs1?: boolean };
 const iperfAuths = () => ctx.settings.get<Record<string, IperfAuth>>("iperfAuth", {});
 function authView(host: string, a: IperfAuth) {
-  return { host, username: a.username, hasPassword: !!a.password, hasKey: !!a.publicKey, ready: !!(a.username && a.password && a.publicKey), usersLine: a.password ? iperfAuthLine(a.username, a.password) : "" };
+  return { host, username: a.username, pkcs1: !!a.pkcs1, hasPassword: !!a.password, hasKey: !!a.publicKey, ready: !!(a.username && a.password && a.publicKey), usersLine: a.password ? iperfAuthLine(a.username, a.password) : "" };
 }
 
 /** validHost as a 400 rather than a 500. */
@@ -452,6 +454,7 @@ function startRun(a: any): ClientRun {
     writeFileSync(keyPath, login.publicKey, { mode: 0o600 });
     chmodSync(keyPath, 0o600);
     cmd.push("--username", login.username, "--rsa-public-key-path", keyPath);
+    if (login.pkcs1) cmd.push("--use-pkcs1-padding");
     env = { ...process.env, IPERF3_PASSWORD: login.password };
   }
   const p = ctx.spawn(cmd, { stdout: "pipe", stderr: "pipe", env });
@@ -789,7 +792,7 @@ const driver: Driver = {
     {
       method: "PUT",
       path: "/api/netdiag/iperf/auth",
-      doc: { body: { host: "firefly.isozilla.com", username: "deskypi", password: "(or generate: true)", generate: false, publicKey: "-----BEGIN PUBLIC KEY-----…" }, description: "Set the login for an iperf3 server that requires one (iperf3 --username/--rsa-public-key-path). Omitted fields keep their value. generate: true makes a new random password on DeskyPi; the password is never returned. Answers with usersLine, the `username,sha256` line for the server's --authorized-users-path file" },
+      doc: { body: { host: "firefly.isozilla.com", username: "deskypi", password: "(or generate: true)", generate: false, publicKey: "-----BEGIN PUBLIC KEY-----…", pkcs1: false }, description: "Set the login for an iperf3 server that requires one (iperf3 --username/--rsa-public-key-path). Omitted fields keep their value. generate: true makes a new random password on DeskyPi; the password is never returned. pkcs1: true for servers running iperf3 3.16 or older (they reject 3.17+'s default OAEP padding with \"authorization failed\"). Answers with usersLine, the `username,sha256` line for the server's --authorized-users-path file" },
       async handler(req) {
         const b = await body(req);
         const host = hostOk(b.host);
@@ -805,6 +808,7 @@ const driver: Driver = {
           if (typeof b.password !== "string" || !b.password || b.password.length > 128 || /[\r\n,]/.test(b.password)) throw new HttpError(400, "password: 1–128 characters, no commas or newlines");
           cur.password = b.password;
         }
+        if (b.pkcs1 != null) cur.pkcs1 = !!b.pkcs1;
         if (b.publicKey != null) {
           try {
             cur.publicKey = b.publicKey ? iperfPublicKey(b.publicKey) : "";
