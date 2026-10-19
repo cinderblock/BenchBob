@@ -12,16 +12,18 @@
 // lldpd/iperf3 system units stay masked; everything here dies with DeskyPi.
 
 import { Resolver } from "node:dns/promises";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import type { Ctx, Driver, Props, UdevEvent } from "../core.ts";
 import { HttpError, body, readText, run, usbName } from "../core.ts";
 import {
-  DEFAULT_IPERF_PRESETS, DEFAULT_PING_TARGETS, fmtBps, iperfError, iperfSummary, isErrorCounter, presetsFrom, type Preset, parseEee, parseEthtool, parseEthtoolStats, parseKeyColon, parseLldpNeighbors,
+  DEFAULT_IPERF_PRESETS, DEFAULT_PING_TARGETS, fmtBps, iperfAuthLine, iperfError, iperfPublicKey, validIperfUser, iperfSummary, isErrorCounter, presetsFrom, type Preset, parseEee, parseEthtool, parseEthtoolStats, parseKeyColon, parseLldpNeighbors,
   mtuSearch, parsePing, parseResolvConf, slowJson, validHost, type EthLink, type Eee, type IperfSummary, type Neighbor, type PingResult,
 } from "../lib/netdiag.ts";
 
 const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
 const INSTANCE = process.env.PORT || 80;
 const LLDP_DIR = `/tmp/deskypi-lldpd-${INSTANCE}`;
+const IPERF_KEY_DIR = `/tmp/deskypi-iperf3-${INSTANCE}`;
 const SBIN_PATH = `${process.env.PATH || "/usr/bin:/bin"}:/usr/sbin:/sbin`;
 const bin = (name: string) => Bun.which(name, { PATH: SBIN_PATH }) || name;
 
@@ -64,6 +66,7 @@ interface ClientRun {
   udp: boolean;
   bitrate: string;
   parallel: number;
+  auth: boolean;
   started: number;
   status: "running" | "done" | "error";
   points: { t: number; bps: number; retransmits?: number }[];
@@ -110,6 +113,13 @@ const iperfAutoOffMin = () => ctx.settings.get("iperfAutoOffMin", 60);
 // Quick-pick hosts for the panel's iperf3 client and ping buttons; "gateway" = the default gateway.
 const iperfPresets = () => ctx.settings.get<Preset[]>("iperfPresets", DEFAULT_IPERF_PRESETS);
 const pingTargets = () => ctx.settings.get<Preset[]>("pingTargets", DEFAULT_PING_TARGETS);
+// Logins for iperf3 servers that require one, by host. Like Wi-Fi PSKs, the password never
+// leaves the driver: the API shows hasPassword and the users-file line (a hash) instead.
+type IperfAuth = { username: string; password: string; publicKey: string };
+const iperfAuths = () => ctx.settings.get<Record<string, IperfAuth>>("iperfAuth", {});
+function authView(host: string, a: IperfAuth) {
+  return { host, username: a.username, hasPassword: !!a.password, hasKey: !!a.publicKey, ready: !!(a.username && a.password && a.publicKey), usersLine: a.password ? iperfAuthLine(a.username, a.password) : "" };
+}
 
 /** validHost as a 400 rather than a 500. */
 function hostOk(h: unknown): string {
@@ -424,15 +434,27 @@ function startRun(a: any): ClientRun {
   const bitrate = a.bitrate ? String(a.bitrate) : "";
   if (bitrate && !/^\d+(\.\d+)?[KMG]?$/i.test(bitrate)) throw new HttpError(400, 'bitrate looks like "100M", "1G" or "500K"');
   const udp = !!a.udp;
+  const login = iperfAuths()[host];
+  const auth = !!(login?.username && login.password && login.publicKey);
   const r: ClientRun = {
-    id: Date.now().toString(36), host, port, duration, reverse: !!a.reverse, udp, bitrate: bitrate || (udp ? "1M" : ""), parallel,
+    id: Date.now().toString(36), host, port, duration, reverse: !!a.reverse, udp, bitrate: bitrate || (udp ? "1M" : ""), parallel, auth,
     started: Date.now(), status: "running", points: [], result: null, error: "", done: null as any,
   };
   const cmd = [bin("iperf3"), "-c", host, "-p", String(port), "-t", String(duration), "-P", String(parallel), "--json-stream", "--forceflush", "--connect-timeout", "3000"];
   if (r.reverse) cmd.push("-R");
   if (udp) cmd.push("-u");
   if (r.bitrate) cmd.push("-b", r.bitrate);
-  const p = ctx.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  let env: Record<string, string | undefined> | undefined;
+  if (auth) {
+    // iperf3 reads the key from a file and the password from the environment, never argv.
+    const keyPath = `${IPERF_KEY_DIR}/${new Bun.CryptoHasher("sha256").update(host).digest("hex").slice(0, 16)}.pem`;
+    mkdirSync(IPERF_KEY_DIR, { recursive: true, mode: 0o700 });
+    writeFileSync(keyPath, login.publicKey, { mode: 0o600 });
+    chmodSync(keyPath, 0o600);
+    cmd.push("--username", login.username, "--rsa-public-key-path", keyPath);
+    env = { ...process.env, IPERF3_PASSWORD: login.password };
+  }
+  const p = ctx.spawn(cmd, { stdout: "pipe", stderr: "pipe", env });
   r.proc = p;
   const kill = setTimeout(() => p.kill(), (duration + 20) * 1000);
   runs.unshift(r);
@@ -637,7 +659,7 @@ const driver: Driver = {
         runs: runs.slice(0, 10).map(publicRun),
       },
       checks,
-      presets: { iperf: iperfPresets(), ping: pingTargets() },
+      presets: { iperf: iperfPresets(), ping: pingTargets(), auth: Object.entries(iperfAuths()).map(([h, a]) => authView(h, a)) },
     };
   },
 
@@ -762,6 +784,51 @@ const driver: Driver = {
         if (pingT) ctx.settings.set("pingTargets", pingT);
         ctx.changed();
         return { ok: true, iperf: iperfPresets(), ping: pingTargets() };
+      },
+    },
+    {
+      method: "PUT",
+      path: "/api/netdiag/iperf/auth",
+      doc: { body: { host: "firefly.isozilla.com", username: "deskypi", password: "(or generate: true)", generate: false, publicKey: "-----BEGIN PUBLIC KEY-----…" }, description: "Set the login for an iperf3 server that requires one (iperf3 --username/--rsa-public-key-path). Omitted fields keep their value. generate: true makes a new random password on DeskyPi; the password is never returned. Answers with usersLine, the `username,sha256` line for the server's --authorized-users-path file" },
+      async handler(req) {
+        const b = await body(req);
+        const host = hostOk(b.host);
+        const all = { ...iperfAuths() };
+        const cur: IperfAuth = { username: "deskypi", password: "", publicKey: "", ...all[host] };
+        if (b.username != null) {
+          if (!validIperfUser(String(b.username))) throw new HttpError(400, "username: 1–32 of A–Z a–z 0–9 _ . -");
+          cur.username = String(b.username);
+        }
+        if (b.generate) cur.password = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString("base64url");
+        else if (b.password != null) {
+          // A comma or newline would break the server's users file; iperf3 also caps credentials at ~250 bytes.
+          if (typeof b.password !== "string" || !b.password || b.password.length > 128 || /[\r\n,]/.test(b.password)) throw new HttpError(400, "password: 1–128 characters, no commas or newlines");
+          cur.password = b.password;
+        }
+        if (b.publicKey != null) {
+          try {
+            cur.publicKey = b.publicKey ? iperfPublicKey(b.publicKey) : "";
+          } catch (e: any) {
+            throw new HttpError(400, e.message);
+          }
+        }
+        all[host] = cur;
+        ctx.settings.set("iperfAuth", all);
+        ctx.changed();
+        return { ok: true, ...authView(host, cur) };
+      },
+    },
+    {
+      method: "DELETE",
+      path: "/api/netdiag/iperf/auth",
+      doc: { body: { host: "firefly.isozilla.com" }, description: "Forget the iperf3 login for a host" },
+      async handler(req) {
+        const b = await body(req);
+        const all = { ...iperfAuths() };
+        delete all[String(b.host || "")];
+        ctx.settings.set("iperfAuth", all);
+        ctx.changed();
+        return { ok: true };
       },
     },
     {

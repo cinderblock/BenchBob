@@ -161,6 +161,39 @@
     Q('#mk').onclick = async () => { try { await papi('PUT', '/api/netdiag/presets', { iperf: Q('#nd-pi').value, ping: Q('#nd-pp').value }); hideModal(); } catch {} };
     Q('#nd-pr').onclick = async () => { try { await papi('PUT', '/api/netdiag/presets', { reset: true }); hideModal(); } catch {} };
   };
+  // Logins for iperf3 servers that require one. Passwords go in, never come back out: the
+  // dialog shows whether one is set and the users-file line (a hash) to put on the server.
+  window.ndLogins = () => {
+    const P = last?.presets || { iperf: [], auth: [] };
+    const auth = Object.fromEntries((P.auth || []).map(a => [a.host, a]));
+    const hosts = [...new Set([...P.iperf.map(p => p.host), ...Object.keys(auth)])];
+    const inp = 'style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:5px 8px;color:var(--text);font-size:.8rem"';
+    const card = (h, i) => {
+      const a = auth[h];
+      const st = !a ? '<span class="pr-pill">no login</span>' : a.ready ? '<span class="pr-pill on">ready</span>' : `<span class="pr-pill warn">needs ${[!a.hasPassword && 'password', !a.hasKey && 'public key'].filter(Boolean).join(' + ')}</span>`;
+      return `<div class="pr-card" data-host="${esc(h)}"><h4>${esc(h)} ${st}</h4>
+        <div class="pr-row"><label>User <input class="nl-user" value="${esc(a?.username || 'deskypi')}" ${inp} size="10"></label>
+          <label>Password <input class="nl-pw" type="password" autocomplete="new-password" placeholder="${a?.hasPassword ? '(unchanged)' : ''}" ${inp} size="14"></label>
+          <button class="btn btn-sm" data-i="${i}" data-act="gen">Generate</button></div>
+        <textarea class="nl-key" spellcheck="false" placeholder="${a?.hasKey ? '(server public key set; paste to replace)' : 'Server public key: -----BEGIN PUBLIC KEY----- …'}" ${inp.replace('"', '"width:100%;min-height:54px;font-family:\'SF Mono\',ui-monospace,monospace;')}></textarea>
+        ${a?.usersLine ? `<div class="pr-note">Server users file line: <span class="pr-endpoint" style="word-break:break-all">${esc(a.usersLine)}</span></div>` : ''}
+        <div class="pr-row"><button class="btn btn-sm btn-primary" data-act="save">Save</button>${a ? '<button class="btn btn-sm" data-act="del">Forget</button>' : ''}</div></div>`;
+    };
+    showModal(`<h3>iperf3 logins</h3><p class="pr-note">For servers started with <span class="pr-endpoint">--authorized-users-path</span>. DeskyPi keeps the password and never shows it again; put the users-file line on the server, and paste the server's public key here.</p>
+      ${hosts.map(card).join('') || '<p class="pr-note">No iperf3 hosts.</p>'}
+      <div class="modal-btns"><button class="btn" id="mc">Close</button></div>`, 'wide');
+    Q('#mc').onclick = hideModal;
+    Q('#modal').onclick = async e => {
+      const b = e.target.closest('button[data-act]'); if (!b) return;
+      const c = b.closest('[data-host]'), host = c.dataset.host;
+      const v = s => c.querySelector(s).value.trim();
+      try {
+        if (b.dataset.act === 'del') await papi('DELETE', '/api/netdiag/iperf/auth', { host });
+        else await papi('PUT', '/api/netdiag/iperf/auth', { host, username: v('.nl-user'), ...(b.dataset.act === 'gen' ? { generate: true } : v('.nl-pw') ? { password: c.querySelector('.nl-pw').value } : {}), ...(v('.nl-key') ? { publicKey: v('.nl-key') } : {}) });
+        last = await papi('GET', '/api/netdiag'); ndLogins();
+      } catch {}
+    };
+  };
   window.ndServer = on => papi('POST', '/api/netdiag/iperf/server', { enabled: on, port: Number(root.querySelector('.nd-sport').value) }).catch(() => {});
   window.ndLldp = on => papi('POST', '/api/netdiag/lldp', { enabled: on }).catch(() => {});
 
@@ -172,7 +205,7 @@
         <div class="nd-ifaces"></div>
         <div class="pr-row"><label><input type="checkbox" class="nd-lldp" onchange="ndLldp(this.checked)"> Listen for switch info (LLDP/CDP, receive-only: DeskyPi never announces itself)</label></div>
         <div class="pr-card"><h4>iperf3 client <small>from DeskyPi</small></h4>
-          <div class="pr-row"><span class="nd-ipresets" style="display:contents"></span><button class="btn btn-sm" onclick="ndPresets()">Edit hosts…</button></div>
+          <div class="pr-row"><span class="nd-ipresets" style="display:contents"></span><button class="btn btn-sm" onclick="ndPresets()">Edit hosts…</button><button class="btn btn-sm" onclick="ndLogins()">Logins…</button></div>
           <div class="pr-row">
             <label>Host <input class="nd-host" placeholder="server IP" style="width:10em"></label>
             <label>Port <input class="nd-port" type="number" value="5201" style="width:5em"></label>
@@ -218,7 +251,8 @@
       if (!root) return;
       last = st;
       const P = st.presets || { iperf: [], ping: [] };
-      part('.nd-ipresets', presetsHtml(P.iperf, 'ndPickHost'), JSON.stringify(P.iperf));
+      const locked = new Set((P.auth || []).filter(a => a.ready).map(a => a.host));
+      part('.nd-ipresets', presetsHtml(P.iperf.map(p => locked.has(p.host) ? { ...p, label: `🔒 ${p.label}` } : p), 'ndPickHost'), JSON.stringify([P.iperf, [...locked]]));
       part('.nd-ppresets', presetsHtml(P.ping, 'ndPing'), JSON.stringify(P.ping));
       const ifKey = JSON.stringify([st.ifaces, st.lldp, st.dns, Math.floor(Date.now() / 5000)]);
       part('.nd-ifaces', st.ifaces.length ? st.ifaces.map(i => ifaceHtml(i, st)).join('') : '<div class="pr-note">No wired interface found.</div>', ifKey);

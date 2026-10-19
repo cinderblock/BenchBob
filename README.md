@@ -37,7 +37,7 @@ restarting DeskyPi doesn't, so remote USB/IP clients stay attached across a depl
 | RTL-SDR | rtl_tcp server, or rtl_433 with a decoded-sensor table |
 | GPS | Temporary gpsd: fix, sky plot, constellations, clock offset, PPS |
 | UPS | USB UPSes via a temporary NUT: charge, runtime, load, power events |
-| Wired network | Link details, which switch and port the Pi is on (LLDP/CDP), iperf3 server and client with quick-pick hosts and one-click profiles; ping buttons per target; DNS/HTTP/MTU checks. Host lists are editable ("Edit hosts…"). The far end needs `iperf3 -s` on 5201 |
+| Wired network | Link details, which switch and port the Pi is on (LLDP/CDP), iperf3 server and client with quick-pick hosts and one-click profiles; ping buttons per target; DNS/HTTP/MTU checks. Host lists are editable ("Edit hosts…"), and "Logins…" holds the username, password and public key for servers that require a login (iperf3 `--authorized-users-path`). The far end needs `iperf3 -s` on 5201 |
 
 Daemons that some panels use (gpsd, lldpd, NUT, iperf3, usbipd, OpenOCD, ustreamer) are
 started on demand with private configs and stopped with DeskyPi. Their system services

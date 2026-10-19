@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DEFAULT_PING_TARGETS, formatPresets, iperfError, mtuSearch, fmtBps, iperfSummary, parsePresets, presetsFrom, isErrorCounter, parseEee, parseEthtool, parseEthtoolStats, parseKeyColon, parseLldpNeighbors, parsePing, parseResolvConf, slowJson, validHost } from "../lib/netdiag.ts";
+import { DEFAULT_PING_TARGETS, formatPresets, iperfAuthLine, iperfError, iperfPublicKey, validIperfUser, mtuSearch, fmtBps, iperfSummary, parsePresets, presetsFrom, isErrorCounter, parseEee, parseEthtool, parseEthtoolStats, parseKeyColon, parseLldpNeighbors, parsePing, parseResolvConf, slowJson, validHost } from "../lib/netdiag.ts";
 
 // All fixtures below are real output captured on desky (Pi 4, bcmgenet, eth0) unless noted.
 const ethtool = `netlink error: Operation not permitted
@@ -229,4 +229,23 @@ test("presets: text and list forms", () => {
   expect(() => parsePresets("-oX=y bad")).toThrow();
   expect(presetsFrom([{ host: "1.1.1.1", label: "CF\n#x" }])).toEqual([{ host: "1.1.1.1", label: "CF x" }]);
   expect(presetsFrom(formatPresets(DEFAULT_PING_TARGETS), true)).toEqual(DEFAULT_PING_TARGETS);
+});
+
+test("iperfAuthLine: username,sha256 of {username}password (iperf3's users-file format)", () => {
+  expect(iperfAuthLine("mario", "rossi")).toBe("mario,bf7a49a846d44b454a5d11e7acfaf13d138bbe0b7483aa3e050879700572709b");
+  expect(validIperfUser("deskypi")).toBe(true);
+  expect(validIperfUser("a,b")).toBe(false);
+  expect(validIperfUser("")).toBe(false);
+});
+
+test("iperfPublicKey accepts openssl -pubout PEM (CRLF too) and rejects private keys", () => {
+  const pem = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuS1=\nIDAQAB\n-----END PUBLIC KEY-----";
+  expect(iperfPublicKey(pem)).toBe(pem + "\n");
+  expect(iperfPublicKey(pem.replace(/\n/g, "\r\n") + "\r\n")).toBe(pem + "\n");
+  expect(() => iperfPublicKey(pem.replace(/PUBLIC/g, "RSA PRIVATE"))).toThrow();
+  expect(() => iperfPublicKey("")).toThrow();
+});
+
+test("iperfError explains a refused login", () => {
+  expect(iperfError("test authorization failed", "firefly.isozilla.com", 5201)).toContain("refused the login");
 });

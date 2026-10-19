@@ -289,7 +289,27 @@ export function iperfError(raw: string, host: string, port: number): string {
   if (/no route|unreachable/i.test(why)) return `can't reach ${host} (${why})`;
   if (/name or service|not known|getaddrinfo|resolve|invalid argument/i.test(why) && why !== s) return `couldn't connect to ${at} (${why}): check the host name`;
   if (/busy/i.test(s)) return `the iperf3 server on ${at} is busy with another test; try again shortly`;
+  if (/authoriz|authenticat/i.test(s)) return `${at} refused the login: check the username, password and the server's public key (Edit hosts…)`;
   return why || s || "iperf3 gave no result";
+}
+
+// ---------- iperf3 logins ----------
+// iperf3 ≥3.10 servers started with --rsa-private-key-path + --authorized-users-path only
+// run tests for listed users. The client encrypts "username + password" with the server's
+// RSA public key; the server's users file holds `username,sha256("{username}password")`.
+
+export const validIperfUser = (u: string) => /^[A-Za-z0-9_.-]{1,32}$/.test(u);
+
+/** The line for the server's --authorized-users-path file. Safe to publish: only the hash. */
+export function iperfAuthLine(username: string, password: string): string {
+  return `${username},${new Bun.CryptoHasher("sha256").update(`{${username}}${password}`).digest("hex")}`;
+}
+
+/** An RSA public key as `openssl rsa -pubout` writes it, normalised to LF + final newline. */
+export function iperfPublicKey(pem: string): string {
+  const t = String(pem || "").replace(/\r\n/g, "\n").trim();
+  if (!/^-----BEGIN PUBLIC KEY-----\n[A-Za-z0-9+/=\n]+\n-----END PUBLIC KEY-----$/.test(t)) throw new Error("publicKey must be a PEM public key (-----BEGIN PUBLIC KEY----- … -----END PUBLIC KEY-----)");
+  return t + "\n";
 }
 
 // ---------- presets ----------
