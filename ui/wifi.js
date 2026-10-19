@@ -69,10 +69,24 @@
     return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:inline-block;vertical-align:middle">${bars}</svg>`;
   }
 
+  // Incremental history: after the first full fetch, ask only for samples newer than the
+  // last answer's server time and append them, trimming like the server does (1 h, N max).
+  function mergeScan(prev, next) {
+    if (!next.historySince || !prev) return next;
+    const old = new Map(prev.bss.map((b) => [b.bssid, b.history]));
+    for (const b of next.bss) {
+      const h = [...(old.get(b.bssid) || []), ...b.history];
+      let i = 0;
+      while (i < h.length && next.now - h[i][0] > next.historyMaxAgeMs) i++;
+      b.history = h.slice(Math.max(i, h.length - next.historyMax));
+    }
+    return next;
+  }
+
   async function load(what) {
     try {
       if (what === 'radios') W.radios = await papi('GET', '/api/wifi/radios');
-      if (what === 'scan') W.scan = await papi('GET', '/api/wifi/scan');
+      if (what === 'scan') W.scan = mergeScan(W.scan, await papi('GET', `/api/wifi/scan${W.scan?.now ? `?historySince=${W.scan.now}` : ''}`));
       if (what === 'results') W.results = (await papi('GET', '/api/wifi/results')).results;
       if (what === 'profiles') W.profiles = (await papi('GET', '/api/wifi/profiles')).profiles;
     } catch { return; }
@@ -477,6 +491,7 @@
     W.el = el;
     W.st = st;
     W.seq = { radios: -1, scan: -1, results: -1, profiles: -1 };
+    W.scan = null; // first fetch after mounting is a full one
     el.innerHTML = `
       <div class="wf-blk"><h4>Radios</h4><div class="wf-radios"><div class="pr-note">Loading…</div></div></div>
       <div class="wf-blk"><h4>Scanner</h4><div class="pr-row wf-scanctl"></div><div class="pr-note wf-scanmeta"></div><div class="wf-charts"></div><div class="wf-history"></div><div class="wf-survey"></div><div class="wf-table" style="margin-top:8px"></div></div>
@@ -543,7 +558,7 @@
     const act = a.dataset.act;
     try {
       if (act === 'scan') { a.disabled = true; a.textContent = 'Scanning…'; await papi('POST', '/api/wifi/scan', { radio: $('.wf-scanradio')?.value }); }
-      else if (act === 'clearscan') await papi('DELETE', '/api/wifi/scan');
+      else if (act === 'clearscan') { await papi('DELETE', '/api/wifi/scan'); W.scan = null; }
       else if (act === 'chans') { W.showChans.has(a.dataset.phy) ? W.showChans.delete(a.dataset.phy) : W.showChans.add(a.dataset.phy); renderRadios(); }
       else if (act === 'managed') { await papi('POST', `/api/wifi/radios/${a.dataset.phy}/managed`, { managed: a.dataset.v === '1' }); load('radios'); }
       else if (act === 'reg') {

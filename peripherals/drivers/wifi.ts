@@ -507,12 +507,16 @@ function tickScans(force = false) {
   doScan(a.radio || undefined, a.method).catch((e) => ctx.log("scheduled scan:", e.message));
 }
 
-function scanJson(filter: { ssid?: string; band?: string; limit?: number } = {}) {
+/** historySince: only samples newer than it (ms, from a previous answer's `now`), so a
+ * viewer refreshing every scan gets one sample per BSS instead of the whole hour again. */
+function scanJson(filter: { ssid?: string; band?: string; limit?: number; historySince?: number } = {}) {
   let list = [...bss.values()].sort((a, b) => (b.signal ?? -200) - (a.signal ?? -200));
   if (filter.ssid) list = list.filter((b) => b.ssid.toLowerCase().includes(filter.ssid!.toLowerCase()));
   if (filter.band) list = list.filter((b) => b.band === filter.band);
   if (filter.limit) list = list.slice(0, filter.limit);
-  return { scan, bss: list, ouiSource: ouiSource || null };
+  const since = filter.historySince;
+  if (since) list = list.map((b) => ({ ...b, history: b.history.filter((h) => h[0] > since) }));
+  return { scan, now: Date.now(), historySince: since || 0, historyMaxAgeMs: BSS_MAX_AGE_MS, historyMax: HISTORY_MAX, bss: list, ouiSource: ouiSource || null };
 }
 
 // ---------- Client tests ----------
@@ -900,8 +904,8 @@ const driver: Driver = {
     {
       method: "GET",
       path: "/api/wifi/scan",
-      doc: "Accumulated scan results (?ssid=substring&band=2.4|5|6&limit=N): per BSS SSID, BSSID, channel/width/centre, signal + history, security, standards, BSS load, country, WPS; plus survey data",
-      handler: (_r, _p, url) => scanJson({ ssid: url.searchParams.get("ssid") || undefined, band: url.searchParams.get("band") || undefined, limit: +(url.searchParams.get("limit") || 0) || undefined }),
+      doc: "Accumulated scan results (?ssid=substring&band=2.4|5|6&limit=N): per BSS SSID, BSSID, channel/width/centre, signal + history, security, standards, BSS load, country, WPS; plus survey data. ?historySince=<ms> (a previous answer's `now`) returns only newer history samples, for merging into a copy you already have",
+      handler: (_r, _p, url) => scanJson({ ssid: url.searchParams.get("ssid") || undefined, band: url.searchParams.get("band") || undefined, limit: +(url.searchParams.get("limit") || 0) || undefined, historySince: +(url.searchParams.get("historySince") || 0) || undefined }),
     },
     {
       method: "DELETE",
