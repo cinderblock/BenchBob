@@ -13,13 +13,14 @@
 // Every rpiboot run is pinned to one USB port path (`-p`), so two CMs on one host
 // can't be confused with each other.
 
+import { statePath } from "./paths.ts";
 import { readdir, readFile, mkdir, rm, copyFile, writeFile, stat, rename } from "node:fs/promises";
 
 const USB_ROOT = "/sys/bus/usb/devices";
 const RPIBOOT_DIR = "/usr/share/rpiboot";
 const EEPROM_FW_DIR = "/lib/firmware/raspberrypi";
 const WORK_ROOT = "/tmp/deskypi-rpiboot";
-const HISTORY_PATH = import.meta.dir + "/eeprom-history.json";
+const HISTORY_PATH = statePath("eeprom-history.json");
 
 // Broadcom vendor 0a5c, product = the SoC's boot ROM.
 const BOOT_ROMS: Record<string, { chip: Chip; label: string }> = {

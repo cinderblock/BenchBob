@@ -4,9 +4,10 @@ import { constants as zlibConstants, createGzip } from "node:zlib";
 import { analyseDisk, type DiskInfo } from "./osinfo.ts";
 import * as rpi from "./rpiboot.ts";
 import * as periph from "./peripherals/core.ts";
+import { statePath } from "./paths.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
-const DEFAULTS_PATH = import.meta.dir + "/defaults.json";
+const DEFAULTS_PATH = statePath("defaults.json");
 const FLASH_DIR = "/var/tmp/deskypi-flash";
 const BOOT_MOUNT = "/tmp/deskypi-boot";
 
@@ -1620,8 +1621,8 @@ function parseRpiOs(url: string) {
 
 type ImageList = { key: string; label: string }[];
 const IMAGE_LISTS: Record<string, { path: string; initial: ImageList }> = {
-  "/api/favorites": { path: import.meta.dir + "/favorites.json", initial: [] },
-  "/api/quicklist": { path: import.meta.dir + "/quicklist.json", initial: [{ key: "rpios/current/64/lite", label: "Pi OS Lite 64-bit" }] },
+  "/api/favorites": { path: statePath("favorites.json"), initial: [] },
+  "/api/quicklist": { path: statePath("quicklist.json"), initial: [{ key: "rpios/current/64/lite", label: "Pi OS Lite 64-bit" }] },
 };
 
 async function imageListRoute(list: { path: string; initial: ImageList }, req: Request): Promise<Response> {
@@ -2022,7 +2023,7 @@ const UI_PATH = import.meta.dir + "/index.html";
 // whenever flash settings or stars are saved, and would cause a spurious reload each time.
 // Peripheral drivers and their dashboard scripts are globbed, so a new driver joins the hash
 // (and its ui/*.js is inlined into the page) without editing this list.
-const CORE_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "regf.ts", "rpiboot.ts"].map((f) => `${import.meta.dir}/${f}`)];
+const CORE_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "paths.ts", "regf.ts", "rpiboot.ts"].map((f) => `${import.meta.dir}/${f}`)];
 
 let buildCache: { stamp: string; version: string; html: string } | null = null;
 

@@ -15,6 +15,7 @@
 //    catches everything else.
 
 import { Glob, type Server, type ServerWebSocket, type Subprocess } from "bun";
+import { statePath } from "../paths.ts";
 
 // ---------- Types ----------
 
@@ -162,7 +163,7 @@ export function usbName(p: Props): { vendor: string; model: string } {
 
 // ---------- Settings store ----------
 
-const SETTINGS_PATH = import.meta.dir + "/../peripherals.json";
+const SETTINGS_PATH = statePath("peripherals.json");
 let settingsData: { disabled: Record<string, boolean>; drivers: Record<string, Record<string, any>> } = { disabled: {}, drivers: {} };
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
