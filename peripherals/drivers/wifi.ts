@@ -130,11 +130,14 @@ let oui: Map<string, string> | null = null;
 let ouiSource = "";
 let timers: ReturnType<typeof setInterval>[] = [];
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-let lastAutoScan = 0;
+let lastAutoScan = 0; // when the last scheduled (auto or watch) scan started
+// Viewers with the panel open: client id → lease expiry. Scans run while any lease is fresh.
+const watchers = new Map<string, number>();
+const WATCH_LEASE_MS = 60_000;
 let stopping = false;
 
 const RESULTS_MAX = 20;
-const HISTORY_MAX = 120;
+const HISTORY_MAX = 360; // 1 h at the 15 s minimum interval; trimmed to BSS_MAX_AGE_MS too
 const BSS_MAX_AGE_MS = 60 * 60 * 1000;
 
 interface AutoScan {
@@ -142,8 +145,9 @@ interface AutoScan {
   intervalS: number;
   radio: string; // "" = first available
   method: "auto" | "iw" | "nm";
+  watchIntervalS: number; // while someone has the panel open
 }
-const autoScan = (): AutoScan => ({ enabled: false, intervalS: 60, radio: "", method: "auto", ...ctx.settings.get<Partial<AutoScan>>("autoScan", {}) });
+const autoScan = (): AutoScan => ({ enabled: false, intervalS: 60, radio: "", method: "auto", watchIntervalS: 30, ...ctx.settings.get<Partial<AutoScan>>("autoScan", {}) });
 const profiles = (): Profile[] => ctx.settings.get<Profile[]>("profiles", []);
 const prefsAll = (): Record<string, RadioPrefs> => ctx.settings.get<Record<string, RadioPrefs>>("radioPrefs", {});
 
@@ -464,7 +468,7 @@ async function doScan(radioKey?: string, methodIn?: string) {
       if (fresh) {
         rec.lastSeen = now - (b.lastSeenMs || 0);
         if (b.signal != null) rec.history.push([now, b.signal]);
-        if (rec.history.length > HISTORY_MAX) rec.history.splice(0, rec.history.length - HISTORY_MAX);
+        rec.history = P.trimHistory(rec.history, now, BSS_MAX_AGE_MS, HISTORY_MAX);
       } else if (!rec.lastSeen) rec.lastSeen = now - (b.lastSeenMs || 0);
       if (oui && !b.localMac) rec.vendor = oui.get(b.bssid.replace(/:/g, "").slice(0, 6));
       bss.set(b.bssid, rec);
@@ -484,6 +488,23 @@ async function doScan(radioKey?: string, methodIn?: string) {
     r.use = describeUse(r);
     ctx.changed();
   }
+}
+
+function watching(now = Date.now()) {
+  for (const [id, until] of watchers) if (until < now) watchers.delete(id);
+  return watchers.size > 0;
+}
+
+/** Start a scan if auto-scan or a watching viewer wants one now (see P.scanDue). */
+function tickScans(force = false) {
+  if (stopping) return;
+  const a = autoScan();
+  const now = Date.now();
+  const lastScan = Math.max(lastAutoScan, scan.at);
+  const busy = scanning.size > 0;
+  if (!(force ? !busy : P.scanDue({ now, lastScan, busy, auto: a, watching: watching(now), watchIntervalS: a.watchIntervalS }))) return;
+  lastAutoScan = now;
+  doScan(a.radio || undefined, a.method).catch((e) => ctx.log("scheduled scan:", e.message));
 }
 
 function scanJson(filter: { ssid?: string; band?: string; limit?: number } = {}) {
@@ -724,7 +745,7 @@ function status() {
     radios: list.map((r) => radioJson(r)),
     radiosSeq,
     reg: { country: regJson().country, changedFrom: regChangedFrom },
-    scan: { seq: scan.seq, at: scan.at, radio: scan.radio, count: scan.count, error: scan.error, method: scan.method, durationMs: scan.durationMs, scanning: [...scanning], bssTotal: bss.size, auto },
+    scan: { seq: scan.seq, at: scan.at, radio: scan.radio, count: scan.count, error: scan.error, method: scan.method, durationMs: scan.durationMs, scanning: [...scanning], bssTotal: bss.size, auto, watchers: watching() ? watchers.size : 0 },
     running: running.map((t) => ({ id: t.r.id, phy: t.r.phy, ssid: t.r.ssid, stage: t.r.stage, startedAt: t.r.startedAt, timeline: t.r.timeline, link: t.r.link, samples: t.r.samples.slice(-60) })),
     resultsSeq,
     lastResult: last ? { id: last.id, ok: last.ok, ssid: last.ssid, endedAt: last.endedAt, error: last.error } : null,
@@ -776,12 +797,7 @@ const driver: Driver = {
     // iw/nmcli/ip, no sudo, a few ms each: cheap enough to keep "current use" fresh.
     timers.push(setInterval(() => refreshRadios().catch(() => {}), 15000));
     timers.push(
-      setInterval(() => {
-        const a = autoScan();
-        if (!a.enabled || stopping || Date.now() - lastAutoScan < Math.max(15, a.intervalS) * 1000) return;
-        lastAutoScan = Date.now();
-        doScan(a.radio || undefined, a.method).catch((e) => ctx.log("auto-scan:", e.message));
-      }, 5000),
+      setInterval(() => tickScans(), 5000),
     );
   },
 
@@ -899,9 +915,34 @@ const driver: Driver = {
       },
     },
     {
+      method: "POST",
+      path: "/api/wifi/watch",
+      doc: { body: { id: "any client id" }, description: "Lease: \"I'm looking at the scanner\". While any lease from the last 60 s is live, DeskyPi scans every watchIntervalS (default 30 s), shared by all viewers. Renew every ~20 s; the first watch scans at once if the last scan is over 20 s old" },
+      async handler(req) {
+        const b = await body(req);
+        const id = String(b.id || "anon").slice(0, 64);
+        const fresh = !watching();
+        watchers.set(id, Date.now() + WATCH_LEASE_MS);
+        if (fresh) ctx.changed();
+        if (Date.now() - Math.max(lastAutoScan, scan.at) > 20_000) tickScans(true);
+        return { ok: true, watchers: watchers.size, intervalS: autoScan().watchIntervalS, leaseMs: WATCH_LEASE_MS };
+      },
+    },
+    {
+      method: "DELETE",
+      path: "/api/wifi/watch",
+      doc: { body: { id: "the id used for POST" }, description: "End a watch lease early (panel closed)" },
+      async handler(req) {
+        const b = await body(req);
+        watchers.delete(String(b.id || "anon"));
+        ctx.changed();
+        return { ok: true, watchers: watching() ? watchers.size : 0 };
+      },
+    },
+    {
       method: "PUT",
       path: "/api/wifi/autoscan",
-      doc: { body: { enabled: true, intervalS: 60, radio: "phy0", method: "auto" }, description: "Periodic scanning (off by default; minimum interval 15 s)" },
+      doc: { body: { enabled: true, intervalS: 60, radio: "phy0", method: "auto", watchIntervalS: 30 }, description: "Periodic background scanning (off by default; minimum interval 15 s). watchIntervalS: how often to scan while someone has the panel open (POST /api/wifi/watch)" },
       async handler(req) {
         const b = await body(req);
         const a = autoScan();
@@ -909,6 +950,7 @@ const driver: Driver = {
         if (b.intervalS !== undefined) a.intervalS = Math.min(3600, Math.max(15, +b.intervalS || 60));
         if (b.radio !== undefined) a.radio = b.radio ? findRadio(b.radio).phy : "";
         if (b.method !== undefined) a.method = ["auto", "iw", "nm"].includes(b.method) ? b.method : "auto";
+        if (b.watchIntervalS !== undefined) a.watchIntervalS = Math.min(3600, Math.max(15, +b.watchIntervalS || 30));
         ctx.settings.set("autoScan", a);
         lastAutoScan = 0;
         ctx.changed();

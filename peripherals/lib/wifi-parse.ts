@@ -825,3 +825,26 @@ export function parseOui(text: string): Map<string, string> {
   }
   return map;
 }
+
+// ---------- Scan scheduling + history ----------
+
+/** Keep samples newer than maxAgeMs, and at most `max` of them (newest win). */
+export function trimHistory(h: [number, number][], now: number, maxAgeMs: number, max: number): [number, number][] {
+  let i = 0;
+  while (i < h.length && now - h[i][0] > maxAgeMs) i++;
+  return h.slice(Math.max(i, h.length - max));
+}
+
+/**
+ * Is a scan due? Background auto-scan and "someone has the panel open" both ask for scans;
+ * the shorter applicable interval wins, measured from the last scan of either kind, so two
+ * viewers (or a viewer plus auto-scan) never double the rate.
+ */
+export function scanDue(o: { now: number; lastScan: number; busy: boolean; auto: { enabled: boolean; intervalS: number }; watching: boolean; watchIntervalS: number }): boolean {
+  if (o.busy) return false;
+  const ivs: number[] = [];
+  if (o.auto.enabled) ivs.push(Math.max(15, o.auto.intervalS));
+  if (o.watching) ivs.push(Math.max(15, o.watchIntervalS));
+  if (!ivs.length) return false;
+  return o.now - o.lastScan >= Math.min(...ivs) * 1000;
+}

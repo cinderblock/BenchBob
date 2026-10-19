@@ -299,3 +299,21 @@ test("iw phy: mac80211_hwsim (6 GHz, monitor, S1G band dropped)", async () => {
   expect(b6.channels.length).toBeGreaterThan(50);
   expect(b6.channels[0].channel).toBe(1);
 });
+
+describe("scan scheduling + history", () => {
+  test("trimHistory drops old samples and caps the count", () => {
+    const h: [number, number][] = [[0, -70], [500, -71], [900, -72], [1000, -73]];
+    expect(P.trimHistory(h, 1000, 600, 10)).toEqual([[500, -71], [900, -72], [1000, -73]]);
+    expect(P.trimHistory(h, 1000, 5000, 2)).toEqual([[900, -72], [1000, -73]]);
+    expect(P.trimHistory([], 1000, 600, 10)).toEqual([]);
+  });
+  test("scanDue: shortest applicable interval, never while busy", () => {
+    const base = { now: 100_000, lastScan: 70_000, busy: false, auto: { enabled: false, intervalS: 60 }, watching: false, watchIntervalS: 30 };
+    expect(P.scanDue(base)).toBe(false); // nobody asked
+    expect(P.scanDue({ ...base, watching: true })).toBe(true); // 30 s elapsed
+    expect(P.scanDue({ ...base, watching: true, busy: true })).toBe(false);
+    expect(P.scanDue({ ...base, auto: { enabled: true, intervalS: 60 } })).toBe(false);
+    expect(P.scanDue({ ...base, auto: { enabled: true, intervalS: 60 }, watching: true })).toBe(true);
+    expect(P.scanDue({ ...base, watching: true, watchIntervalS: 5 , lastScan: 90_000 })).toBe(false); // floor 15 s
+  });
+});
