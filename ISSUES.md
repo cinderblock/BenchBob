@@ -48,6 +48,13 @@ the card, and possibly streaming the download straight into the decompressor.
 cleared, and the root filesystem is at 69% (4.4 GB free). The cache grows back with every
 `bun install` on the Pi, so the download-to-SD design is still fragile.
 
+2026-10-19: more likely it isn't `bun install` at all (there are no npm dependencies) but
+Bun's runtime transpiler cache, which also lives in `~/.bun/install/cache` (`@t@/*.pile`):
+one file per version of every source file, never pruned, so every deploy adds a copy of
+the app. The package (`fa911fe`) keeps it in `/var/cache/benchbob` and empties it on
+upgrade; a git-checkout deploy like desky's still grows it until desky moves to the
+package. The flash download-to-root-filesystem problem is unchanged.
+
 ## lldpd loses LLDP multicast membership when another lldpd on the same NIC exits
 
 Seen 2026-10-17: a side instance on desky started and stopped its own receive-only lldpd
