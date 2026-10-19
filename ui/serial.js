@@ -235,7 +235,8 @@
   function mount(el, st) {
     root = el;
     el.innerHTML = `<div class="ser-list"></div>
-      <div class="pr-row" style="margin-top:12px"><label>Add a tty by path <input class="ser-manual" placeholder="/dev/pts/3" style="width:150px"></label><button class="btn btn-sm" data-act="manual">Add</button><span class="pr-note">For ptys, socat links and other ports udev doesn't list as USB serial</span></div>`;
+      <div class="pr-row" style="margin-top:12px"><label>Add a tty by path <input class="ser-manual" placeholder="/dev/pts/3" style="width:150px"></label><button class="btn btn-sm" data-act="manual">Add</button><span class="pr-note">For ptys, socat links and other ports udev doesn't list as USB serial</span></div>
+      <div class="pr-row ser-ifaces"></div>`;
     el.addEventListener('click', onClick);
     el.addEventListener('change', onChange);
     el.addEventListener('keydown', onKey);
@@ -252,6 +253,9 @@
     for (const c of [...list.children]) if (!ids.has(c.dataset.id)) { if (term?.id === c.dataset.id) closeTerm(); c.remove(); }
     if (!st.ports.length && !list.querySelector('.empty')) list.innerHTML = '<div class="empty">No serial ports<div class="empty-sub">Plug in a USB-serial adapter or dev board</div></div>';
     if (st.ports.length) list.querySelector('.empty')?.remove();
+    const ib = window.gpioIfaceBtn?.('uart', 'Onboard UARTs…') || '';
+    const ifs = root.querySelector('.ser-ifaces');
+    if (ifs.dataset.k !== ib) { ifs.dataset.k = ib; ifs.innerHTML = ib && `${ib}<span class="pr-note">Turn on the header UART or extra ones (UART2–5 on a Pi 4); config.txt, needs a reboot</span>`; }
     for (const p of st.ports) {
       let card = list.querySelector(`.ser-card[data-id="${CSS.escape(p.id)}"]`);
       if (!card) {

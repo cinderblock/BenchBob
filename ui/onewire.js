@@ -37,13 +37,14 @@
     last = st;
     if (!root) return;
     let h = '';
-    if (!st.masters.length) h += '<div class="empty">No 1-Wire master. Enable it in the GPIO panel (Interfaces → 1-Wire) or plug in a DS9490R.</div>';
+    const ib = window.gpioIfaceBtn?.('w1', '1-Wire pin…') || '';
+    if (!st.masters.length) h += `<div class="empty">No 1-Wire master. Turn on the GPIO 1-Wire master or plug in a DS9490R.</div>${ib ? `<div class="pr-row" style="justify-content:center">${ib}</div>` : ''}`;
     for (const m of st.masters) {
       h += `<div class="pr-card" style="background:transparent"><h4>${esc(m.label)}<small>${esc(m.id)} · ${m.slaves} device${m.slaves === 1 ? '' : 's'} · search ${esc(m.searchText)} every ${esc(m.timeout || '?')} s · strong pull-up ${m.pullup ? 'on' : 'off'}${m.bulk ? ' · bulk conversion available' : ''}</small></h4>
         ${m.ghosts ? `<div class="pr-note" style="color:var(--warning)">${m.ghosts} phantom ID${m.ghosts === 1 ? '' : 's'} (family 00) in the last 10 min: the data line is floating. Fit a 4.7 kΩ pull-up from the data pin to 3V3, or ignore this if nothing is connected.</div>` : ''}
         ${m.error ? `<div class="pr-note" style="color:var(--danger)">${esc(m.error)}</div>` : ''}
         <div class="pr-row"><button class="btn btn-sm btn-primary" data-act="search" data-m="${esc(m.id)}">Search now</button>
-        <button class="btn btn-sm" data-act="settings">Polling every ${st.interval / 1000} s${st.bulk ? ', simultaneous conversion' : ''}</button></div></div>`;
+        <button class="btn btn-sm" data-act="settings">Polling every ${st.interval / 1000} s${st.bulk ? ', simultaneous conversion' : ''}</button>${m.kind === 'gpio' ? ib : ''}</div></div>`;
     }
     if (st.fixture) h += `<div class="pr-note" style="color:var(--warning)">Reading a fixture tree (${esc(st.root)}), not real hardware.</div>`;
     h += st.slaves.map(slaveCard).join('');

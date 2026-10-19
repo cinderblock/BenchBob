@@ -82,12 +82,12 @@
   function render(st) {
     last = st;
     if (!root) return;
-    if (!st.buses.length) { root.innerHTML = '<div class="empty">No user I²C buses. Enable <code>dtparam=i2c_arm=on</code> (GPIO panel → Interfaces) or plug in a USB adapter.</div>'; return; }
+    if (!st.buses.length) { root.innerHTML = `<div class="empty">No user I²C buses. Turn on I²C1 (header pins 3/5) or an extra bus, or plug in a USB adapter.</div><div class="pr-row" style="justify-content:center">${window.gpioIfaceBtn?.('i2c', 'Bus speed &amp; more buses…') || ''}</div>`; return; }
     let h = '';
     for (const b of st.buses) {
       const open = mapOpen.has(b.bus);
       h += `<div class="pr-card" style="background:transparent">
-        <h4>i2c-${b.bus}<small>${esc(b.label)} · ${esc(b.funcs.join(', ') || 'no access')}</small></h4>
+        <h4>i2c-${b.bus}<small>${esc(b.label)}${b.hz ? ` · ${b.hz / 1000} kHz` : ''} · ${esc(b.funcs.join(', ') || 'no access')}</small></h4>
         <div class="pr-note">${b.scanning ? 'Scanning…' : b.lastScan ? `Scanned ${fmtAgo(b.lastScan)} (${b.scanMs} ms) · ${b.devices.length} device${b.devices.length === 1 ? '' : 's'} · ${b.autoScan ? `rescans every ${b.autoScan} s` : 'rescans on demand only'}` : 'Not scanned yet'}${b.plainI2c ? '' : ' · SMBus only (no combined transfers)'}</div>
         ${b.error ? `<div class="pr-note" style="color:var(--danger)">${esc(b.error)}</div>` : ''}
         <div class="pr-row">
@@ -98,9 +98,11 @@
           <button class="btn btn-sm" data-act="rawbus" data-bus="${b.bus}">Raw tools</button>
         </div>
         ${open ? addrMap(b) : ''}
-        ${b.devices.length ? b.devices.map(d => devCard(b, d)).join('') : '<div class="pr-note">Nothing answered. Wire SDA to pin 3, SCL to pin 5, 3V3 and GND; most breakouts have their own pull-ups.</div>'}
+        ${b.devices.length ? b.devices.map(d => devCard(b, d)).join('') : `<div class="pr-note">Nothing answered. Wire SDA${b.bus === 1 ? ' to pin 3, SCL to pin 5' : ', SCL'}, 3V3 and GND; most breakouts have their own pull-ups.</div>`}
       </div>`;
     }
+    const ib = window.gpioIfaceBtn?.('i2c', 'Bus speed &amp; more buses…');
+    if (ib) h += `<div class="pr-row" style="margin-top:6px">${ib}<span class="pr-note">I²C1 speed, extra controllers (I²C3–6) and a software bus: config.txt, needs a reboot</span></div>`;
     if (st.hiddenBuses?.length) h += `<div class="pr-note" style="margin-top:6px">Not shown: ${esc(st.hiddenBuses.join(', '))} (HDMI display EDID buses).</div>`;
     root.innerHTML = h;
   }

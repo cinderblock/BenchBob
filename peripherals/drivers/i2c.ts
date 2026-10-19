@@ -45,6 +45,7 @@ interface BusState {
   kind: "header" | "usb" | "stub" | "ddc" | "other";
   key: string; // stable id for settings
   sysPath: string;
+  hz: number | null; // clock-frequency from the device tree (header controllers)
   io: I2cIo | null;
   funcs: number;
   error: string;
@@ -131,6 +132,13 @@ function pollable(d: DevState) {
 export function classify(name: string, path: string, compatible: string): { kind: BusState["kind"]; label: string } {
   if (/hdmi-i2c|brcmstb-i2c/.test(compatible) || /ddc|hdmi|gmbus|dpddc/i.test(name)) return { kind: "ddc", label: "HDMI DDC (display EDID)" };
   if (/i2c@7e804000/.test(name)) return { kind: "header", label: "Header pins 3/5 (GPIO2/3)" };
+  // Pi 4 extra controllers (dtoverlay=i2c3…i2c6); which pin pair is in config.txt (GPIO → Interfaces).
+  const extra = /i2c@7e205([68ac])00/.exec(name);
+  if (extra) {
+    const n = ({ "6": 3, "8": 4, a: 5, c: 6 } as Record<string, number>)[extra[1]];
+    return { kind: "header", label: `Header I²C${n} (dtoverlay=i2c${n})` };
+  }
+  if (/(^|\s)i2c-gpio(\s|$)/.test(compatible)) return { kind: "header", label: "Header software I²C (i2c-gpio)" };
   if (/i2c@7e205000/.test(name)) return { kind: "other", label: "i2c0: GPIO0/1 (HAT ID EEPROM, header pins 27/28) or camera" };
   if (/i2c0mux|i2c@7e805000/.test(name)) return { kind: "other", label: "Camera / display (CSI/DSI)" };
   if (/SMBus stub/i.test(name)) return { kind: "stub", label: "i2c-stub (simulated chips)" };
@@ -158,11 +166,13 @@ async function refreshBuses() {
     const sysPath = await realpath(`${SYS_DEV}/${n}/device`).catch(() => "");
     const compatible = (await readText(`${SYS_DEV}/${n}/device/of_node/compatible`)).replace(/\0/g, " ");
     const { kind, label } = classify(name, sysPath, compatible);
+    const clk = new Uint8Array(await Bun.file(`${SYS_DEV}/${n}/device/of_node/clock-frequency`).arrayBuffer().catch(() => new ArrayBuffer(0)));
+    const hz = clk.length >= 4 ? new DataView(clk.buffer).getUint32(0) : null;
     // Stable settings key: USB serial / port path, else the platform device, else the name.
     const udevPath = sysPath.replace(/^\/sys/, "") + `/i2c-dev/${n}`;
     const usb = ctx.ancestor(udevPath, "usb", "usb_device");
     const key = kind === "stub" ? "stub" : usb ? `usb:${usb.ID_SERIAL || usb.ID_PATH || usb.DEVPATH}` : sysPath.split("/").slice(-2, -1)[0] || name;
-    const b: BusState = { bus, name, label, kind, key, sysPath, io: null, funcs: 0, error: "", scanning: false, lastScan: 0, scanMs: 0, devices: new Map(), lock: Promise.resolve(), nextScan: 0 };
+    const b: BusState = { bus, name, label, kind, key, sysPath, hz, io: null, funcs: 0, error: "", scanning: false, lastScan: 0, scanMs: 0, devices: new Map(), lock: Promise.resolve(), nextScan: 0 };
     try {
       b.io = new LinuxI2cBus(bus);
       b.funcs = b.io.funcs;
@@ -374,6 +384,7 @@ function busView(b: BusState) {
     name: b.name,
     label: b.label,
     kind: b.kind,
+    hz: b.hz,
     funcs: funcNames(b.funcs),
     plainI2c: !!(b.funcs & 1),
     error: b.error,
