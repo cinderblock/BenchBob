@@ -319,17 +319,14 @@ export interface Preset {
   label: string;
 }
 
-export const DEFAULT_IPERF_PRESETS: Preset[] = [
-  { host: "steamboat.tsl", label: "steamboat · LAN" },
-  { host: "firefly.isozilla.com", label: "firefly · DO SF" },
-  { host: "beelzebub.isozilla.com", label: "beelzebub · Hetzner DE" },
-];
+// No iperf3 hosts out of the box: the useful ones are your own (`iperf3 -s` on 5201), added
+// with "Edit hosts…". Public iperf3 servers are rate-limited and come and go.
+export const DEFAULT_IPERF_PRESETS: Preset[] = [];
 
 export const DEFAULT_PING_TARGETS: Preset[] = [
   { host: "gateway", label: "Gateway" },
   { host: "1.1.1.1", label: "1.1.1.1" },
   { host: "8.8.8.8", label: "8.8.8.8" },
-  ...DEFAULT_IPERF_PRESETS.map((p) => ({ host: p.host, label: p.label.split(" · ")[0] })),
 ];
 
 /** Presets from text, one per line: "host label…" (label optional, # comments). Max 16. */

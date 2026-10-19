@@ -214,7 +214,7 @@ test("path MTU binary search", async () => {
 test("iperf3 connect errors in plain words", () => {
   // Real iperf3 3.18 "error" events from desky, 2026-10-18.
   const pre = "unable to connect to server - server may have stopped running or use a different port, firewall issue, etc.: ";
-  expect(iperfError(pre + "Connection refused", "steamboat.tsl", 5201)).toBe("connection refused: no iperf3 server listening on steamboat.tsl:5201");
+  expect(iperfError(pre + "Connection refused", "lab-server.lan", 5201)).toBe("connection refused: no iperf3 server listening on lab-server.lan:5201");
   expect(iperfError(pre + "Connection timed out", "10.255.0.77", 5201)).toMatch(/^no answer from 10\.255\.0\.77:5201 \(timed out\)/);
   expect(iperfError(pre + "Invalid argument", "nosuch.invalid", 5201)).toBe("couldn't connect to nosuch.invalid:5201 (Invalid argument): check the host name");
   expect(iperfError("the server is busy running a test. try again later", "h", 5201)).toMatch(/busy/);
@@ -222,9 +222,9 @@ test("iperf3 connect errors in plain words", () => {
 });
 
 test("presets: text and list forms", () => {
-  const t = "# mine\nsteamboat.tsl steamboat · LAN\n\n10.0.0.5\n";
-  expect(parsePresets(t)).toEqual([{ host: "steamboat.tsl", label: "steamboat · LAN" }, { host: "10.0.0.5", label: "10.0.0.5" }]);
-  expect(formatPresets(parsePresets(t))).toBe("steamboat.tsl steamboat · LAN\n10.0.0.5");
+  const t = "# mine\nlab-server.lan Lab server · LAN\n\n10.0.0.5\n";
+  expect(parsePresets(t)).toEqual([{ host: "lab-server.lan", label: "Lab server · LAN" }, { host: "10.0.0.5", label: "10.0.0.5" }]);
+  expect(formatPresets(parsePresets(t))).toBe("lab-server.lan Lab server · LAN\n10.0.0.5");
   expect(parsePresets("gateway Gateway", true)).toEqual([{ host: "gateway", label: "Gateway" }]);
   expect(() => parsePresets("-oX=y bad")).toThrow();
   expect(presetsFrom([{ host: "1.1.1.1", label: "CF\n#x" }])).toEqual([{ host: "1.1.1.1", label: "CF x" }]);
@@ -247,5 +247,5 @@ test("iperfPublicKey accepts openssl -pubout PEM (CRLF too) and rejects private 
 });
 
 test("iperfError explains a refused login", () => {
-  expect(iperfError("test authorization failed", "firefly.isozilla.com", 5201)).toContain("refused the login");
+  expect(iperfError("test authorization failed", "iperf.example.net", 5201)).toContain("refused the login");
 });

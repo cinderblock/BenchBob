@@ -771,7 +771,7 @@ const driver: Driver = {
     {
       method: "PUT",
       path: "/api/netdiag/presets",
-      doc: { body: { iperf: "steamboat.tsl steamboat · LAN\n10.0.0.5", ping: [{ host: "gateway", label: "Gateway" }, { host: "1.1.1.1", label: "1.1.1.1" }], reset: false }, description: 'Quick-pick hosts for the iperf3 client and the ping buttons: text ("host label…" per line) or a list of {host, label}. In ping targets, host "gateway" means the default gateway. reset: true restores the defaults' },
+      doc: { body: { iperf: "lab-server.lan Lab server · LAN\n10.0.0.5", ping: [{ host: "gateway", label: "Gateway" }, { host: "1.1.1.1", label: "1.1.1.1" }], reset: false }, description: 'Quick-pick hosts for the iperf3 client and the ping buttons: text ("host label…" per line) or a list of {host, label}. In ping targets, host "gateway" means the default gateway. reset: true restores the defaults' },
       async handler(req) {
         const b = await body(req);
         const parse = (v: unknown, gw: boolean) => {
@@ -792,7 +792,7 @@ const driver: Driver = {
     {
       method: "PUT",
       path: "/api/netdiag/iperf/auth",
-      doc: { body: { host: "firefly.isozilla.com", username: "deskypi", password: "(or generate: true)", generate: false, publicKey: "-----BEGIN PUBLIC KEY-----…", pkcs1: false }, description: "Set the login for an iperf3 server that requires one (iperf3 --username/--rsa-public-key-path). Omitted fields keep their value. generate: true makes a new random password on DeskyPi; the password is never returned. pkcs1: true for servers running iperf3 3.16 or older (they reject 3.17+'s default OAEP padding with \"authorization failed\"). Answers with usersLine, the `username,sha256` line for the server's --authorized-users-path file" },
+      doc: { body: { host: "iperf.example.net", username: "deskypi", password: "(or generate: true)", generate: false, publicKey: "-----BEGIN PUBLIC KEY-----…", pkcs1: false }, description: "Set the login for an iperf3 server that requires one (iperf3 --username/--rsa-public-key-path). Omitted fields keep their value. generate: true makes a new random password on DeskyPi; the password is never returned. pkcs1: true for servers running iperf3 3.16 or older (they reject 3.17+'s default OAEP padding with \"authorization failed\"). Answers with usersLine, the `username,sha256` line for the server's --authorized-users-path file" },
       async handler(req) {
         const b = await body(req);
         const host = hostOk(b.host);
@@ -825,7 +825,7 @@ const driver: Driver = {
     {
       method: "DELETE",
       path: "/api/netdiag/iperf/auth",
-      doc: { body: { host: "firefly.isozilla.com" }, description: "Forget the iperf3 login for a host" },
+      doc: { body: { host: "iperf.example.net" }, description: "Forget the iperf3 login for a host" },
       async handler(req) {
         const b = await body(req);
         const all = { ...iperfAuths() };
