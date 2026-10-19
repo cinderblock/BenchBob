@@ -122,34 +122,79 @@
     return d.split('\n').map(l => `<span class="${l.startsWith('+') && !l.startsWith('+++') ? 'a' : l.startsWith('-') && !l.startsWith('---') ? 'd' : l.startsWith('@@') ? 'h' : ''}">${esc(l)}</span>`).join('\n');
   }
 
-  async function ifaceDlg() {
+  // The interfaces dialog, whole or focused on one group: the I²C, Serial and 1-Wire panels
+  // open it on their own group (window.gpioInterfaces({ focus: 'i2c' })). A focused dialog
+  // only sends its own group to /stage, so it can't change the others.
+  const SPEEDS = [10000, 50000, 100000, 400000, 1000000];
+  const GROUPS = { i2c: 'I²C buses', spi: 'SPI', uart: 'UARTs', w1: '1-Wire' };
+  const hdrPin = g => (st?.header || S?.peripherals?.state?.gpio?.header || []).find(h => h.gpio === g)?.pin;
+  const gp = (...gs) => `GPIO${gs.join('/')}${gs.every(hdrPin) ? ` (pin${gs.length > 1 ? 's' : ''} ${gs.map(hdrPin).join('/')})` : ''}`;
+  const kHz = hz => hz ? `${hz / 1000} kHz` : '';
+  const speedSel = (id, cur) => `<label>Speed <select id="${id}">${SPEEDS.map(v => `<option value="${v}" ${(cur || 100000) === v ? 'selected' : ''}>${v / 1000} kHz${v === 100000 ? ' (default)' : ''}</option>`).join('')}${cur && !SPEEDS.includes(cur) ? `<option value="${cur}" selected>${cur / 1000} kHz</option>` : ''}</select></label>`;
+
+  async function ifaceDlg(focus) {
     let info;
     try { info = await papi('GET', '/api/gpio/interfaces'); } catch { return; }
-    const c = info.configured, L = info.live;
+    const c = info.configured, L = info.live, cat = info.catalog;
+    const show = g => !focus || focus === g;
     const row = (id, name, on, liveTxt, extra = '') => `<div class="pr-card"><h4><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="gi-${id}" ${on ? 'checked' : ''}> ${name}</label></h4><div class="pr-note">Now: ${liveTxt}</div>${extra}</div>`;
-    showModal(`<h3>Interfaces</h3>
-      <p class="pr-note">Edits ${esc(info.configPath)}${info.testCopy ? ' (test copy)' : ''}: only lines in the [all] context, new lines under an [all] block. You review the diff before anything is written. Changes need a reboot.</p>
-      ${row('i2c', 'I²C on GPIO2/3 (pins 3/5)', c.i2c.enabled, L.i2c.enabled ? `on, ${L.i2c.dev || 'no /dev/i2c-1'}, ${L.i2c.hz ? L.i2c.hz / 1000 + ' kHz' : ''}` : 'off',
-        `<div class="pr-row"><label>Speed <select id="gi-baud">${[10000, 50000, 100000, 400000, 1000000].map(v => `<option value="${v}" ${(c.i2c.baudrate || 100000) === v ? 'selected' : ''}>${v / 1000} kHz${v === 100000 ? ' (default)' : ''}</option>`).join('')}</select></label></div>`)}
-      ${row('spi', 'SPI0 on GPIO7–11 (pins 19/21/23/24/26)', c.spi.enabled, L.spi.enabled ? `on, ${L.spi.devices.join(', ') || 'no spidev nodes'}` : 'off')}
-      ${row('uart', 'UART on GPIO14/15 (pins 8/10)', c.uart.enabled, `${L.uart.serial0 ? 'serial0 → ' + L.uart.serial0 : 'no serial0'}${L.uart.consoleOnSerial ? `; <b>serial console on ${esc(L.uart.consoleOnSerial)}</b> (cmdline.txt; not changed here)` : '; no serial console'}${L.uart.note ? '. ' + esc(L.uart.note) : ''}`)}
-      ${row('w1', '1-Wire (w1-gpio)', c.onewire.enabled, L.onewire.nodes.length ? L.onewire.nodes.map(n => `GPIO${n.gpio}`).join(', ') + `, ${L.onewire.masters} master(s)` : 'off',
-        `<div class="pr-row"><label>Data pin GPIO <input id="gi-w1pin" type="number" min="2" max="27" value="${c.onewire.pin ?? 4}" style="width:60px"></label><span class="pr-note">needs a 4.7 kΩ pull-up to 3V3</span></div>`)}
+    let h = '';
+    if (show('i2c')) {
+      h += row('i2c', `I²C1 on ${gp(2, 3)}`, c.i2c.enabled, L.i2c.enabled ? `on, ${L.i2c.dev || 'no /dev/i2c-1'}${L.i2c.hz ? ', ' + kHz(L.i2c.hz) : ''}` : 'off', `<div class="pr-row">${speedSel('gi-baud', c.i2c.baudrate)}</div>`);
+      if (cat) {
+        for (const [n, x] of Object.entries(cat.extraI2c)) {
+          const cf = c.extraI2c[n], lv = L.extraI2c?.[n];
+          h += row(n, `${n.replace('i2c', 'I²C')} <small>/dev/i2c-${n.slice(3)}</small>`, cf.enabled, lv?.enabled ? `on, ${lv.dev || 'no device node'}${lv.hz ? ', ' + kHz(lv.hz) : ''}` : 'off',
+            `<div class="pr-row"><label>Pins <select id="gi-${n}-pins">${Object.entries(x.choices).map(([k, p]) => `<option value="${k}" ${cf.pins === k ? 'selected' : ''}>${gp(...p)}${k === x.def ? ' (default)' : ''}</option>`).join('')}</select></label>${speedSel(`gi-${n}-baud`, cf.baudrate)}</div>`);
+        }
+        const g = c.i2cGpio;
+        h += row('i2cgpio', 'Software I²C (i2c-gpio, any two pins)', g.enabled, L.i2cGpio?.nodes?.length ? `on (${esc(L.i2cGpio.nodes.join(', '))})` : 'off',
+          `<div class="pr-row"><label>SDA GPIO <input id="gi-ig-sda" type="number" min="0" max="27" value="${g.sda}" style="width:56px"></label><label>SCL GPIO <input id="gi-ig-scl" type="number" min="0" max="27" value="${g.scl}" style="width:56px"></label><label>Bus <input id="gi-ig-bus" type="number" min="1" max="255" placeholder="auto" value="${g.bus ?? ''}" style="width:60px"></label><label>Delay µs <input id="gi-ig-delay" type="number" min="1" max="100" placeholder="2" value="${g.delayUs ?? ''}" style="width:56px"></label></div><div class="pr-note">Bit-banged by the CPU: slower (2 µs ≈ 100 kHz) but works on any two free pins.</div>`);
+      }
+    }
+    if (show('spi')) h += row('spi', `SPI0 on ${gp(7, 8, 9, 10, 11)}`, c.spi.enabled, L.spi.enabled ? `on, ${L.spi.devices.join(', ') || 'no spidev nodes'}` : 'off');
+    if (show('uart')) {
+      h += row('uart', `UART serial0 on ${gp(14, 15)}`, c.uart.enabled, `${L.uart.serial0 ? 'serial0 → ' + L.uart.serial0 : 'no serial0'}${L.uart.consoleOnSerial ? `; <b>serial console on ${esc(L.uart.consoleOnSerial)}</b> (cmdline.txt; not changed here)` : '; no serial console'}${L.uart.note ? '. ' + esc(L.uart.note) : ''}`);
+      if (cat) for (const [n, p] of Object.entries(cat.extraUart)) {
+        const cf = c.extraUart[n], lv = L.extraUart?.[n];
+        h += row(n, `${n.toUpperCase()} on ${gp(p.tx, p.rx)} <small>TX/RX</small>`, cf.enabled, lv?.enabled ? `on${lv.tty ? `, /dev/${esc(lv.tty)}` : ', no tty yet'}` : 'off',
+          `<div class="pr-row"><label><input type="checkbox" id="gi-${n}-cts" ${cf.ctsrts ? 'checked' : ''}> CTS/RTS on ${gp(p.cts, p.rts)}</label></div>`);
+      }
+    }
+    if (show('w1')) h += row('w1', '1-Wire (w1-gpio)', c.onewire.enabled, L.onewire.nodes.length ? L.onewire.nodes.map(n => `GPIO${n.gpio}`).join(', ') + `, ${L.onewire.masters} master(s)` : 'off',
+      `<div class="pr-row"><label>Data pin GPIO <input id="gi-w1pin" type="number" min="2" max="27" value="${c.onewire.pin ?? 4}" style="width:60px"></label><span class="pr-note">needs a 4.7 kΩ pull-up to 3V3</span></div>`);
+    const used = info.pins.map(u => `GPIO${u.gpio} ${esc(u.owner)} ${esc(u.role)}`).join(' · ');
+    showModal(`<h3>${focus ? `Interfaces: ${GROUPS[focus]}` : 'Interfaces'}</h3>
+      <p class="pr-note">Edits ${esc(info.configPath)}${info.testCopy ? ' (test copy)' : ''}: only lines in the [all] context, new lines under an [all] block. You review the diff before anything is written. Changes need a reboot.${focus ? ' <a href="#" id="gi-all">All interfaces…</a>' : ''}</p>
+      ${!cat && (show('i2c') || show('uart')) ? `<p class="pr-note">Extra I²C buses and UARTs are offered on Pi 4 / 400 / CM4 (BCM2711) only; this is ${esc(L.board?.model || 'another board')}.</p>` : ''}
+      ${h}
+      <p class="pr-note">Pins in use: ${used || 'none'}</p>
+      ${info.conflicts.length ? `<p class="pr-note" style="color:var(--danger)">Pin conflicts in config.txt now: ${info.conflicts.map(x => `GPIO${x.gpio} (${esc(x.users.join(', '))})`).join('; ')}</p>` : ''}
       ${c.conditional.length ? `<p class="pr-note" style="color:var(--warning)">Also set in conditional sections: ${c.conditional.map(x => `[${esc(x.section)}] ${esc(x.line)}`).join('; ')}</p>` : ''}
       <div id="gi-out"></div>
       <div class="modal-btns"><button class="btn" id="mc">Close</button><button class="btn btn-primary" id="mk">Review changes</button></div>`, 'wide');
     Q('#mc').onclick = hideModal;
+    if (Q('#gi-all')) Q('#gi-all').onclick = e => { e.preventDefault(); ifaceDlg(); };
     Q('#mk').onclick = async () => {
-      const req = {
-        i2c: { enabled: Q('#gi-i2c').checked, baudrate: Number(Q('#gi-baud').value) },
-        spi: { enabled: Q('#gi-spi').checked },
-        uart: { enabled: Q('#gi-uart').checked },
-        onewire: { enabled: Q('#gi-w1').checked, ...(Q('#gi-w1').checked ? { pin: Number(Q('#gi-w1pin').value) } : {}) },
-      };
-      let r;
-      try { r = await papi('POST', '/api/gpio/interfaces/stage', req); } catch { return; }
+      const on = id => Q(`#gi-${id}`).checked, num = id => Q(`#gi-${id}`).value === '' ? null : Number(Q(`#gi-${id}`).value);
+      const req = {};
+      if (show('i2c')) {
+        req.i2c = { enabled: on('i2c'), baudrate: num('baud') };
+        if (cat) {
+          req.extraI2c = Object.fromEntries(Object.keys(cat.extraI2c).map(n => [n, { enabled: on(n), pins: Q(`#gi-${n}-pins`).value, baudrate: num(`${n}-baud`) }]));
+          req.i2cGpio = { enabled: on('i2cgpio'), ...(on('i2cgpio') ? { sda: num('ig-sda'), scl: num('ig-scl'), bus: num('ig-bus'), delayUs: num('ig-delay') } : {}) };
+        }
+      }
+      if (show('spi')) req.spi = { enabled: on('spi') };
+      if (show('uart')) {
+        req.uart = { enabled: on('uart') };
+        if (cat) req.extraUart = Object.fromEntries(Object.keys(cat.extraUart).map(n => [n, { enabled: on(n), ctsrts: on(`${n}-cts`) }]));
+      }
+      if (show('w1')) req.onewire = { enabled: on('w1'), ...(on('w1') ? { pin: num('w1pin') } : {}) };
       const out = Q('#gi-out');
-      if (!r.diff) { out.innerHTML = `<p class="pr-note">${esc(r.message)}</p>`; return; }
+      let r;
+      try { r = await papi('POST', '/api/gpio/interfaces/stage', req); } catch (e) { out.innerHTML = `<p class="pr-note" style="color:var(--danger)">${esc(e.message)}</p>`; return; }
+      if (!r.diff) { out.innerHTML = `<p class="pr-note">${esc(r.message)}</p>${r.warnings.map(w => `<div class="pr-note" style="color:var(--warning)">${esc(w)}</div>`).join('')}`; return; }
       out.innerHTML = `<div class="pr-card"><h4>Proposed change<small>${esc(r.summary.join(', '))}</small></h4>
         <div class="pr-log gp-diff">${diffHtml(r.diff)}</div>
         ${r.warnings.map(w => `<div class="pr-note" style="color:var(--warning)">${esc(w)}</div>`).join('')}
@@ -175,6 +220,10 @@
     Q('#mc').onclick = hideModal;
     Q('#mk').onclick = async () => { try { await papi('POST', '/api/gpio/reboot', { confirm: 'REBOOT' }); hideModal(); toast('Rebooting…', 'info'); } catch {} };
   }
+
+  // For the other panels. The routes live in this driver, so no button while it's turned off.
+  window.gpioInterfaces = o => ifaceDlg(o?.focus).catch(() => {});
+  window.gpioIfaceBtn = (focus, label) => S?.peripherals?.list?.some(d => d.id === 'gpio' && !d.disabled) ? `<button class="btn btn-sm" onclick="gpioInterfaces({focus:'${focus}'})">${label}</button>` : '';
 
   async function onClick(e) {
     const t = e.target.closest('[data-act]');

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { editConfig, GPIO_TO_PIN, HEADER, parseConfig, parseGpioinfo, parsePinctrl, readInterfaces, unifiedDiff } from "./gpio-config.ts";
+import { editConfig, GPIO_TO_PIN, HEADER, parseConfig, parseGpioinfo, parsePinctrl, pinConflicts, pinUsage, readInterfaces, unifiedDiff } from "./gpio-config.ts";
 
 const fx = (n: string) => readFileSync(`${import.meta.dir}/gpio-fixtures/${n}`, "utf8");
 const DESKY = fx("config-desky.txt"); // /boot/firmware/config.txt on desky, 2026-10-17
@@ -108,5 +108,67 @@ describe("config.txt", () => {
 
   test("no-op changes produce no diff", () => {
     expect(unifiedDiff(DESKY, editConfig(DESKY, { i2c: { enabled: true }, uart: { enabled: true } }))).toBe("");
+    expect(unifiedDiff(DESKY, editConfig(DESKY, { extraI2c: { i2c3: { enabled: false } }, extraUart: { uart2: { enabled: false } }, i2cGpio: { enabled: false } }))).toBe("");
+  });
+});
+
+describe("extra I²C buses and UARTs (BCM2711 overlays)", () => {
+  test("desky has none; defaults come from the overlay README", () => {
+    const r = readInterfaces(DESKY);
+    expect(r.extraI2c.i2c3).toEqual({ enabled: false, pins: "pins_4_5", baudrate: null });
+    expect(r.extraI2c.i2c6.pins).toBe("pins_22_23");
+    expect(r.extraUart.uart5).toEqual({ enabled: false, ctsrts: false });
+    expect(r.i2cGpio).toEqual({ enabled: false, sda: 23, scl: 24, bus: null, delayUs: null });
+  });
+
+  test("reads overlay lines, params and conditional copies", () => {
+    const r = readInterfaces("dtoverlay=i2c4,pins_6_7,baudrate=400000\ndtoverlay=uart3,ctsrts\ndtoverlay=uart4,rs485\ndtoverlay=i2c-gpio,i2c_gpio_sda=17,i2c_gpio_scl=27,bus=11\n[cm4]\ndtoverlay=i2c5\n");
+    expect(r.extraI2c.i2c4).toEqual({ enabled: true, pins: "pins_6_7", baudrate: 400000 });
+    expect(r.extraUart.uart3.ctsrts).toBe(true);
+    expect(r.extraUart.uart4.ctsrts).toBe(true); // rs485 implies ctsrts
+    expect(r.extraI2c.i2c5.enabled).toBe(false);
+    expect(r.i2cGpio).toEqual({ enabled: true, sda: 17, scl: 27, bus: 11, delayUs: null });
+    expect(r.conditional).toEqual([{ section: "cm4", line: "dtoverlay=i2c5" }]);
+  });
+
+  test("enable appends under the DeskyPi block; disable comments out", () => {
+    const n = editConfig(DESKY, { extraI2c: { i2c6: { enabled: true, baudrate: 400000 } }, extraUart: { uart5: { enabled: true } } });
+    expect(n.trimEnd().endsWith("dtoverlay=i2c6,pins_22_23,baudrate=400000\ndtoverlay=uart5")).toBe(true);
+    const r = readInterfaces(n);
+    expect(r.extraI2c.i2c6).toEqual({ enabled: true, pins: "pins_22_23", baudrate: 400000 });
+    expect(r.extraUart.uart5.enabled).toBe(true);
+    const off = editConfig(n, { extraUart: { uart5: { enabled: false } } });
+    expect(off).toContain("\n#dtoverlay=uart5");
+    expect(readInterfaces(off).extraUart.uart5.enabled).toBe(false);
+  });
+
+  test("edits keep unmanaged params; unchanged state is not rewritten", () => {
+    const txt = "dtoverlay=uart2,rs485_invert_rts\ndtoverlay=i2c3\n";
+    expect(editConfig(txt, { extraUart: { uart2: { ctsrts: true } } })).toBe("dtoverlay=uart2,ctsrts,rs485_invert_rts\ndtoverlay=i2c3\n");
+    expect(editConfig(txt, { extraI2c: { i2c3: { enabled: true, pins: "pins_4_5", baudrate: 100000 } } })).toBe(txt);
+    expect(editConfig(txt, { extraI2c: { i2c3: { pins: "pins_2_3" } } })).toBe("dtoverlay=uart2,rs485_invert_rts\ndtoverlay=i2c3,pins_2_3\n");
+  });
+
+  test("i2c-gpio: pins, bus number, validation", () => {
+    const n = editConfig("", { i2cGpio: { enabled: true, sda: 17, scl: 27, bus: 11 } });
+    expect(n).toContain("dtoverlay=i2c-gpio,i2c_gpio_sda=17,i2c_gpio_scl=27,bus=11");
+    expect(() => editConfig("", { i2cGpio: { enabled: true, bus: 1 } })).toThrow(/bus number/);
+    expect(() => editConfig("", { i2cGpio: { enabled: true, sda: 5, scl: 5 } })).toThrow(/different/);
+    expect(() => editConfig("", { extraI2c: { i2c3: { enabled: true, pins: "pins_8_9" } } })).toThrow(/pins_4_5/);
+    expect(() => editConfig("", { extraUart: { uart9: { enabled: true } } })).toThrow(/Unknown UART/);
+  });
+
+  test("pin usage and conflicts", () => {
+    const r = readInterfaces(DESKY);
+    expect(pinUsage(r).map((u) => u.gpio)).toEqual([2, 3, 14, 15, 4]);
+    expect(pinConflicts(r)).toEqual([]);
+    // desky's 1-Wire is on GPIO4, which UART3 TX and I²C3's default pins also use
+    const c = pinConflicts(readInterfaces(editConfig(DESKY, { extraUart: { uart3: { enabled: true } }, extraI2c: { i2c3: { enabled: true } } })));
+    expect(c).toEqual([
+      { gpio: 4, users: ["1-Wire data", "I²C3 SDA", "UART3 TX"] },
+      { gpio: 5, users: ["I²C3 SCL", "UART3 RX"] },
+    ]);
+    // UART5 CTS/RTS land on the primary UART's pins
+    expect(pinConflicts(readInterfaces(editConfig(DESKY, { extraUart: { uart5: { enabled: true, ctsrts: true } } }))).map((x) => x.gpio)).toEqual([14, 15]);
   });
 });

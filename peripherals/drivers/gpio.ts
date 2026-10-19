@@ -2,7 +2,8 @@
 //
 // Live state of the SoC's GPIO bank (function, level, pull from `pinctrl`; kernel consumers
 // from libgpiod's `gpioinfo`), a 40-pin header view, opt-in output control, and the
-// I²C / SPI / UART / 1-Wire switches in config.txt.
+// I²C / SPI / UART / 1-Wire switches in config.txt, plus (on BCM2711) the extra I²C3–6 / UART2–5
+// controllers and a software i2c-gpio bus, with a pin-conflict check across all of them.
 //
 // Cost model: nothing polls unless someone watches. /ws/gpio streams at ~10 Hz while at
 // least one client is connected (pinctrl takes ~3 ms) and stops with the last one; REST
@@ -189,15 +190,24 @@ async function dtStatus(alias: string): Promise<{ path: string; okay: boolean } 
   return { path, okay: st === "" || st === "okay" };
 }
 
+async function dtClock(path: string): Promise<number | null> {
+  try {
+    const b = new Uint8Array(await Bun.file(`/proc/device-tree${path}/clock-frequency`).arrayBuffer());
+    if (b.length >= 4) return new DataView(b.buffer).getUint32(0);
+  } catch {}
+  return null;
+}
+
+/** Pi 4 / 400 / CM4: the only boards the extra-controller overlays (i2c3–6, uart2–5) are offered on. */
+let bcm2711: boolean | null = null;
+async function isBcm2711() {
+  if (bcm2711 == null) bcm2711 = process.env.DESKYPI_BOARD_BCM2711 ? process.env.DESKYPI_BOARD_BCM2711 === "1" : (await readText("/proc/device-tree/compatible")).includes("brcm,bcm2711");
+  return bcm2711;
+}
+
 async function liveInterfaces() {
   const i2c = await dtStatus("i2c1");
-  let hz: number | null = null;
-  if (i2c) {
-    try {
-      const b = new Uint8Array(await Bun.file(`/proc/device-tree${i2c.path}/clock-frequency`).arrayBuffer());
-      if (b.length >= 4) hz = new DataView(b.buffer).getUint32(0);
-    } catch {}
-  }
+  const hz = i2c ? await dtClock(i2c.path) : null;
   const spi = await dtStatus("spi0");
   const spidev = (await readdir("/dev").catch(() => [] as string[])).filter((n) => n.startsWith("spidev"));
   const serial0 = await readlink("/dev/serial0").catch(() => null);
@@ -212,7 +222,32 @@ async function liveInterfaces() {
     if (g && g.byteLength >= 8) w1.push({ node: n, gpio: new DataView(g).getUint32(4) });
   }
   const masters = (await readdir("/sys/bus/w1/devices").catch(() => [] as string[])).filter((n) => n.startsWith("w1_bus_master"));
+  const exists = (p: string) => access(p).then(() => true, () => false);
+  // Extra controllers: device-tree status (the overlay sets it "okay") and the node it made.
+  const extraI2c: Record<string, { enabled: boolean; dev: string | null; hz: number | null }> = {};
+  if (await isBcm2711())
+    for (const n of Object.keys(G.EXTRA_I2C)) {
+      const s = await dtStatus(n);
+      const dev = `/dev/i2c-${n.slice(3)}`;
+      extraI2c[n] = { enabled: !!s?.okay, dev: (await exists(dev)) ? dev : null, hz: s?.okay ? await dtClock(s.path) : null };
+    }
+  const ttys = G.onboardUarts();
+  const extraUart: Record<string, { enabled: boolean; tty: string | null }> = {};
+  if (await isBcm2711())
+    for (const n of Object.keys(G.EXTRA_UART)) {
+      const s = await dtStatus(n);
+      extraUart[n] = { enabled: !!s?.okay, tty: ttys.find((t) => t.uart === n)?.tty ?? null };
+    }
+  const gpioBuses = [];
+  for (const n of await readdir("/proc/device-tree").catch(() => [] as string[])) {
+    if (!/^i2c@?\d*$/.test(n) && !n.startsWith("i2c-gpio")) continue;
+    if ((await readText(`/proc/device-tree/${n}/compatible`)).replace(/\0/g, " ").includes("i2c-gpio")) gpioBuses.push(n);
+  }
   return {
+    board: { model: (await readText("/proc/device-tree/model")).replace(/\0/g, ""), bcm2711: await isBcm2711() },
+    extraI2c,
+    extraUart,
+    i2cGpio: { nodes: gpioBuses },
     i2c: { enabled: !!i2c?.okay, dev: (await access("/dev/i2c-1").then(() => true, () => false)) ? "/dev/i2c-1" : null, hz },
     spi: { enabled: !!spi?.okay, devices: spidev.map((n) => "/dev/" + n) },
     uart: { serial0: serial0 ? "/dev/" + serial0 : null, consoleOnSerial: serialConsole, bootConsole: /console=serial0/.test(bootCmdline) ? "serial0" : null, note: serial0 === "ttyS0" ? "serial0 is the mini-UART (ttyS0); the PL011 drives Bluetooth" : serial0 === "ttyAMA0" ? "serial0 is the PL011 (ttyAMA0)" : "" },
@@ -223,7 +258,19 @@ async function liveInterfaces() {
 async function interfaces() {
   const text = await readText(CONFIG);
   if (!text) throw new HttpError(500, `Can't read ${CONFIG}`);
-  return { configPath: CONFIG, testCopy: CONFIG_OVERRIDDEN, configured: G.readInterfaces(text), live: await liveInterfaces(), rebootRequired, staged: staged ? { token: staged.token, summary: staged.summary, at: staged.at } : null };
+  const configured = G.readInterfaces(text);
+  return {
+    configPath: CONFIG,
+    testCopy: CONFIG_OVERRIDDEN,
+    configured,
+    live: await liveInterfaces(),
+    // What the dialog may offer here, and the pin tables behind it (so the UI doesn't keep its own copy).
+    catalog: (await isBcm2711()) ? { extraI2c: G.EXTRA_I2C, extraUart: G.EXTRA_UART, i2cGpio: G.I2C_GPIO_DEFAULTS } : null,
+    pins: G.pinUsage(configured),
+    conflicts: G.pinConflicts(configured),
+    rebootRequired,
+    staged: staged ? { token: staged.token, summary: staged.summary, at: staged.at } : null,
+  };
 }
 
 function parseChanges(a: any): G.InterfaceChanges {
@@ -252,6 +299,42 @@ function parseChanges(a: any): G.InterfaceChanges {
       ch.onewire.pin = p;
     }
   }
+  const obj = (v: any, what: string) => {
+    if (typeof v !== "object" || v == null || Array.isArray(v)) throw new HttpError(400, `${what} must be an object`);
+    return v;
+  };
+  const optNum = (v: any, what: string) => {
+    if (v === null) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new HttpError(400, `${what} must be a number`);
+    return n;
+  };
+  if (a.extraI2c) {
+    ch.extraI2c = {};
+    for (const [n, c] of Object.entries<any>(obj(a.extraI2c, "extraI2c"))) {
+      obj(c, `extraI2c.${n}`);
+      ch.extraI2c[n] = {};
+      if (c.enabled != null) ch.extraI2c[n].enabled = bool(c.enabled, `extraI2c.${n}.enabled`);
+      if (c.pins != null) ch.extraI2c[n].pins = String(c.pins);
+      if (c.baudrate != null) ch.extraI2c[n].baudrate = optNum(c.baudrate, `extraI2c.${n}.baudrate`)!;
+    }
+  }
+  if (a.extraUart) {
+    ch.extraUart = {};
+    for (const [n, c] of Object.entries<any>(obj(a.extraUart, "extraUart"))) {
+      obj(c, `extraUart.${n}`);
+      ch.extraUart[n] = {};
+      if (c.enabled != null) ch.extraUart[n].enabled = bool(c.enabled, `extraUart.${n}.enabled`);
+      if (c.ctsrts != null) ch.extraUart[n].ctsrts = bool(c.ctsrts, `extraUart.${n}.ctsrts`);
+    }
+  }
+  if (a.i2cGpio) {
+    const c = obj(a.i2cGpio, "i2cGpio");
+    ch.i2cGpio = {};
+    if (c.enabled != null) ch.i2cGpio.enabled = bool(c.enabled, "i2cGpio.enabled");
+    for (const k of ["sda", "scl"] as const) if (c[k] != null) ch.i2cGpio[k] = optNum(c[k], `i2cGpio.${k}`)!;
+    for (const k of ["bus", "delayUs"] as const) if (c[k] !== undefined) ch.i2cGpio[k] = optNum(c[k], `i2cGpio.${k}`);
+  }
   return ch;
 }
 
@@ -264,6 +347,21 @@ function describe(before: G.Interfaces, after: G.Interfaces): string[] {
   if (before.uart.enabled !== after.uart.enabled) s.push(`UART (GPIO14/15) ${onoff(after.uart.enabled)}`);
   if (before.onewire.enabled !== after.onewire.enabled) s.push(`1-Wire ${onoff(after.onewire.enabled)}`);
   if (after.onewire.enabled && before.onewire.pin !== after.onewire.pin) s.push(`1-Wire on GPIO${after.onewire.pin}`);
+  for (const [n, a] of Object.entries(after.extraI2c)) {
+    const b = before.extraI2c[n];
+    const pins = `GPIO${G.EXTRA_I2C[n].choices[a.pins].join("/")}`;
+    if (a.enabled !== b.enabled) s.push(`${G.i2cLabel(n)} (${pins}) ${onoff(a.enabled)}`);
+    else if (a.enabled && a.pins !== b.pins) s.push(`${G.i2cLabel(n)} moved to ${pins}`);
+    if (a.enabled && (a.baudrate ?? 100000) !== (b.baudrate ?? 100000)) s.push(`${G.i2cLabel(n)} speed ${(a.baudrate ?? 100000) / 1000} kHz`);
+  }
+  for (const [n, a] of Object.entries(after.extraUart)) {
+    const b = before.extraUart[n], p = G.EXTRA_UART[n];
+    if (a.enabled !== b.enabled) s.push(`${n.toUpperCase()} (GPIO${p.tx}/${p.rx}) ${onoff(a.enabled)}`);
+    if (a.enabled && a.ctsrts !== b.ctsrts) s.push(`${n.toUpperCase()} CTS/RTS (GPIO${p.cts}/${p.rts}) ${onoff(a.ctsrts)}`);
+  }
+  const ga = after.i2cGpio, gb = before.i2cGpio;
+  if (ga.enabled !== gb.enabled) s.push(`software I²C (i2c-gpio) ${onoff(ga.enabled)}`);
+  if (ga.enabled && (ga.sda !== gb.sda || ga.scl !== gb.scl || ga.bus !== gb.bus || ga.delayUs !== gb.delayUs)) s.push(`i2c-gpio on SDA GPIO${ga.sda} / SCL GPIO${ga.scl}${ga.bus != null ? `, bus ${ga.bus}` : ""}`);
   return s;
 }
 
@@ -273,6 +371,8 @@ async function stage(a: any) {
     throw new HttpError(500, `Can't read ${CONFIG}`);
   });
   const ch = parseChanges(a);
+  const enablesExtra = [...Object.values(ch.extraI2c || {}), ...Object.values(ch.extraUart || {})].some((c) => c.enabled);
+  if (enablesExtra && !(await isBcm2711())) throw new HttpError(400, "Extra I²C buses and UARTs (i2c3–6, uart2–5) are BCM2711 overlays (Pi 4, Pi 400, CM4); this board isn't one");
   let next: string;
   try {
     next = G.editConfig(raw, ch);
@@ -283,7 +383,16 @@ async function stage(a: any) {
   const before = G.readInterfaces(raw), after = G.readInterfaces(next);
   const warnings = after.conditional.map((c) => `[${c.section}] also has "${c.line}"; on a board matching [${c.section}] that line wins.`);
   if (before.uart.enabled && !after.uart.enabled && /console=serial0/.test(await readText(CMDLINE))) warnings.push("cmdline.txt puts a login console on serial0; with the UART off that console disappears (cmdline.txt is not changed here).");
-  if (after.onewire.enabled && after.onewire.pin != null && [2, 3, 14, 15].includes(after.onewire.pin) && after.onewire.pin !== before.onewire.pin) warnings.push(`GPIO${after.onewire.pin} is also an I²C/UART pin; enabling both on one pin won't work.`);
+  // Two interfaces on one pin can't both work: refuse any overlap this change creates, and
+  // keep reminding about ones config.txt already had.
+  const key = (c: { gpio: number; users: string[] }) => `${c.gpio}:${c.users.join("|")}`;
+  const had = new Set(G.pinConflicts(before).map(key));
+  const fresh = G.pinConflicts(after).filter((c) => !had.has(key(c)));
+  if (fresh.length) throw new HttpError(400, `Pin conflict: ${fresh.map((c) => `GPIO${c.gpio} would be ${c.users.join(" and ")}`).join("; ")}. Turn one off or move it first.`);
+  for (const c of G.pinConflicts(after)) warnings.push(`GPIO${c.gpio} is already claimed twice in config.txt (${c.users.join(", ")}); only one of them can work.`);
+  const usesHatPins = (r: G.Interfaces) => G.pinUsage(r).some((u) => u.gpio <= 1);
+  if (usesHatPins(after) && !usesHatPins(before)) warnings.push("GPIO0/1 are the HAT ID EEPROM bus: the firmware probes them at boot. Fine with no HAT attached; with a HAT that has an ID EEPROM, don't use them.");
+  if (ch.i2cGpio?.enabled && after.i2cGpio.bus == null) warnings.push("i2c-gpio without a bus number gets the next free /dev/i2c-N (probably 3, or higher if I²C3 is on); set a bus number for a stable name.");
   if (!diff) {
     staged = null;
     return { diff: "", summary: [], warnings, message: "No change: config.txt already says that." };
@@ -366,11 +475,11 @@ const routes: Route[] = [
       return { outputEnabled: !!a.enabled };
     },
   },
-  { method: "GET", path: "/api/gpio/interfaces", doc: "I²C / SPI / UART / 1-Wire: what config.txt says ([all] context) and what is live now", handler: () => interfaces() },
+  { method: "GET", path: "/api/gpio/interfaces", doc: "I²C / SPI / UART / 1-Wire and the extra I²C/UART controllers: what config.txt says ([all] context), what is live now, the GPIOs each uses and any pin conflicts", handler: () => interfaces() },
   {
     method: "POST",
     path: "/api/gpio/interfaces/stage",
-    doc: { description: "Compute a config.txt change and return a unified diff + token. Nothing is written", body: { i2c: { enabled: true, baudrate: 400000 }, spi: { enabled: true }, uart: { enabled: true }, onewire: { enabled: true, pin: 4 } } },
+    doc: { description: "Compute a config.txt change and return a unified diff + token. Nothing is written. extraI2c (i2c3–6, pins = pins_a_b), extraUart (uart2–5) and i2cGpio are offered on BCM2711 boards only (see catalog in GET /api/gpio/interfaces). A change that puts two interfaces on one GPIO is refused (400)", body: { i2c: { enabled: true, baudrate: 400000 }, spi: { enabled: true }, uart: { enabled: true }, onewire: { enabled: true, pin: 4 }, extraI2c: { i2c6: { enabled: true, pins: "pins_22_23", baudrate: 400000 } }, extraUart: { uart2: { enabled: true, ctsrts: false } }, i2cGpio: { enabled: false, sda: 23, scl: 24, bus: 11 } } },
     handler: async (req) => stage(await body(req)),
   },
   {
@@ -424,7 +533,7 @@ const tools: Tool[] = [
   },
   {
     name: "gpio_interfaces",
-    description: "Show whether I²C, SPI, UART (and the serial console) and 1-Wire are enabled, both in /boot/firmware/config.txt and live. Read-only; changing them is done from the dashboard (needs a reboot).",
+    description: "Show whether I²C (and extra buses i2c3–6, i2c-gpio), SPI, UART (extra UARTs uart2–5, and the serial console) and 1-Wire are enabled, which GPIOs each uses, and any pin conflicts, both in /boot/firmware/config.txt and live. Read-only; changing them is done from the dashboard (needs a reboot).",
     inputSchema: { type: "object", properties: {} },
     handler: () => interfaces(),
   },
