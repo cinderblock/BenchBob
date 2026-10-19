@@ -22,7 +22,13 @@ async function readSysFile(path: string): Promise<string> {
 }
 
 async function run(cmd: string[]): Promise<{ out: string; err: string; code: number }> {
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  let proc;
+  try {
+    proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+  } catch (e: any) {
+    // Not installed: a failed command, as in a shell (exit 127).
+    return { out: "", err: `${cmd[0]}: ${e.code === "ENOENT" ? "not installed" : e.message}`, code: 127 };
+  }
   const [out, err] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -2049,6 +2055,9 @@ async function getBuild(): Promise<{ version: string; html: string }> {
 // spawns a dozen processes and re-samples CPU/IO rates over a sub-second window, and every
 // full message adds a point to the dashboard's sparklines, so drivers that change often
 // would both load the Pi and distort those graphs. The 2 s tick still carries everything.
+// A bug in one panel (a promise nobody awaited) must not take the whole server down.
+process.on("unhandledRejection", (e) => console.error("Unhandled rejection:", e));
+
 await periph.start(() => {
   if (sseClients.size === 0) return;
   try { broadcast(periph.status(), "periph"); } catch {}

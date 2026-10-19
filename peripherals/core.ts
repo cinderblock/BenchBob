@@ -114,7 +114,13 @@ export class HttpError extends Error {
 // ---------- Helpers shared by drivers ----------
 
 export async function run(cmd: string[], opts: { stdin?: string; timeoutMs?: number } = {}): Promise<{ out: string; err: string; code: number }> {
-  const proc = Bun.spawn(cmd, { stdin: opts.stdin != null ? new Blob([opts.stdin]) : "ignore", stdout: "pipe", stderr: "pipe" });
+  let proc;
+  try {
+    proc = Bun.spawn(cmd, { stdin: opts.stdin != null ? new Blob([opts.stdin]) : "ignore", stdout: "pipe", stderr: "pipe" });
+  } catch (e: any) {
+    // Not installed (a Recommends left out, or not a Pi): a failed command, as in a shell.
+    return { out: "", err: `${cmd[0]}: ${e.code === "ENOENT" ? "not installed" : e.message}`, code: 127 };
+  }
   const timer = opts.timeoutMs ? setTimeout(() => proc.kill(), opts.timeoutMs) : null;
   const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   const code = await proc.exited;
