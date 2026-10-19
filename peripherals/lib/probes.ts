@@ -178,7 +178,7 @@ export function gdbFor(target: string): string {
 
 // ---------- OpenOCD command line ----------
 
-export const READY_MARK = "DESKYPI-READY";
+export const READY_MARK = "BENCHBOB-READY";
 
 export interface Ports {
   gdb: number;
@@ -247,7 +247,7 @@ export function newOcdState(): OcdState {
 
 const HINTS: [RegExp, string][] = [
   [/LIBUSB_ERROR_ACCESS|ermission denied/, "No permission to open the probe's USB device: the openocd package's udev rules give it to group plugdev; replug the probe after installing them."],
-  [/LIBUSB_ERROR_BUSY|resource busy/i, "The probe is busy: another OpenOCD, GDB server or IDE on DeskyPi has it open."],
+  [/LIBUSB_ERROR_BUSY|resource busy/i, "The probe is busy: another OpenOCD, GDB server or IDE on BenchBob has it open."],
   [/Invalid serial number/, "OpenOCD rejected the serial number used to pick this probe (J-Link serials must be numeric). Unplug other probes of this kind, or report it."],
   [
     /unable to find a matching CMSIS-DAP device|^Error: open failed|No J-Link device found|could not find or open device|unable to open ftdi device|LIBUSB_ERROR_NO_DEVICE|No device selected/,
@@ -574,7 +574,7 @@ export function clientSnippets(o: { host: string; ports: Ports; target: string; 
     gdb: `${gdb} -ex "target extended-remote ${ep}" build/app.elf`,
     telnet: `telnet ${o.host} ${o.ports.telnet}`,
     cortexDebug: JSON.stringify(
-      { name: "DeskyPi probe", type: "cortex-debug", request: "launch", servertype: "external", gdbTarget: ep, executable: "${workspaceFolder}/build/app.elf", runToEntryPoint: "main" },
+      { name: "BenchBob probe", type: "cortex-debug", request: "launch", servertype: "external", gdbTarget: ep, executable: "${workspaceFolder}/build/app.elf", runToEntryPoint: "main" },
       null,
       2,
     ),

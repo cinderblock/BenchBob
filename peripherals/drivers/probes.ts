@@ -19,12 +19,12 @@ import * as L from "../lib/probes.ts";
 
 const SCRIPTS = "/usr/share/openocd/scripts";
 // Side instances shift every OpenOCD port so they never collide with the live service.
-const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
+const PORT_OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
 // Simulated devices for testing without hardware; the value is a scratch dir (fake BOOTSEL drive).
-const SIM = process.env.DESKYPI_PROBES_SIM || "";
+const SIM = process.env.BENCHBOB_PROBES_SIM || "";
 const WEB_PORT = parseInt(process.env.PORT || "") || 80;
 // Per instance: init clears it, which mustn't eat another instance's in-flight upload.
-const TMP = `/var/tmp/deskypi-probes-${WEB_PORT}`;
+const TMP = `/var/tmp/benchbob-probes-${WEB_PORT}`;
 // sudo-installed tools live in /usr/sbin, which a service's PATH may lack.
 const PATH = `${process.env.PATH || "/usr/bin:/bin"}:/usr/local/sbin:/usr/sbin:/sbin`;
 const LOG_MAX = 400;
@@ -253,7 +253,7 @@ function simDevices(): Props[] {
     ID_MODEL_ENC: model.replace(/ /g, "\\x20"),
     ID_SERIAL_SHORT: serial,
     ID_SERIAL: `${model.replace(/ /g, "_")}_${serial}`,
-    DESKYPI_SIM: "1",
+    BENCHBOB_SIM: "1",
     ...extra,
   });
   const tty = (n: string, iface: string, dev: string): Props => ({
@@ -274,7 +274,7 @@ function simDevices(): Props[] {
     { DEVPATH: "/devices/sim/usb9/9-1.5/host0/block/sdz/sdz1", SUBSYSTEM: "block", DEVTYPE: "partition", DEVNAME: "/dev/sdz1", ID_FS_TYPE: "vfat", ID_FS_LABEL: "RPI-RP2" },
     usb("6", "0483", "df11", "STM32 BOOTLOADER", "205D35A3424B"),
     // Not a real probe: OpenOCD's dummy adapter, so the server lifecycle and TCL path run end to end.
-    usb("7", "dead", "beef", "DeskyPi dummy probe", "SIM0001"),
+    usb("7", "dead", "beef", "BenchBob dummy probe", "SIM0001"),
   ];
 }
 
@@ -292,8 +292,8 @@ function classify(p: Props): { probe?: L.ProbeType; boot?: L.BootType } | null {
     pid = (d || "").padStart(4, "0");
   }
   if (!vid) return null;
-  if (p.DESKYPI_SIM && vid === "dead")
-    return { probe: { kind: "sim-dummy", name: "Dummy probe (simulated)", iface: "interface/dummy.cfg", transports: ["jtag"], note: "OpenOCD's dummy adapter, for testing DeskyPi itself." } };
+  if (p.BENCHBOB_SIM && vid === "dead")
+    return { probe: { kind: "sim-dummy", name: "Dummy probe (simulated)", iface: "interface/dummy.cfg", transports: ["jtag"], note: "OpenOCD's dummy adapter, for testing BenchBob itself." } };
   const boot = L.bootType(vid, pid);
   if (boot) return { boot };
   const probe = L.probeType(vid, pid, [...L.usbStrings(p), ...(ifaceStrings.get(p.DEVPATH) || [])]);
@@ -333,7 +333,7 @@ function newDev(p: Props, id: string) {
     sockets: new Set<ServerWebSocket<WsData>>(),
     job: null,
     lastJob: null,
-    sim: !!p.DESKYPI_SIM,
+    sim: !!p.BENCHBOB_SIM,
   };
 }
 
@@ -341,7 +341,7 @@ async function scan() {
   const all = allDevices();
   const usb = all.filter((p) => p.SUBSYSTEM === "usb" && p.DEVTYPE === "usb_device");
   // Interface strings only matter for devices the VID:PID table doesn't already know.
-  for (const p of usb) if (!ifaceStrings.has(p.DEVPATH) && !p.DESKYPI_SIM) ifaceStrings.set(p.DEVPATH, await readIfaceStrings(p.DEVPATH));
+  for (const p of usb) if (!ifaceStrings.has(p.DEVPATH) && !p.BENCHBOB_SIM) ifaceStrings.set(p.DEVPATH, await readIfaceStrings(p.DEVPATH));
   const seenP = new Set<string>();
   const seenB = new Set<string>();
   for (const p of usb) {
@@ -734,10 +734,10 @@ async function flashUf2(b: Boot, buf: Uint8Array, name = "firmware.uf2", force =
     }
     if (!b.block) throw new HttpError(409, "The BOOTSEL drive has no block device yet; wait a second and retry");
     let mount = b.mount;
-    // DeskyPi's drive handler mounts every USB drive read-only on purpose. A BOOTSEL drive
+    // BenchBob's drive handler mounts every USB drive read-only on purpose. A BOOTSEL drive
     // is a fake FAT in the bootrom, so flipping it to rw is harmless; it's gone after reboot.
     if (!mount) {
-      mount = `/run/deskypi-uf2/${b.id}`;
+      mount = `/run/benchbob-uf2/${b.id}`;
       setJob(b, { stage: "mounting" });
       await mustOk(["sudo", "mkdir", "-p", mount]);
       await mustOk(["sudo", "mount", "-o", "rw,sync", b.block, mount]);
@@ -898,7 +898,7 @@ async function rawBody(req: Request): Promise<Uint8Array> {
   return new Uint8Array(await req.arrayBuffer());
 }
 
-/** MCP tools take firmware as base64 or a URL DeskyPi fetches. */
+/** MCP tools take firmware as base64 or a URL BenchBob fetches. */
 async function fileArg(a: any): Promise<{ buf: Uint8Array; name: string }> {
   if (a.data_base64) return { buf: new Uint8Array(Buffer.from(a.data_base64, "base64")), name: a.name || "" };
   if (a.url) {
@@ -992,7 +992,7 @@ const driver: Driver = {
     {
       method: "GET",
       path: "/api/probes/:id/clients",
-      doc: { query: { host: "(optional) hostname clients should use", web: "(optional) DeskyPi base URL" }, description: "Copy-paste client configs for this probe's GDB server: gdb, telnet, VS Code cortex-debug, PlatformIO" },
+      doc: { query: { host: "(optional) hostname clients should use", web: "(optional) BenchBob base URL" }, description: "Copy-paste client configs for this probe's GDB server: gdb, telnet, VS Code cortex-debug, PlatformIO" },
       handler: (_r, { id }, url) => {
         const p = probeById(id);
         const host = url.searchParams.get("host") || hostAddr();
@@ -1099,14 +1099,14 @@ const driver: Driver = {
     {
       name: "probes_list",
       description:
-        "List debug probes (ST-Link, J-Link, CMSIS-DAP, ESP USB-JTAG, Black Magic Probe…) and MCUs in bootloader mode (RP2 BOOTSEL, STM32 DFU) attached to DeskyPi, with each probe's id, OpenOCD target config, GDB server state/ports and detected target core/voltage.",
+        "List debug probes (ST-Link, J-Link, CMSIS-DAP, ESP USB-JTAG, Black Magic Probe…) and MCUs in bootloader mode (RP2 BOOTSEL, STM32 DFU) attached to BenchBob, with each probe's id, OpenOCD target config, GDB server state/ports and detected target core/voltage.",
       inputSchema: { type: "object", properties: {} },
       handler: () => listAll(),
     },
     {
       name: "probes_server",
       description:
-        "Start or stop the OpenOCD GDB server for a probe. On start it waits until OpenOCD is ready and returns the ports (connect with `target extended-remote <deskypi>:<gdb port>`), or fails with OpenOCD's error and a wiring/power hint. target is an OpenOCD script such as target/stm32f4x.cfg, target/rp2040.cfg, target/nordic/nrf52.cfg, or generic-cortex-m.",
+        "Start or stop the OpenOCD GDB server for a probe. On start it waits until OpenOCD is ready and returns the ports (connect with `target extended-remote <benchbob>:<gdb port>`), or fails with OpenOCD's error and a wiring/power hint. target is an OpenOCD script such as target/stm32f4x.cfg, target/rp2040.cfg, target/nordic/nrf52.cfg, or generic-cortex-m.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1136,7 +1136,7 @@ const driver: Driver = {
     {
       name: "probes_flash",
       description:
-        "Program firmware (.elf, .hex or .bin) into the target through a debug probe with OpenOCD, then verify and reset. Give the file as base64 or a URL DeskyPi can fetch. A .bin needs a base address (STM32 0x08000000, RP2040 0x10000000). Set the probe's target first (probes_server start with target, or it must already be configured).",
+        "Program firmware (.elf, .hex or .bin) into the target through a debug probe with OpenOCD, then verify and reset. Give the file as base64 or a URL BenchBob can fetch. A .bin needs a base address (STM32 0x08000000, RP2040 0x10000000). Set the probe's target first (probes_server start with target, or it must already be configured).",
       inputSchema: {
         type: "object",
         properties: {

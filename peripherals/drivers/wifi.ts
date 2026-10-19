@@ -8,7 +8,7 @@
 // eth0, so the rules here are conservative: scans never change its connection, a test only
 // borrows it when the main default route is via something else that's up, and the runner
 // always gives it back and checks NM reconnected it. USB dongles show up as new phys; when
-// DeskyPi uses one it tells NM (runtime only) to leave it alone, so NM's autoconnect
+// BenchBob uses one it tells NM (runtime only) to leave it alone, so NM's autoconnect
 // doesn't grab it mid-test.
 //
 // Status stays small: the bulky lists (radio details, BSS table, results) are fetched over
@@ -185,7 +185,7 @@ async function uplink(): Promise<string | undefined> {
 function findRadio(key: string | undefined): Radio {
   if (!key) {
     const r = [...radios.values()].find((x) => x.ifaces.some((i) => i.name && i.type === "managed")) || [...radios.values()][0];
-    if (!r) throw new HttpError(404, "No Wi-Fi radios in the main network namespace (a radio borrowed into another DeskyPi process's test namespace is invisible until it comes back)");
+    if (!r) throw new HttpError(404, "No Wi-Fi radios in the main network namespace (a radio borrowed into another BenchBob process's test namespace is invisible until it comes back)");
     return r;
   }
   const r = radios.get(key) || [...radios.values()].find((x) => x.ifaces.some((i) => i.name === key) || x.stableId === key);
@@ -254,7 +254,7 @@ function describeUse(r: Radio): Radio["use"] {
   }
   if (r.busy === "scan") return { kind: "scan", text: "Scanning" };
   const nm = r.nm[0];
-  if (r.unmanagedByUs.length) return { kind: "idle", text: `Idle; DeskyPi told NetworkManager to leave ${r.unmanagedByUs.join(", ")} alone (until reboot)` };
+  if (r.unmanagedByUs.length) return { kind: "idle", text: `Idle; BenchBob told NetworkManager to leave ${r.unmanagedByUs.join(", ")} alone (until reboot)` };
   if (nm?.state === "unavailable") return { kind: "down", text: "Idle (interface down or unavailable)" };
   return { kind: "idle", text: nm?.state === "unmanaged" ? "Idle (not managed by NetworkManager)" : "Idle" };
 }
@@ -324,7 +324,7 @@ function scheduleRefresh(ms = 800) {
   }, ms);
 }
 
-/** Tell NM (runtime only) to leave a radio DeskyPi is using alone. Never for NM's own connected radio. */
+/** Tell NM (runtime only) to leave a radio BenchBob is using alone. Never for NM's own connected radio. */
 async function unmanage(r: Radio) {
   for (const n of r.nm) {
     if (n.state === "connected" || n.state === "unmanaged" || r.unmanagedByUs.includes(n.iface)) continue;
@@ -332,7 +332,7 @@ async function unmanage(r: Radio) {
     if (res.code) throw new Error(`nmcli dev set ${n.iface} managed no: ${res.err}`);
     r.unmanagedByUs.push(n.iface);
     n.state = "unmanaged";
-    ctx.event(`Told NetworkManager to leave ${n.iface} alone (runtime only, DeskyPi is using it)`);
+    ctx.event(`Told NetworkManager to leave ${n.iface} alone (runtime only, BenchBob is using it)`);
   }
 }
 
@@ -654,7 +654,7 @@ async function startTest(input: any): Promise<ClientTest> {
   r.busy = "test";
   r.use = describeUse(r);
   tests.set(id, t);
-  // Remember what to put back if DeskyPi dies mid-test (recovered on next init).
+  // Remember what to put back if BenchBob dies mid-test (recovered on next init).
   ctx.settings.set("borrowed", { ...ctx.settings.get<Record<string, RadioCtx>>("borrowed", {}), [r.phy]: rc });
   ctx.event(`Wi-Fi client test started: ${spec.ssid} on ${r.phy}`);
   t.run().then((res) => {
@@ -766,7 +766,7 @@ const testSchema = {
     ssid: { type: "string", description: "Network name" },
     security: { type: "string", enum: ["open", "owe", "psk", "sae", "psk-sae", "eap"], description: "Default: what the last scan saw for this SSID" },
     psk: { type: "string", description: "Passphrase (8–63 chars) or 64-hex PSK. Never echoed back." },
-    useSavedKey: { type: "boolean", description: "Use the key NetworkManager has saved for this SSID (stays on DeskyPi)" },
+    useSavedKey: { type: "boolean", description: "Use the key NetworkManager has saved for this SSID (stays on BenchBob)" },
     profile: { type: "string", description: "Saved test profile id or name to start from" },
     bssid: { type: "string", description: "Pin to one AP" },
     eap: { type: "object", properties: { method: { type: "string", enum: ["PEAP", "TTLS"] }, identity: { type: "string" }, anonymousIdentity: { type: "string" } }, description: "Enterprise (MSCHAPv2 inner; server certificate NOT validated). Password goes in psk." },
@@ -921,7 +921,7 @@ const driver: Driver = {
     {
       method: "POST",
       path: "/api/wifi/watch",
-      doc: { body: { id: "any client id" }, description: "Lease: \"I'm looking at the scanner\". While any lease from the last 60 s is live, DeskyPi scans every watchIntervalS (default 30 s), shared by all viewers. Renew every ~20 s; the first watch scans at once if the last scan is over 20 s old" },
+      doc: { body: { id: "any client id" }, description: "Lease: \"I'm looking at the scanner\". While any lease from the last 60 s is live, BenchBob scans every watchIntervalS (default 30 s), shared by all viewers. Renew every ~20 s; the first watch scans at once if the last scan is over 20 s old" },
       async handler(req) {
         const b = await body(req);
         const id = String(b.id || "anon").slice(0, 64);
@@ -1052,7 +1052,7 @@ const driver: Driver = {
   tools: [
     {
       name: "wifi_radios",
-      description: "List DeskyPi's Wi-Fi radios: driver, onboard or USB, supported bands, enabled/disabled/DFS channels with max power, interface modes (monitor/AP), what each is doing now (e.g. backup uplink), NetworkManager state, and the regulatory domain.",
+      description: "List BenchBob's Wi-Fi radios: driver, onboard or USB, supported bands, enabled/disabled/DFS channels with max power, interface modes (monitor/AP), what each is doing now (e.g. backup uplink), NetworkManager state, and the regulatory domain.",
       inputSchema: { type: "object", properties: { channels: { type: "boolean", description: "Include the per-channel list (long). Default false." } } },
       async handler(a) {
         await refreshRadios();

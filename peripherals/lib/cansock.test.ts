@@ -181,6 +181,6 @@ describe("socketcand protocol", () => {
     expect(() => C.scParseIdLenData(["123", "3", "00"])).toThrow();
   });
   test("beacon XML", () => {
-    expect(C.beaconXml("deskypi", "10.0.0.2", 29536, ["can0", "vcan0"])).toBe('<CANBeacon name="deskypi" type="SocketCAN" description="DeskyPi socketcand">\n<URL>can://10.0.0.2:29536</URL><Bus name="can0"/><Bus name="vcan0"/></CANBeacon>');
+    expect(C.beaconXml("benchbob", "10.0.0.2", 29536, ["can0", "vcan0"])).toBe('<CANBeacon name="benchbob" type="SocketCAN" description="BenchBob socketcand">\n<URL>can://10.0.0.2:29536</URL><Bus name="can0"/><Bus name="vcan0"/></CANBeacon>');
   });
 });

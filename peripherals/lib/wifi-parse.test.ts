@@ -231,7 +231,7 @@ describe("wpa_supplicant + udhcpc (lines seen on desky)", () => {
     expect(P.parseUdhcpcLine("udhcpc: broadcasting select for 10.255.3.139, server 10.255.0.1")).toMatchObject({ kind: "offer", ip: "10.255.3.139", server: "10.255.0.1" });
     expect(P.parseUdhcpcLine("udhcpc: lease of 10.255.3.139 obtained from 10.255.0.1, lease time 86400")).toMatchObject({ kind: "ack", leaseS: 86400 });
     expect(P.parseUdhcpcLine("udhcpc: no lease, failing")?.kind).toBe("fail");
-    const l = P.parseUdhcpcLine("DESKYPI-DHCP bound|ip=10.255.3.139|mask=20|router=10.255.0.1|dns=10.255.0.1 1.1.1.1|lease=86400|serverid=10.255.0.1|domain=tsl")!;
+    const l = P.parseUdhcpcLine("BENCHBOB-DHCP bound|ip=10.255.3.139|mask=20|router=10.255.0.1|dns=10.255.0.1 1.1.1.1|lease=86400|serverid=10.255.0.1|domain=tsl")!;
     expect(l.lease).toMatchObject({ event: "bound", ip: "10.255.3.139", mask: "20", dns: "10.255.0.1 1.1.1.1", domain: "tsl" });
     expect(P.maskToPrefix("20")).toBe(20);
     expect(P.maskToPrefix("255.255.240.0")).toBe(20);

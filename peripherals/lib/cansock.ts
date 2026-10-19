@@ -531,7 +531,7 @@ export function scParseIdLenData(words: string[]): CanFrame {
 
 export function beaconXml(host: string, ip: string, port: number, buses: string[]): string {
   const x = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-  return `<CANBeacon name="${x(host)}" type="SocketCAN" description="DeskyPi socketcand">\n<URL>can://${ip}:${port}</URL>${buses.map((b) => `<Bus name="${x(b)}"/>`).join("")}</CANBeacon>`;
+  return `<CANBeacon name="${x(host)}" type="SocketCAN" description="BenchBob socketcand">\n<URL>can://${ip}:${port}</URL>${buses.map((b) => `<Bus name="${x(b)}"/>`).join("")}</CANBeacon>`;
 }
 
 // ---------- The socket (bun:ffi) ----------

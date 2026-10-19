@@ -1,4 +1,4 @@
-# DeskyPi
+# BenchBob
 
 A Raspberry Pi bench server with a web dashboard. Plug things into it and use them from
 anywhere on the LAN, from a browser, a script or an AI agent.
@@ -20,7 +20,7 @@ Each device class is a panel. A panel appears on the dashboard when it has somet
 show (a device plugged in, a capture running). Idle panels fold into the **Tools** strip,
 where you can open them. **Peripherals…** turns whole panels off (GPIO, say), which also
 removes them from the API and MCP. Turning the USB panel off also stops sharing its devices;
-restarting DeskyPi doesn't, so remote USB/IP clients stay attached across a deploy.
+restarting BenchBob doesn't, so remote USB/IP clients stay attached across a deploy.
 
 | Panel | What it does |
 | --- | --- |
@@ -40,7 +40,7 @@ restarting DeskyPi doesn't, so remote USB/IP clients stay attached across a depl
 | Wired network | Link details, which switch and port the Pi is on (LLDP/CDP), iperf3 server and client with quick-pick hosts and one-click profiles; ping buttons per target; DNS/HTTP/MTU checks. Host lists are editable ("Edit hosts…"), and "Logins…" holds the username, password and public key for servers that require a login (iperf3 `--authorized-users-path`). The far end needs `iperf3 -s` on 5201 |
 
 Daemons that some panels use (gpsd, lldpd, NUT, iperf3, usbipd, OpenOCD, ustreamer) are
-started on demand with private configs and stopped with DeskyPi. Their system services
+started on demand with private configs and stopped with BenchBob. Their system services
 stay masked.
 
 ### Network endpoints
@@ -52,9 +52,9 @@ Apart from the dashboard and socketcand, nothing listens on the LAN until you tu
 | --- | --- |
 | 80 | Dashboard, REST API, WebSockets, MCP |
 | 4000 + n | Serial raw TCP bridge (n fixed per serial device) |
-| 4100 + n | Serial RFC 2217 bridge (`rfc2217://deskypi.tsl:4100`) |
+| 4100 + n | Serial RFC 2217 bridge (`rfc2217://benchbob.local:4100`) |
 | 4200 + n | usbredir |
-| 3240 | USB/IP (`usbip list -r deskypi.tsl`) |
+| 3240 | USB/IP (`usbip list -r benchbob.local`) |
 | 29536 | socketcand (on by default); UDP 42000 discovery beacon (optional) |
 | 3333 / 4444 / 6666 | OpenOCD GDB / telnet / TCL, +10 per additional probe |
 | 1234 | rtl_tcp |
@@ -63,17 +63,17 @@ Apart from the dashboard and socketcand, nothing listens on the LAN until you tu
 | 5201 | iperf3 server |
 | 8080 | Camera direct stream (when shared directly) |
 
-There is no authentication: DeskyPi assumes a trusted LAN.
+There is no authentication: BenchBob assumes a trusted LAN.
 
 ### For agents (MCP)
 
-Point an MCP client at `http://deskypi.tsl/mcp` (Streamable HTTP, stateless). Every panel
+Point an MCP client at `http://benchbob.local/mcp` (Streamable HTTP, stateless). Every panel
 contributes tools, e.g. `serial_write` (with a wait-for-regex), `can_capture`,
 `i2c_scan`, `onewire_list`, `wifi_scan`, `camera_snapshot` (returns the image),
 `probes_flash`, `usb_power`. With Claude Code:
 
 ```sh
-claude mcp add --transport http deskypi http://deskypi.tsl/mcp
+claude mcp add --transport http benchbob http://benchbob.local/mcp
 ```
 
 ## Layout
@@ -93,5 +93,5 @@ dependencies: Bun runs the TypeScript directly.
 ```sh
 sudo ./install.sh          # on the Pi
 bun test peripherals/      # unit tests (also run on Windows)
-PORT=8090 bun run server.ts  # a side instance; DESKYPI_PORT_OFFSET shifts peripheral ports
+PORT=8090 bun run server.ts  # a side instance; BENCHBOB_PORT_OFFSET shifts peripheral ports
 ```

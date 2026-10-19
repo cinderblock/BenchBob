@@ -1,16 +1,16 @@
 // ==================== UPS (NUT) ====================
 //
-// A USB UPS plugged into DeskyPi is driven by NUT, run entirely as our own children: the
+// A USB UPS plugged into BenchBob is driven by NUT, run entirely as our own children: the
 // right driver (usbhid-ups, nutdrv_qx… whatever NUT's udev table says) plus upsd, with
 // config and state in a private temp dir. The system NUT units stay masked and /etc/nut is
-// never read, so nothing here survives DeskyPi stopping. We poll `upsc` every 5 s, decode
+// never read, so nothing here survives BenchBob stopping. We poll `upsc` every 5 s, decode
 // the status flags into words, keep charge/load history for sparklines, and log power events
 // to the hardware timeline. "Share on network" opens upsd on 0.0.0.0 so NUT clients
 // elsewhere (Home Assistant, upsmon on other servers) can follow the same UPS.
 //
 // Automatic shutdown of desky on low battery is deliberately not configured (no upsmon).
 //
-// Testing without hardware: DESKYPI_UPS_SIMULATE=/path/to.dev runs NUT's dummy-ups on that
+// Testing without hardware: BENCHBOB_UPS_SIMULATE=/path/to.dev runs NUT's dummy-ups on that
 // file; edit `ups.status:` in it to drive OL → OB → LB. Only that env var creates a fake UPS.
 
 import { existsSync, readdirSync } from "node:fs";
@@ -20,16 +20,16 @@ import { BUILTIN_IDS, decodeStatus, fmtRuntime, isPowerDeviceDescriptor, matchUp
 
 const NUT = "/lib/nut";
 const RULES = "/lib/udev/rules.d/62-nut-usbups.rules";
-const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
-const DIR = `/tmp/deskypi-nut-${process.env.PORT || 80}`;
-const SIM = process.env.DESKYPI_UPS_SIMULATE || "";
+const PORT_OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
+const DIR = `/tmp/benchbob-nut-${process.env.PORT || 80}`;
+const SIM = process.env.BENCHBOB_UPS_SIMULATE || "";
 const POLL_MS = 5000;
 const HIST_N = 120; // 10 minutes at 5 s
 const MON_USER = "monuser";
 
 interface Ups {
   key: string; // stable id: udev ID_SERIAL, else USB port path; "sim" for the simulator
-  name: string; // NUT section name: deskypi, deskypi-2…
+  name: string; // NUT section name: benchbob, benchbob-2…
   driver: string;
   models: string; // what NUT's table says this ID covers
   vid: string;
@@ -121,7 +121,7 @@ async function detect(): Promise<Map<string, Omit<Ups, "name">>> {
     if (usb) add(usb, null);
   }
   if (SIM) {
-    found.set("sim", blank({ key: "sim", driver: "dummy-ups", models: "Simulated (DESKYPI_UPS_SIMULATE)", vid: "", pid: "", vendor: "DeskyPi", product: "Simulated UPS", serial: "", bus: "", usbPort: "", simulated: true }));
+    found.set("sim", blank({ key: "sim", driver: "dummy-ups", models: "Simulated (BENCHBOB_UPS_SIMULATE)", vid: "", pid: "", vendor: "BenchBob", product: "Simulated UPS", serial: "", bus: "", usbPort: "", simulated: true }));
   }
   return found;
 }
@@ -135,10 +135,10 @@ async function rescan() {
   let changed = false;
   for (const [key, u] of found) {
     if (upses.has(key)) continue;
-    // Names are stable per run: the first UPS is "deskypi", as clients elsewhere expect.
+    // Names are stable per run: the first UPS is "benchbob", as clients elsewhere expect.
     const used = new Set([...upses.values()].map((x) => x.name));
-    let name = "deskypi";
-    for (let i = 2; used.has(name); i++) name = `deskypi-${i}`;
+    let name = "benchbob";
+    for (let i = 2; used.has(name); i++) name = `benchbob-${i}`;
     upses.set(key, { ...u, name });
     ctx.event(`UPS connected: ${u.vendor} ${u.product} (${u.simulated ? "simulated" : `${u.vid}:${u.pid}`}, NUT driver ${u.driver})`);
     changed = true;
@@ -177,7 +177,7 @@ async function writeConfig() {
   await Bun.write(`${DIR}/conf/nut.conf`, "MODE=standalone\n");
 }
 
-/** Kill NUT processes a previous DeskyPi run left behind (it was killed hard, say). -FF wrote their pid files. */
+/** Kill NUT processes a previous BenchBob run left behind (it was killed hard, say). -FF wrote their pid files. */
 async function killStale() {
   const files: string[] = [];
   try {
@@ -366,7 +366,7 @@ const driver: Driver = {
   id: "ups",
   title: "UPS",
   order: 70,
-  description: "USB UPS via NUT (run privately by DeskyPi): battery, runtime, load, power events, optional network sharing for NUT clients",
+  description: "USB UPS via NUT (run privately by BenchBob): battery, runtime, load, power events, optional network sharing for NUT clients",
 
   async init(c) {
     ctx = c;
@@ -410,13 +410,13 @@ const driver: Driver = {
     {
       method: "GET",
       path: "/api/ups",
-      doc: "UPSes attached to DeskyPi with decoded status (On mains / On battery / Low battery…), charge %, runtime, load, voltages, recent power events; plus the private NUT server's port and sharing state",
+      doc: "UPSes attached to BenchBob with decoded status (On mains / On battery / Low battery…), charge %, runtime, load, voltages, recent power events; plus the private NUT server's port and sharing state",
       handler: () => ({ upses: [...upses.values()].map(view), nut: nutInfo() }),
     },
     {
       method: "GET",
       path: "/api/ups/:name",
-      doc: "Every variable NUT reports for one UPS (raw `upsc` output as JSON); :name is the NUT name, e.g. deskypi",
+      doc: "Every variable NUT reports for one UPS (raw `upsc` output as JSON); :name is the NUT name, e.g. benchbob",
       handler: (_req, p) => {
         const u = ups(p.name);
         return { ...view(u), vars: u.vars };
@@ -454,8 +454,8 @@ const driver: Driver = {
   tools: [
     {
       name: "ups_status",
-      description: "Status of the UPS(es) attached to DeskyPi via NUT: whether it's on mains or battery (decoded flags), battery charge %, estimated runtime, load %, input/output voltage and frequency, model/serial/firmware, battery date, and recent power events. Automatic shutdown is not configured.",
-      inputSchema: { type: "object", properties: { name: { type: "string", description: "NUT UPS name (default: all). The first UPS is 'deskypi'." }, raw: { type: "boolean", description: "Also include every raw NUT variable" } } },
+      description: "Status of the UPS(es) attached to BenchBob via NUT: whether it's on mains or battery (decoded flags), battery charge %, estimated runtime, load %, input/output voltage and frequency, model/serial/firmware, battery date, and recent power events. Automatic shutdown is not configured.",
+      inputSchema: { type: "object", properties: { name: { type: "string", description: "NUT UPS name (default: all). The first UPS is 'benchbob'." }, raw: { type: "boolean", description: "Also include every raw NUT variable" } } },
       handler(args) {
         const list = args.name ? [ups(args.name)] : [...upses.values()];
         if (!list.length) return { upses: [], note: "No UPS connected" };

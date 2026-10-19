@@ -19,7 +19,7 @@ import { readdir, readFile, mkdir, rm, copyFile, writeFile, stat, rename } from 
 const USB_ROOT = "/sys/bus/usb/devices";
 const RPIBOOT_DIR = "/usr/share/rpiboot";
 const EEPROM_FW_DIR = "/lib/firmware/raspberrypi";
-const WORK_ROOT = "/tmp/deskypi-rpiboot";
+const WORK_ROOT = "/tmp/benchbob-rpiboot";
 const HISTORY_PATH = statePath("eeprom-history.json");
 
 // Broadcom vendor 0a5c, product = the SoC's boot ROM.
@@ -184,7 +184,7 @@ export async function defaultBootConf(chip: Chip): Promise<string> {
 //
 // Nothing reads the EEPROM (or its config) back over USB. recovery.bin does report an
 // EEPROM_HASH in its metadata, so the installed image is recognised by hash: against every
-// stock release image, and against every image DeskyPi wrote itself. For our own writes
+// stock release image, and against every image BenchBob wrote itself. For our own writes
 // both the sha256 of the file and the hash the module reported straight afterwards are
 // kept, since what EEPROM_HASH covers isn't documented. No match means "unknown", never a
 // guess.
@@ -200,12 +200,12 @@ export interface WriteRecord {
 }
 
 export interface Installed {
-  source: "deskypi" | "stock" | "unknown";
+  source: "benchbob" | "stock" | "unknown";
   buildDate: string | null;
   label: string;
   bootConf: string | null; // the installed config, when the image was recognised
   writtenAt?: number;
-  // The newest DeskyPi write to this MAC when the installed image isn't it: something
+  // The newest BenchBob write to this MAC when the installed image isn't it: something
   // else (self-update, rpi-eeprom-update on the module) has replaced it since.
   lastWrite?: WriteRecord;
 }
@@ -234,7 +234,7 @@ export async function identifyBootloader(chip: Chip, metadata: Record<string, st
   if (!hash) return { source: "unknown", buildDate: null, label: "Unknown: the module didn't report an EEPROM hash", bootConf: null, lastWrite };
 
   const ours = history.filter((r) => r.hashes.includes(hash)).at(-1);
-  if (ours) return { source: "deskypi", buildDate: ours.buildDate, label: `${ours.buildDate}, written by DeskyPi`, bootConf: ours.bootConf, writtenAt: ours.at };
+  if (ours) return { source: "benchbob", buildDate: ours.buildDate, label: `${ours.buildDate}, written by BenchBob`, bootConf: ours.bootConf, writtenAt: ours.at };
 
   const base = `${EEPROM_FW_DIR}/bootloader-${chip}`;
   const paths = new Set<string>();
@@ -249,7 +249,7 @@ export async function identifyBootloader(chip: Chip, metadata: Record<string, st
     const date = path === stock?.path ? stock.buildDate : buildDate(path);
     return { source: "stock", buildDate: date, label: `${date}, a stock release with its default settings`, bootConf: info.config, lastWrite };
   }
-  return { source: "unknown", buildDate: null, label: "Unrecognised: not a stock release with default settings, and not written by DeskyPi", bootConf: null, lastWrite };
+  return { source: "unknown", buildDate: null, label: "Unrecognised: not a stock release with default settings, and not written by BenchBob", bootConf: null, lastWrite };
 }
 
 // ==================== Running rpiboot ====================
@@ -435,7 +435,7 @@ export async function buildCardFiles(chip: "2711" | "2712", image: EepromImage, 
 
 function cardReadme(chip: "2711" | "2712", image: EepromImage, bootConf: string): string {
   return `${CARD_BOARDS[chip]} bootloader update card
-Made by DeskyPi on ${new Date().toISOString().slice(0, 10)}
+Made by BenchBob on ${new Date().toISOString().slice(0, 10)}
 
 Bootloader release: ${image.label}
 

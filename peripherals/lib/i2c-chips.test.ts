@@ -95,7 +95,7 @@ describe("decoders", () => {
   test("Pi HAT EEPROM header", () => {
     const r = eepromRegs();
     const h = parseHatEeprom(Array.from({ length: 64 }, (_, i) => r[i] ?? 0xff))!;
-    expect(h).toMatchObject({ version: 1, atoms: 1, vendor: "DeskyPi", product: "Bench HAT", pid: 0x1234, pver: 2 });
+    expect(h).toMatchObject({ version: 1, atoms: 1, vendor: "BenchBob", product: "Bench HAT", pid: 0x1234, pver: 2 });
     expect(parseHatEeprom(new Array(64).fill(0xff))).toBeNull();
   });
 });
@@ -289,7 +289,7 @@ describe("identification", () => {
     expect(val(r, "t")).toBe(25.25);
     const e = await identify(bus, 0x50, ctx());
     expect(e.chip?.id).toBe("at24");
-    expect(val(await e.chip!.read!(new Dev(bus, 0x50), state(e.probe, { size: 256 })), "hat")).toBe("DeskyPi · Bench HAT");
+    expect(val(await e.chip!.read!(new Dev(bus, 0x50), state(e.probe, { size: 256 })), "hat")).toBe("BenchBob · Bench HAT");
   });
 
   test("claimed (UU) addresses throw EBUSY rather than being probed", async () => {

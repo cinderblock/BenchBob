@@ -176,7 +176,7 @@ function startScan(opts: { controller?: string; durationS?: number }): Promise<v
     const restore = await powerUp(c);
 
     // Raw HCI first, so the first advertisements after discovery starts aren't missed.
-    const dir = mkdtempSync(`${tmpdir()}/deskypi-ble-`);
+    const dir = mkdtempSync(`${tmpdir()}/benchbob-ble-`);
     const mk = await run(["mkfifo", "-m", "600", `${dir}/hci.btsnoop`]);
     if (mk.code !== 0) {
       rmSync(dir, { recursive: true, force: true });

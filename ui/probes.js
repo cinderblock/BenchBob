@@ -59,7 +59,7 @@
     if (p.gdbBuiltIn) {
       const gdbTty = p.ttys.find(t => t.iface === '00')?.dev || p.ttys[0]?.dev || '';
       const uart = p.ttys.find(t => t.iface === '02')?.dev || '';
-      h += `<div class="pr-row"><span class="pr-note">On DeskyPi:</span><span class="pr-endpoint">target extended-remote ${esc(gdbTty || '/dev/ttyACM?')}</span></div>
+      h += `<div class="pr-row"><span class="pr-note">On BenchBob:</span><span class="pr-endpoint">target extended-remote ${esc(gdbTty || '/dev/ttyACM?')}</span></div>
         <div class="pr-note">From another machine: in the Serial panel, start a raw TCP bridge on ${esc(gdbTty || 'the first port')}, then <span class="pr-endpoint">target extended-remote ${esc(location.hostname)}:&lt;bridge port&gt;</span>, followed by <span class="pr-endpoint">monitor swdp_scan</span> and <span class="pr-endpoint">attach 1</span>.${uart ? ` The target's UART is on ${esc(uart)}.` : ''}</div>`;
       return h;
     }
@@ -141,7 +141,7 @@
         <div class="pr-row"><span class="pr-note">Telnet</span><span class="pr-endpoint">${esc(c.telnet)}</span></div>
         <details><summary>VS Code (cortex-debug) and PlatformIO</summary>
           <div class="pr-note">launch.json configuration:</div><pre class="pr-log">${esc(c.cortexDebug)}</pre>
-          <div class="pr-note">platformio.ini (debug through this server; upload through DeskyPi's API):</div><pre class="pr-log">${esc(c.platformio)}</pre>
+          <div class="pr-note">platformio.ini (debug through this server; upload through BenchBob's API):</div><pre class="pr-log">${esc(c.platformio)}</pre>
         </details>`;
     } catch { box.innerHTML = ''; }
   }

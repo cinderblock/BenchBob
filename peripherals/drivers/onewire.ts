@@ -12,15 +12,15 @@
 // pass the CRC; they're counted as bus noise and hidden.
 //
 // Root-only sysfs writes (search, bulk read, outputs, resolution, bridge binding) go through
-// `sudo -n tee`. DESKYPI_W1_ROOT points the driver at a fixture tree for tests.
+// `sudo -n tee`. BENCHBOB_W1_ROOT points the driver at a fixture tree for tests.
 
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { body, HttpError, run, type Ctx, type Driver, type Route, type Tool, type UdevEvent } from "../core.ts";
 import * as W from "../lib/w1-families.ts";
 import { ds2482Candidates, rescan as i2cRescan } from "./i2c.ts";
 
-const ROOT = process.env.DESKYPI_W1_ROOT || "/sys/bus/w1/devices";
-const FIXTURE = !!process.env.DESKYPI_W1_ROOT;
+const ROOT = process.env.BENCHBOB_W1_ROOT || "/sys/bus/w1/devices";
+const FIXTURE = !!process.env.BENCHBOB_W1_ROOT;
 const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const HIST_N = 120;
 const TOUCH_MAX = 200;
@@ -157,7 +157,7 @@ async function attributeMasters(ids: string[]) {
 function classifyMaster(id: string): { kind: Master["kind"]; label: string; path: string } {
   const src = sourceOf.get(id);
   if (src) return { kind: src.kind, label: src.label, path: `${ROOT}/${id}` };
-  return { kind: FIXTURE ? "gpio" : "other", label: FIXTURE ? "Fixture bus (DESKYPI_W1_ROOT)" : id, path: `${ROOT}/${id}` };
+  return { kind: FIXTURE ? "gpio" : "other", label: FIXTURE ? "Fixture bus (BENCHBOB_W1_ROOT)" : id, path: `${ROOT}/${id}` };
 }
 
 function headerPin(gpio: number): number | null {

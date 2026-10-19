@@ -7,7 +7,7 @@
 //
 // Safety model for anything that cuts power or detaches a device from this machine: work out
 // what is downstream first (lib planPower), and refuse, or require an explicit confirmation
-// level, when that includes the root filesystem, a drive DeskyPi is serving, the management
+// level, when that includes the root filesystem, a drive BenchBob is serving, the management
 // network adapter, an internal hub link, or sibling ports on a ganged hub.
 
 import { hostname } from "node:os";
@@ -20,7 +20,7 @@ import * as U from "../lib/usb.ts";
 const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const which = (bin: string) => Bun.which(bin, { PATH });
 // Side instances (tests, other agents) shift every listener so they never collide with the live service.
-const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
+const PORT_OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
 const TIMELINE_IN_STATUS = 100;
 
 let ctx: Ctx;
@@ -761,7 +761,7 @@ const routes: Route[] = [
   {
     method: "POST",
     path: "/api/usb/config",
-    doc: { body: { usbipPort: 3240, redirBasePort: 4200 }, description: "Listener ports for usbipd and the first usbredir session (DESKYPI_PORT_OFFSET is added at runtime)" },
+    doc: { body: { usbipPort: 3240, redirBasePort: 4200 }, description: "Listener ports for usbipd and the first usbredir session (BENCHBOB_PORT_OFFSET is added at runtime)" },
     handler: async (req) => {
       const b = await body(req);
       for (const k of ["usbipPort", "redirBasePort"]) {
@@ -785,7 +785,7 @@ const routes: Route[] = [
 const tools: Tool[] = [
   {
     name: "usb_list",
-    description: "List every USB controller, hub and device on DeskyPi as a flattened depth-first tree: busid (also the physical port path), VID:PID and names, speed, power draw, each interface's class and bound kernel driver (or 'no driver'), the device nodes it created (/dev/ttyACM0, can0, /dev/sda…) and which DeskyPi panel handles them, USB/IP or usbredir sharing state, and protection notes.",
+    description: "List every USB controller, hub and device on BenchBob as a flattened depth-first tree: busid (also the physical port path), VID:PID and names, speed, power draw, each interface's class and bound kernel driver (or 'no driver'), the device nodes it created (/dev/ttyACM0, can0, /dev/sda…) and which BenchBob panel handles them, USB/IP or usbredir sharing state, and protection notes.",
     inputSchema: { type: "object", properties: {} },
     handler: () => flatList(),
   },
@@ -818,13 +818,13 @@ const tools: Tool[] = [
   },
   {
     name: "usb_share",
-    description: "Share one USB device over the network with USB/IP so another computer can attach it as if it were plugged in locally. While shared the device is detached from DeskyPi's own drivers. Returns the client commands (Linux: usbip attach; Windows: usbip-win2). Hubs, the root-filesystem device, served drives and the management NIC are refused.",
+    description: "Share one USB device over the network with USB/IP so another computer can attach it as if it were plugged in locally. While shared the device is detached from BenchBob's own drivers. Returns the client commands (Linux: usbip attach; Windows: usbip-win2). Hubs, the root-filesystem device, served drives and the management NIC are refused.",
     inputSchema: { type: "object", properties: { busid: { type: "string", description: "e.g. 1-1.2 (from usb_list)" } }, required: ["busid"] },
     handler: (a) => share(String(a.busid)),
   },
   {
     name: "usb_unshare",
-    description: "Stop sharing a USB device over USB/IP; any attached remote client is disconnected and DeskyPi's local drivers take the device back.",
+    description: "Stop sharing a USB device over USB/IP; any attached remote client is disconnected and BenchBob's local drivers take the device back.",
     inputSchema: { type: "object", properties: { busid: { type: "string" } }, required: ["busid"] },
     handler: (a) => unshare(String(a.busid)),
   },

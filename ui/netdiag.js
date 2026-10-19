@@ -35,7 +35,7 @@
       ? `${pill(`${sp(l.speed)} ${l.duplex || ''}`.trim() || 'link up', 'on')} ${l.autoneg === false ? pill('autoneg off', 'warn') : ''} ${l.duplex === 'Half' ? pill('half duplex', 'warn') : ''}`
       : pill('no link', 'bad');
     const errs = i.errors.length
-      ? `<table class="pr-tbl"><tr><th>Error counter</th><th>Total</th><th>Since DeskyPi started</th></tr>${i.errors.map(e => `<tr><td>${esc(e.name)}</td><td>${e.value}</td><td>${e.delta ? `<span style="color:var(--warning)">+${e.delta}</span>` : '0'}</td></tr>`).join('')}</table>`
+      ? `<table class="pr-tbl"><tr><th>Error counter</th><th>Total</th><th>Since BenchBob started</th></tr>${i.errors.map(e => `<tr><td>${esc(e.name)}</td><td>${e.value}</td><td>${e.delta ? `<span style="color:var(--warning)">+${e.delta}</span>` : '0'}</td></tr>`).join('')}</table>`
       : '<div class="pr-note">No error counters above zero.</div>';
     const eee = i.eee ? (i.eee.supported ? `${i.eee.enabled ? 'enabled' : 'disabled'}, ${i.eee.active ? 'active' : 'inactive'}${i.eee.partner.length ? '' : ' (partner advertises none)'}` : 'not supported') : '—';
     const addrs = i.addrs.filter(a => a.family === 'inet' || !a.addr.startsWith('fe80')).map(a => `${a.addr}/${a.prefix}`).join(', ') || '—';
@@ -82,7 +82,7 @@
     const res = r => r.result ? `${fmtBps(r.result.bps)}${r.result.retransmits != null ? ` · ${r.result.retransmits} retr` : ''}${r.result.jitterMs != null ? ` · jitter ${r.result.jitterMs.toFixed(2)} ms · loss ${r.result.lostPct}%` : ''}` : r.status === 'running' ? '…' : esc(r.error);
     return `${now}${graph(cur.points, cur.duration)}
       <table class="pr-tbl" style="margin-top:6px"><tr><th>When</th><th>Host</th><th>Test</th><th>Result</th></tr>${runs.map(r => `<tr><td>${fmtAgo(r.started)}</td><td>${esc(r.host)}:${r.port}</td><td>${r.udp ? 'UDP' : 'TCP'}${r.reverse ? ' ↓ (reverse)' : ' ↑'} ${r.duration}s${r.parallel > 1 ? ` ×${r.parallel}` : ''}${r.bitrate ? ` @${esc(r.bitrate)}` : ''}</td><td>${res(r)}</td></tr>`).join('')}</table>
-      <div class="pr-note">↑ DeskyPi sends · ↓ DeskyPi receives</div>`;
+      <div class="pr-note">↑ BenchBob sends · ↓ BenchBob receives</div>`;
   }
 
   function serverHtml(s) {
@@ -172,7 +172,7 @@
       const a = auth[h];
       const st = !a ? '<span class="pr-pill">no login</span>' : a.ready ? '<span class="pr-pill on">ready</span>' : `<span class="pr-pill warn">needs ${[!a.hasPassword && 'password', !a.hasKey && 'public key'].filter(Boolean).join(' + ')}</span>`;
       return `<div class="pr-card" data-host="${esc(h)}"><h4>${esc(h)} ${st}</h4>
-        <div class="pr-row"><label>User <input class="nl-user" value="${esc(a?.username || 'deskypi')}" ${inp} size="10"></label>
+        <div class="pr-row"><label>User <input class="nl-user" value="${esc(a?.username || 'benchbob')}" ${inp} size="10"></label>
           <label>Password <input class="nl-pw" type="password" autocomplete="new-password" placeholder="${a?.hasPassword ? '(unchanged)' : ''}" ${inp} size="14"></label>
           <button class="btn btn-sm" data-i="${i}" data-act="gen">Generate</button>
           <label title="iperf3 3.16 and older (e.g. Ubuntu 24.04) only accept PKCS#1 padding"><input type="checkbox" class="nl-pkcs1" ${a?.pkcs1 ? 'checked' : ''}> Older server (≤3.16)</label></div>
@@ -180,7 +180,7 @@
         ${a?.usersLine ? `<div class="pr-note">Server users file line: <span class="pr-endpoint" style="word-break:break-all">${esc(a.usersLine)}</span></div>` : ''}
         <div class="pr-row"><button class="btn btn-sm btn-primary" data-act="save">Save</button>${a ? '<button class="btn btn-sm" data-act="del">Forget</button>' : ''}</div></div>`;
     };
-    showModal(`<h3>iperf3 logins</h3><p class="pr-note">For servers started with <span class="pr-endpoint">--authorized-users-path</span>. DeskyPi keeps the password and never shows it again; put the users-file line on the server, and paste the server's public key here.</p>
+    showModal(`<h3>iperf3 logins</h3><p class="pr-note">For servers started with <span class="pr-endpoint">--authorized-users-path</span>. BenchBob keeps the password and never shows it again; put the users-file line on the server, and paste the server's public key here.</p>
       ${hosts.map(card).join('') || '<p class="pr-note">No iperf3 hosts.</p>'}
       <div class="modal-btns"><button class="btn" id="mc">Close</button></div>`, 'wide');
     Q('#mc').onclick = hideModal;
@@ -204,8 +204,8 @@
       for (const k in sigs) delete sigs[k];
       el.innerHTML = `
         <div class="nd-ifaces"></div>
-        <div class="pr-row"><label><input type="checkbox" class="nd-lldp" onchange="ndLldp(this.checked)"> Listen for switch info (LLDP/CDP, receive-only: DeskyPi never announces itself)</label></div>
-        <div class="pr-card"><h4>iperf3 client <small>from DeskyPi</small></h4>
+        <div class="pr-row"><label><input type="checkbox" class="nd-lldp" onchange="ndLldp(this.checked)"> Listen for switch info (LLDP/CDP, receive-only: BenchBob never announces itself)</label></div>
+        <div class="pr-card"><h4>iperf3 client <small>from BenchBob</small></h4>
           <div class="pr-row"><span class="nd-ipresets" style="display:contents"></span><button class="btn btn-sm" onclick="ndPresets()">Edit hosts…</button><button class="btn btn-sm" onclick="ndLogins()">Logins…</button></div>
           <div class="pr-row">
             <label>Host <input class="nd-host" placeholder="server IP" style="width:10em"></label>
@@ -220,7 +220,7 @@
             <button class="btn btn-sm btn-primary" onclick="ndRun(this)">Run</button>
           </div>
           <div class="pr-row"><span class="pr-note">Quick test:</span>${PROFILES.map((p, i) => `<button class="btn btn-sm" onclick="ndProfile(this,${i})">${esc(p.label)}</button>`).join('')}</div>
-          <div class="pr-note">The server end needs <span class="pr-endpoint">iperf3 -s</span> running (port 5201). To test from another machine instead, start DeskyPi's server below.</div>
+          <div class="pr-note">The server end needs <span class="pr-endpoint">iperf3 -s</span> running (port 5201). To test from another machine instead, start BenchBob's server below.</div>
           <div class="nd-runs"></div>
         </div>
         <div class="pr-card"><h4>iperf3 server <small>temporary; turns itself off</small></h4>

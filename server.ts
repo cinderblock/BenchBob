@@ -8,8 +8,8 @@ import { statePath } from "./paths.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = statePath("defaults.json");
-const FLASH_DIR = "/var/tmp/deskypi-flash";
-const BOOT_MOUNT = "/tmp/deskypi-boot";
+const FLASH_DIR = "/var/tmp/benchbob-flash";
+const BOOT_MOUNT = "/tmp/benchbob-boot";
 
 // ==================== Helpers ====================
 
@@ -1052,7 +1052,7 @@ async function doFlash(op: Operation): Promise<void> {
 // silently ignored, and the Pi boots unconfigured with no SSH. Raspberry Pi OS trixie
 // is `cloudinit-rpi` and ignores firstrun.sh. Bookworm/Legacy is `systemd`.
 // The generators follow Raspberry Pi Imager 2.x (src/customization_generator.cpp,
-// src/downloadthread.cpp) so a DeskyPi flash boots the same as an Imager one.
+// src/downloadthread.cpp) so a BenchBob flash boots the same as an Imager one.
 
 type InitFormat = "systemd" | "cloudinit" | "cloudinit-rpi" | "rpi-preseed" | "none";
 
@@ -1118,7 +1118,7 @@ async function applySettings(devName: string, s: any, initFormat: InitFormat | u
     const fmt = initFormat ?? (await detectInitFormat());
     if (fmt === "cloudinit" || fmt === "cloudinit-rpi") return await applyCloudInit(s);
     if (fmt === "systemd") return await applyFirstrun(s);
-    if (fmt === "rpi-preseed") throw new Error("this image expects rpi-preseed customization, which DeskyPi does not support yet");
+    if (fmt === "rpi-preseed") throw new Error("this image expects rpi-preseed customization, which BenchBob does not support yet");
     return "This image does not support customization; settings were not applied.";
   } finally {
     await run(["sudo", "umount", BOOT_MOUNT]);
@@ -1145,7 +1145,7 @@ async function applyCloudInit(s: any): Promise<string> {
   const net = mkCloudInitNetworkConfig(s);
   // A fresh instance-id per write makes cloud-init treat this as a new machine and run
   // first-boot setup; the stub meta-data in the image has a fixed one.
-  const instanceId = `deskypi-${Date.now()}`;
+  const instanceId = `benchbob-${Date.now()}`;
   await sudoWrite(`${BOOT_MOUNT}/meta-data`, `instance-id: ${instanceId}\n`);
   await sudoWrite(`${BOOT_MOUNT}/user-data`, "#cloud-config\n" + user);
   const written = ["user-data", "meta-data"];
@@ -1447,7 +1447,7 @@ async function rpibootRoute(p: string, req: Request, url: URL): Promise<Response
 // clusters) but sized to fit the card, and capped at the official 256 MiB because
 // recovery.bin wants a FAT partition under 32 GB.
 
-const CARD_MOUNT = "/tmp/deskypi-blcard";
+const CARD_MOUNT = "/tmp/benchbob-blcard";
 const MiB = 1024 * 1024;
 const CARD_PART_MAX = 256 * MiB;
 const CARD_PART_MIN = 8 * MiB;
@@ -1961,7 +1961,7 @@ async function getOsInfo(device: string): Promise<DiskInfo> {
 // ==================== API Docs ====================
 
 const API_DOCS = {
-  name: "DeskyPi API", version: "1.0", base: "http://deskypi.tsl",
+  name: "BenchBob API", version: "1.0", base: "http://benchbob.local", // rewritten to the host asked, per request
   endpoints: {
     "GET /api": "This documentation",
     "GET /api/status": "System status snapshot (same data as SSE)",
@@ -1994,11 +1994,11 @@ const API_DOCS = {
     "POST /api/defaults": "Save default flash settings",
   },
   examples: {
-    eject: 'curl -X POST http://deskypi.tsl/api/eject -H "Content-Type: application/json" -d \'{"device":"sdb"}\'',
-    status: "curl -s http://deskypi.tsl/api/status | jq '.drives'",
-    list_exports: "curl -s http://deskypi.tsl/api/status | jq '.nbdExports'",
-    list_files: "curl -s 'http://deskypi.tsl/api/files?path=bootfs' | jq '.entries[].name'",
-    download: "curl -OJ 'http://deskypi.tsl/api/download?path=bootfs/config.txt'",
+    eject: 'curl -X POST http://benchbob.local/api/eject -H "Content-Type: application/json" -d \'{"device":"sdb"}\'',
+    status: "curl -s http://benchbob.local/api/status | jq '.drives'",
+    list_exports: "curl -s http://benchbob.local/api/status | jq '.nbdExports'",
+    list_files: "curl -s 'http://benchbob.local/api/files?path=bootfs' | jq '.entries[].name'",
+    download: "curl -OJ 'http://benchbob.local/api/download?path=bootfs/config.txt'",
   },
 };
 
@@ -2088,7 +2088,11 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
       if (gzPage?.version !== ui.version) gzPage = { version: ui.version, body: Bun.gzipSync(new TextEncoder().encode(ui.html)) };
       return new Response(gzPage.body, { headers: { ...headers, "Content-Encoding": "gzip" } });
     }
-    if (p === "/api" || p === "/api/") return Response.json({ ...API_DOCS, endpoints: { ...API_DOCS.endpoints, ...periph.docs() } });
+    if (p === "/api" || p === "/api/") {
+      // Examples name the host the caller reached us by, so they paste and run as-is.
+      const docs = JSON.stringify({ ...API_DOCS, endpoints: { ...API_DOCS.endpoints, ...periph.docs() } });
+      return new Response(docs.replaceAll("http://benchbob.local", url.origin), { headers: { "Content-Type": "application/json" } });
+    }
     if (p === "/api/status") return Response.json(await getStatus());
 
     if (p === "/api/events") {
@@ -2230,4 +2234,4 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
   }
 }
 
-console.log(`DeskyPi running on http://[::]:${PORT} (dual-stack: IPv6 + IPv4)`);
+console.log(`BenchBob running on http://[::]:${PORT} (dual-stack: IPv6 + IPv4)`);

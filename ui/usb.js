@@ -155,7 +155,7 @@
     const rules = st.rules.length ? st.rules.map(r => `<span class="pr-pill">${r.match === 'port' ? 'port ' : ''}${esc(r.value)} <button class="pr-x" data-act="rule-del" data-match="${esc(r.match)}" data-value="${esc(r.value)}" aria-label="Remove rule">&times;</button></span>`).join(' ') : '<span class="pr-note">none</span>';
     return `<h4>Network sharing <small>${esc(head)}</small></h4>
       ${u.error ? `<div class="pr-note" style="color:var(--danger)">${esc(u.error)}</div>` : ''}
-      <div class="pr-note">Sharing detaches the device from DeskyPi: it disappears from the Serial, CAN, Drives and other panels until you unshare it.</div>
+      <div class="pr-note">Sharing detaches the device from BenchBob: it disappears from the Serial, CAN, Drives and other panels until you unshare it.</div>
       <div class="usb-cmd pr-note">Linux client: <span class="pr-endpoint">usbip${esc(pf)} list -r ${esc(host)}</span> <span class="pr-endpoint">sudo usbip${esc(pf)} attach -r ${esc(host)} -b ${esc(b)}</span></div>
       <div class="usb-cmd pr-note">Windows: install usbip-win2, then <span class="pr-endpoint">usbip.exe${esc(pf)} attach -r ${esc(host)} -b ${esc(b)}</span></div>
       <div class="usb-cmd pr-note">usbredir: ${st.redir.available ? `available; sessions start at TCP ${st.redir.basePort}` : `not installed (apt: <span class="pr-endpoint">${esc(st.redir.apt)}</span>)`}</div>

@@ -14,17 +14,21 @@
 // batched frames over the WebSocket, never one SSE push per frame.
 
 import type { ServerWebSocket, Socket as TcpSocket, Subprocess, TCPSocketListener } from "bun";
-import { existsSync, mkdirSync, readdirSync, readlinkSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { hostname } from "node:os";
 import { HttpError, body, readText, run, usbName, type Ctx, type Driver, type Props, type UdevEvent, type WsData } from "../core.ts";
 import * as C from "../lib/cansock.ts";
 
 const IP = existsSync("/usr/sbin/ip") ? "/usr/sbin/ip" : "ip";
 /** Side instances (tests, other agents) shift their listener ports by this much. */
-const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
+const PORT_OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
 const SOCKETCAND_PORT = 29536;
 const BEACON_PORT = 42000;
-const REC_DIR = process.env.DESKYPI_CAN_REC_DIR || "/var/tmp/deskypi-can";
+const REC_DIR = process.env.BENCHBOB_CAN_REC_DIR || "/var/tmp/benchbob-can";
+// Recordings made before the rename: move them over once (best effort; /var/tmp is sticky).
+if (!process.env.BENCHBOB_CAN_REC_DIR && existsSync("/var/tmp/deskypi-can") && !existsSync(REC_DIR)) {
+  try { renameSync("/var/tmp/deskypi-can", REC_DIR); } catch {}
+}
 const REC_MAX_BYTES = 256 * 1024 * 1024; // a runaway recording must not fill the root fs again
 const RING_MAX = 2000;
 const ID_ROWS_MAX = 512;
@@ -1670,7 +1674,7 @@ const driver: Driver = {
   tools: [
     {
       name: "can_list",
-      description: "List CAN interfaces on DeskyPi with bitrate, FD mode, controller state (error-active/warning/passive/bus-off), error counters, frame rates and bus load; plus attachable SLCAN serial adapters and the socketcand server address.",
+      description: "List CAN interfaces on BenchBob with bitrate, FD mode, controller state (error-active/warning/passive/bus-off), error counters, frame rates and bus load; plus attachable SLCAN serial adapters and the socketcand server address.",
       inputSchema: { type: "object", properties: {} },
       handler: () => list(),
     },

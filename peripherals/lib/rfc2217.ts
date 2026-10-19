@@ -84,7 +84,7 @@ export class Rfc2217Session {
   private lastModem: number | null = null;
   /** True once the client has agreed to COM-PORT-OPTION in either direction. */
   rfc2217 = false;
-  signature = "DeskyPi";
+  signature = "BenchBob";
 
   // Options we'll agree to. ECHO lets an interactive `telnet host port` switch to
   // character mode and leave echoing to the device, which is what ser2net does too.

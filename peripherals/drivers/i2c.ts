@@ -755,7 +755,7 @@ function devicesSummary(b: BusState) {
 const tools: Tool[] = [
   {
     name: "i2c_buses",
-    description: "List the I²C buses on DeskyPi (header pins 3/5 is i2c-1; USB adapters and i2c-stub appear as extra buses). HDMI DDC buses are omitted.",
+    description: "List the I²C buses on BenchBob (header pins 3/5 is i2c-1; USB adapters and i2c-stub appear as extra buses). HDMI DDC buses are omitted.",
     inputSchema: { type: "object", properties: {} },
     handler: () => userBuses().map((b) => ({ bus: b.bus, label: b.label, adapter: b.name, functionality: funcNames(b.funcs), devices: b.devices.size, lastScan: b.lastScan ? new Date(b.lastScan).toISOString() : null, error: b.error || undefined })),
   },

@@ -2,7 +2,7 @@
 //
 // USB-serial adapters (FTDI, CP210x, CH34x, PL2303, CDC-ACM boards) and the onboard UARTs
 // (serial0/serial1, plus any uart2–5 a Pi 4 overlay adds, named from the device tree).
-// DeskyPi is the single owner of each open port: it holds the fd and fans the received bytes
+// BenchBob is the single owner of each open port: it holds the fd and fans the received bytes
 // out to every client at once (dashboard terminal, WebSocket, raw TCP, RFC 2217, REST/MCP
 // agents), keeping a timestamped ring of recent traffic so a late joiner gets history.
 // Any client may write; an optional lock reserves writing for one holder.
@@ -532,8 +532,8 @@ interface PortSettings {
 
 let ctx: Ctx;
 const ports = new Map<string, Port>();
-const OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
-const FLASH_DIR = "/var/tmp/deskypi-serial";
+const OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
+const FLASH_DIR = "/var/tmp/benchbob-serial";
 const TXQ_MAX = 1 << 20;
 const NET_PENDING_MAX = 1 << 20;
 const MAX_WAIT_MS = 60000; // server.ts sets Bun.serve's idleTimeout to 120 s, so a minute-long wait is safe
@@ -738,7 +738,7 @@ function ensurePresent(p: Port) {
 }
 
 function ensureWritable(p: Port) {
-  if (p.console) throw new HttpError(409, `${p.path} is the kernel console (cmdline.txt console=); DeskyPi only reads it`);
+  if (p.console) throw new HttpError(409, `${p.path} is the kernel console (cmdline.txt console=); BenchBob only reads it`);
   if (p.state === "flashing") throw new HttpError(409, `${p.name} is being flashed`);
 }
 
@@ -760,7 +760,7 @@ async function ensureOpen(p: Port): Promise<void> {
     if (!p.console) {
       // Exclusive so nothing else opens the adapter behind our back. Not for manual paths:
       // the flag lives on the tty until its *last* fd closes, so with a pty's other end (or
-      // anything else) still holding it, a DeskyPi that dies without clearing it would leave
+      // anything else) still holding it, a BenchBob that dies without clearing it would leave
       // the port refusing every non-root open, its own restart included. A USB adapter only
       // we hold resets on our close, even a crash.
       if (p.kind !== "manual")
@@ -1123,7 +1123,7 @@ function startBridge(p: Port, kind: BridgeKind) {
         }
         p.leases++;
         ensureOpen(p).catch((e) => {
-          s.write(`DeskyPi: cannot open ${p.path}: ${e.message}\r\n`);
+          s.write(`BenchBob: cannot open ${p.path}: ${e.message}\r\n`);
           s.end();
         });
         ctx.log(`${p.id}: ${kind} client ${s.remoteAddress}`);
@@ -1240,7 +1240,7 @@ function bridgeStatus(p: Port, kind: BridgeKind, host: string) {
     error: br.error,
     commands:
       kind === "tcp"
-        ? [`nc ${host} ${port}`, `socat -,raw,echo=0 TCP:${host}:${port}`, `socat pty,link=/tmp/ttyDesky,raw,echo=0 TCP:${host}:${port}`]
+        ? [`nc ${host} ${port}`, `socat -,raw,echo=0 TCP:${host}:${port}`, `socat pty,link=/tmp/ttyBenchBob,raw,echo=0 TCP:${host}:${port}`]
         : [`python -m serial.tools.miniterm rfc2217://${host}:${port} ${p.cfg.baud}`, `esptool --port 'rfc2217://${host}:${port}?ign_set_control' flash_id`, `pio device monitor --port rfc2217://${host}:${port} -b ${p.cfg.baud}`],
   };
 }
@@ -1712,7 +1712,7 @@ const routes = [
   {
     method: "POST" as const,
     path: "/api/serial/:id/open",
-    doc: { body: { ...CONFIG_DOC, "(all optional)": true }, description: "Open the port (DeskyPi holds it and fans data out to every client); an optional config is applied and saved as the default" },
+    doc: { body: { ...CONFIG_DOC, "(all optional)": true }, description: "Open the port (BenchBob holds it and fans data out to every client); an optional config is applied and saved as the default" },
     handler: async (req: Request, a: any) => {
       const p = getPort(a.id);
       const b = await body(req);
@@ -1859,7 +1859,7 @@ const routes = [
     doc: {
       query: { tool: "esptool | avrdude", action: "write | erase | info", offset: "0x10000 (raw body)", chip: "auto", baud: 460800, preset: "uno | nano | nano-old | mega" },
       body: "Raw firmware bytes; or multipart with file fields plus offset fields in the same order (or file fields named by offset, e.g. 0x1000); or JSON {tool, action, files:[{offset, url | base64, name}]}",
-      description: "Flash a board through the port. DeskyPi releases the port, runs the tool, streams progress (status + WebSocket 'flash' messages), then reopens. Returns at once with the job; poll GET .../flash",
+      description: "Flash a board through the port. BenchBob releases the port, runs the tool, streams progress (status + WebSocket 'flash' messages), then reopens. Returns at once with the job; poll GET .../flash",
     },
     handler: async (req: Request, a: any, url: URL) => {
       const p = getPort(a.id);
@@ -1897,7 +1897,7 @@ const idProp = { id: { type: "string", description: "Port id from serial_list" }
 const tools = [
   {
     name: "serial_list",
-    description: "List serial ports on DeskyPi (USB-serial adapters, dev boards, the onboard UART) with id, device path, chip/board name, open state, line settings, modem lines, bridge ports and any flash job. Call this first to get port ids.",
+    description: "List serial ports on BenchBob (USB-serial adapters, dev boards, the onboard UART) with id, device path, chip/board name, open state, line settings, modem lines, bridge ports and any flash job. Call this first to get port ids.",
     inputSchema: { type: "object", properties: {} },
     handler: () => ({ ports: listPorts() }),
   },
@@ -1961,7 +1961,7 @@ const tools = [
   },
   {
     name: "serial_read",
-    description: "Read received serial data from DeskyPi's ring buffer (~256 KB of history, kept while the port is open). Pass the cursor from a previous call to get only newer data; omit it for the most recent output. wait_ms long-polls for new data. Returns {data, cursor, more, truncated}.",
+    description: "Read received serial data from BenchBob's ring buffer (~256 KB of history, kept while the port is open). Pass the cursor from a previous call to get only newer data; omit it for the most recent output. wait_ms long-polls for new data. Returns {data, cursor, more, truncated}.",
     inputSchema: {
       type: "object",
       properties: {

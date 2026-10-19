@@ -34,7 +34,7 @@ Error: Invalid ACK (7) in DAP response
 Error: JTAG-DP STICKY ERROR`;
 
 const REAL_DUMMY_READY = `Warn : gdb services need one or more targets defined
-DESKYPI-READY
+BENCHBOB-READY
 Info : Listening on port 16667 for tcl connections
 Info : telnet server disabled`;
 
@@ -150,7 +150,7 @@ describe("openocdArgs", () => {
       "-c", "adapter serial 066D",
       "-c", "bindto 0.0.0.0",
       "-c", "gdb port 3333", "-c", "telnet port 4444", "-c", "tcl port 6666",
-      "-c", "init", "-c", "echo DESKYPI-READY",
+      "-c", "init", "-c", "echo BENCHBOB-READY",
     ]);
     // Transport before the target script, speed after it.
     expect(a.indexOf("transport select swd")).toBeLessThan(a.indexOf("target/stm32f4x.cfg"));
@@ -352,11 +352,11 @@ describe("uf2", () => {
 
 describe("snippets", () => {
   test("clients", () => {
-    const s = L.clientSnippets({ host: "deskypi.tsl", ports: { gdb: 3333, telnet: 4444, tcl: 6666 }, target: "target/stm32f4x.cfg", id: "abc", web: "http://deskypi.tsl" });
-    expect(s.gdb).toBe('arm-none-eabi-gdb -ex "target extended-remote deskypi.tsl:3333" build/app.elf');
-    expect(s.telnet).toBe("telnet deskypi.tsl 4444");
-    expect(JSON.parse(s.cortexDebug).gdbTarget).toBe("deskypi.tsl:3333");
-    expect(s.platformio).toContain("debug_port = deskypi.tsl:3333");
-    expect(s.platformio).toContain("http://deskypi.tsl/api/probes/abc/flash");
+    const s = L.clientSnippets({ host: "benchbob.local", ports: { gdb: 3333, telnet: 4444, tcl: 6666 }, target: "target/stm32f4x.cfg", id: "abc", web: "http://benchbob.local" });
+    expect(s.gdb).toBe('arm-none-eabi-gdb -ex "target extended-remote benchbob.local:3333" build/app.elf');
+    expect(s.telnet).toBe("telnet benchbob.local 4444");
+    expect(JSON.parse(s.cortexDebug).gdbTarget).toBe("benchbob.local:3333");
+    expect(s.platformio).toContain("debug_port = benchbob.local:3333");
+    expect(s.platformio).toContain("http://benchbob.local/api/probes/abc/flash");
   });
 });

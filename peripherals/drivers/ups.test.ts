@@ -49,17 +49,17 @@ test("HID Power Device detection from report descriptors", () => {
 
 test("ups.conf / upsd.conf generation", () => {
   const c = upsConf([
-    { name: "deskypi", driver: "usbhid-ups", port: "auto", vid: "0764", pid: "0501", serial: "CXXKZ200", desc: "CyberPower CP1500" },
-    { name: "deskypi-2", driver: "usbhid-ups", port: "auto", vid: "0764", pid: "0501", bus: "001" },
+    { name: "benchbob", driver: "usbhid-ups", port: "auto", vid: "0764", pid: "0501", serial: "CXXKZ200", desc: "CyberPower CP1500" },
+    { name: "benchbob-2", driver: "usbhid-ups", port: "auto", vid: "0764", pid: "0501", bus: "001" },
   ]);
-  expect(c).toContain('[deskypi]\n  driver = usbhid-ups\n  port = "auto"\n  vendorid = 0764\n  productid = 0501\n  serial = "CXXKZ200"\n  desc = "CyberPower CP1500"\n');
-  expect(c).toContain('[deskypi-2]');
+  expect(c).toContain('[benchbob]\n  driver = usbhid-ups\n  port = "auto"\n  vendorid = 0764\n  productid = 0501\n  serial = "CXXKZ200"\n  desc = "CyberPower CP1500"\n');
+  expect(c).toContain('[benchbob-2]');
   expect(c).toContain('  bus = "001"');
   expect(upsdConf(3493, false)).toContain("LISTEN 127.0.0.1 3493");
   expect(upsdConf(3493, true)).toContain("LISTEN 0.0.0.0 3493");
 });
 
-// Real `upsc deskypi@127.0.0.1:13493` output from the dummy-ups run on desky.
+// Real `upsc benchbob@127.0.0.1:13493` output from the dummy-ups run on desky.
 const upsc = `battery.charge: 87
 battery.runtime: 1800
 device.mfr: SimCorp

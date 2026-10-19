@@ -233,7 +233,7 @@ test("presets: text and list forms", () => {
 
 test("iperfAuthLine: username,sha256 of {username}password (iperf3's users-file format)", () => {
   expect(iperfAuthLine("mario", "rossi")).toBe("mario,bf7a49a846d44b454a5d11e7acfaf13d138bbe0b7483aa3e050879700572709b");
-  expect(validIperfUser("deskypi")).toBe(true);
+  expect(validIperfUser("benchbob")).toBe(true);
   expect(validIperfUser("a,b")).toBe(false);
   expect(validIperfUser("")).toBe(false);
 });

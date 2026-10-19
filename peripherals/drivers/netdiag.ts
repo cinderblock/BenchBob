@@ -5,11 +5,11 @@
 // adapter that appears:
 //  - link: ethtool speed/duplex/autoneg/partner modes/EEE, error counters that are non-zero
 //    or moving, driver/firmware, carrier changes, addresses, gateway, DNS
-//  - neighbour: lldpd as a managed child in receive-only mode (never advertises DeskyPi),
+//  - neighbour: lldpd as a managed child in receive-only mode (never advertises BenchBob),
 //    also listening for CDP/FDP/EDP/SONMP, queried over a private control socket
 //  - iperf3: an on-demand server (auto-off after an hour) and a client runner with live graph
 //  - quick checks: gateway ping, DNS timing per nameserver, HTTP(S) reachability, path MTU
-// lldpd/iperf3 system units stay masked; everything here dies with DeskyPi.
+// lldpd/iperf3 system units stay masked; everything here dies with BenchBob.
 
 import { Resolver } from "node:dns/promises";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
@@ -20,10 +20,10 @@ import {
   mtuSearch, parsePing, parseResolvConf, slowJson, validHost, type EthLink, type Eee, type IperfSummary, type Neighbor, type PingResult,
 } from "../lib/netdiag.ts";
 
-const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
+const PORT_OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
 const INSTANCE = process.env.PORT || 80;
-const LLDP_DIR = `/tmp/deskypi-lldpd-${INSTANCE}`;
-const IPERF_KEY_DIR = `/tmp/deskypi-iperf3-${INSTANCE}`;
+const LLDP_DIR = `/tmp/benchbob-lldpd-${INSTANCE}`;
+const IPERF_KEY_DIR = `/tmp/benchbob-iperf3-${INSTANCE}`;
 const SBIN_PATH = `${process.env.PATH || "/usr/bin:/bin"}:/usr/sbin:/sbin`;
 const bin = (name: string) => Bun.which(name, { PATH: SBIN_PATH }) || name;
 
@@ -236,7 +236,7 @@ async function pollAll() {
 // ---------- LLDP ----------
 
 async function lldpKillStale() {
-  // A previous DeskyPi that died hard leaves lldpd holding our socket path: find it by that path.
+  // A previous BenchBob that died hard leaves lldpd holding our socket path: find it by that path.
   const r = await run(["pgrep", "-f", "--", `-u ${LLDP_DIR}/ctl.sock`]);
   const pids = r.out.split("\n").filter((p) => /^\d+$/.test(p));
   if (pids.length) {
@@ -327,7 +327,7 @@ async function lldpQuery() {
 
 // ---------- iperf3 server ----------
 
-/** An iperf3 server left by a DeskyPi that died hard would hold the port; ours are recognisable by their exact command line. */
+/** An iperf3 server left by a BenchBob that died hard would hold the port; ours are recognisable by their exact command line. */
 async function serverKillStale() {
   const r = await run(["pgrep", "-f", "--", `^\\S*iperf3 -s -p ${iperfPort()} --json-stream --forceflush$`]);
   const pids = r.out.split("\n").filter((p) => /^\d+$/.test(p));
@@ -676,7 +676,7 @@ const driver: Driver = {
     {
       method: "GET",
       path: "/api/netdiag/link",
-      doc: "Wired interfaces (eth0 + USB adapters): speed/duplex/autoneg, link-partner modes, EEE, non-zero error counters (with change since DeskyPi started), driver/firmware, carrier changes, IPs, gateway, DNS. ?refresh=1 re-runs ethtool first",
+      doc: "Wired interfaces (eth0 + USB adapters): speed/duplex/autoneg, link-partner modes, EEE, non-zero error counters (with change since BenchBob started), driver/firmware, carrier changes, IPs, gateway, DNS. ?refresh=1 re-runs ethtool first",
       async handler(_req, _p, url) {
         if (url.searchParams.get("refresh")) await pollAll();
         return { ifaces: [...ifaces.values()].map(publicIface), gateways, dns: resolv };
@@ -695,7 +695,7 @@ const driver: Driver = {
     {
       method: "GET",
       path: "/api/netdiag/neighbors",
-      doc: "LLDP/CDP/FDP/EDP/SONMP neighbours heard on wired ports: switch name/description, chassis id, port id/description, VLANs, PoE, management IPs, capabilities, TTL/age. Receive-only: DeskyPi never advertises itself",
+      doc: "LLDP/CDP/FDP/EDP/SONMP neighbours heard on wired ports: switch name/description, chassis id, port id/description, VLANs, PoE, management IPs, capabilities, TTL/age. Receive-only: BenchBob never advertises itself",
       async handler() {
         await lldpQuery();
         return { enabled: lldpEnabled(), listening: !!lldp.proc, since: lldp.since, neighbors: lldp.neighbors, error: lldp.error };
@@ -739,7 +739,7 @@ const driver: Driver = {
     {
       method: "POST",
       path: "/api/netdiag/iperf",
-      doc: { body: { host: "10.0.0.5", port: 5201, duration: 5, reverse: false, udp: false, bitrate: "100M", parallel: 1, wait: false }, description: "Run an iperf3 client test from DeskyPi (reverse = server sends). Returns the run id at once; progress and result appear in GET /api/netdiag/iperf/:id. wait=true answers when the test is done" },
+      doc: { body: { host: "10.0.0.5", port: 5201, duration: 5, reverse: false, udp: false, bitrate: "100M", parallel: 1, wait: false }, description: "Run an iperf3 client test from BenchBob (reverse = server sends). Returns the run id at once; progress and result appear in GET /api/netdiag/iperf/:id. wait=true answers when the test is done" },
       async handler(req) {
         const b = await body(req);
         const r = startRun(b);
@@ -792,12 +792,12 @@ const driver: Driver = {
     {
       method: "PUT",
       path: "/api/netdiag/iperf/auth",
-      doc: { body: { host: "iperf.example.net", username: "deskypi", password: "(or generate: true)", generate: false, publicKey: "-----BEGIN PUBLIC KEY-----…", pkcs1: false }, description: "Set the login for an iperf3 server that requires one (iperf3 --username/--rsa-public-key-path). Omitted fields keep their value. generate: true makes a new random password on DeskyPi; the password is never returned. pkcs1: true for servers running iperf3 3.16 or older (they reject 3.17+'s default OAEP padding with \"authorization failed\"). Answers with usersLine, the `username,sha256` line for the server's --authorized-users-path file" },
+      doc: { body: { host: "iperf.example.net", username: "benchbob", password: "(or generate: true)", generate: false, publicKey: "-----BEGIN PUBLIC KEY-----…", pkcs1: false }, description: "Set the login for an iperf3 server that requires one (iperf3 --username/--rsa-public-key-path). Omitted fields keep their value. generate: true makes a new random password on BenchBob; the password is never returned. pkcs1: true for servers running iperf3 3.16 or older (they reject 3.17+'s default OAEP padding with \"authorization failed\"). Answers with usersLine, the `username,sha256` line for the server's --authorized-users-path file" },
       async handler(req) {
         const b = await body(req);
         const host = hostOk(b.host);
         const all = { ...iperfAuths() };
-        const cur: IperfAuth = { username: "deskypi", password: "", publicKey: "", ...all[host] };
+        const cur: IperfAuth = { username: "benchbob", password: "", publicKey: "", ...all[host] };
         if (b.username != null) {
           if (!validIperfUser(String(b.username))) throw new HttpError(400, "username: 1–32 of A–Z a–z 0–9 _ . -");
           cur.username = String(b.username);
@@ -876,7 +876,7 @@ const driver: Driver = {
   tools: [
     {
       name: "net_link",
-      description: "Wired Ethernet link state on DeskyPi (eth0 and any USB Ethernet adapters): negotiated speed/duplex, autonegotiation and link-partner modes, EEE, error counters that are non-zero or increasing, driver/firmware, carrier change count, IP addresses, gateway and DNS servers.",
+      description: "Wired Ethernet link state on BenchBob (eth0 and any USB Ethernet adapters): negotiated speed/duplex, autonegotiation and link-partner modes, EEE, error counters that are non-zero or increasing, driver/firmware, carrier change count, IP addresses, gateway and DNS servers.",
       inputSchema: { type: "object", properties: { iface: { type: "string", description: "Only this interface, e.g. eth0" }, refresh: { type: "boolean", description: "Re-run ethtool before answering (default: data up to 15 s old)" } } },
       async handler(a) {
         if (a.refresh) await pollAll();
@@ -887,23 +887,23 @@ const driver: Driver = {
     },
     {
       name: "net_neighbors",
-      description: "Which switch and port DeskyPi's wired interfaces are plugged into, learned passively from LLDP/CDP (receive-only; switches send about every 30 s, so it can be empty for a short while after startup). Includes switch name/description, chassis id, port id and description, VLANs, PoE, management IPs, capabilities.",
+      description: "Which switch and port BenchBob's wired interfaces are plugged into, learned passively from LLDP/CDP (receive-only; switches send about every 30 s, so it can be empty for a short while after startup). Includes switch name/description, chassis id, port id and description, VLANs, PoE, management IPs, capabilities.",
       inputSchema: { type: "object", properties: {} },
       async handler() {
         await lldpQuery();
-        return { listening: !!lldp.proc, listeningForSeconds: lldp.since ? Math.round((Date.now() - lldp.since) / 1000) : 0, neighbors: lldp.neighbors, ...(lldpEnabled() ? {} : { note: "LLDP listening is turned off in DeskyPi's settings" }) };
+        return { listening: !!lldp.proc, listeningForSeconds: lldp.since ? Math.round((Date.now() - lldp.since) / 1000) : 0, neighbors: lldp.neighbors, ...(lldpEnabled() ? {} : { note: "LLDP listening is turned off in BenchBob's settings" }) };
       },
     },
     {
       name: "net_iperf",
-      description: "Measure throughput between DeskyPi and an iperf3 server with iperf3 (TCP by default; reverse=true makes the server send; udp with a bitrate measures loss/jitter). Tests of up to 6 s return the result directly; longer ones return a runId — call again with {runId} to get the result.",
+      description: "Measure throughput between BenchBob and an iperf3 server with iperf3 (TCP by default; reverse=true makes the server send; udp with a bitrate measures loss/jitter). Tests of up to 6 s return the result directly; longer ones return a runId — call again with {runId} to get the result.",
       inputSchema: {
         type: "object",
         properties: {
           host: { type: "string", description: "iperf3 server host or IP" },
           port: { type: "integer", default: 5201 },
           duration: { type: "number", default: 5, minimum: 1, maximum: 60, description: "Seconds" },
-          reverse: { type: "boolean", description: "Server sends, DeskyPi receives (-R)" },
+          reverse: { type: "boolean", description: "Server sends, BenchBob receives (-R)" },
           udp: { type: "boolean" },
           bitrate: { type: "string", description: "Target rate for UDP (or a TCP cap), e.g. 100M" },
           parallel: { type: "integer", default: 1, minimum: 1, maximum: 16 },
@@ -928,13 +928,13 @@ const driver: Driver = {
     },
     {
       name: "net_ping",
-      description: "Ping a host from DeskyPi (default: its default gateway) and report packet loss and min/avg/max/mdev latency.",
+      description: "Ping a host from BenchBob (default: its default gateway) and report packet loss and min/avg/max/mdev latency.",
       inputSchema: { type: "object", properties: { host: { type: "string", description: "Host or IP; default is the gateway" }, count: { type: "integer", default: 10, minimum: 1, maximum: 30 } } },
       handler: (a) => ping(a.host || undefined, Math.min(+(a.count || 10), 30)),
     },
     {
       name: "net_dns",
-      description: "Resolve hostnames against each of DeskyPi's configured DNS servers directly and report the answers and per-server response time.",
+      description: "Resolve hostnames against each of BenchBob's configured DNS servers directly and report the answers and per-server response time.",
       inputSchema: { type: "object", properties: { names: { type: "array", items: { type: "string" }, description: "Names to resolve (default: google.com, cloudflare.com, debian.org)" } } },
       handler: (a) => dnsCheck(Array.isArray(a.names) ? a.names : undefined),
     },

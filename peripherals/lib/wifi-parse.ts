@@ -684,12 +684,12 @@ export interface DhcpEvent {
   lease?: Record<string, string>;
 }
 
-/** Our udhcpc script echoes "DESKYPI-DHCP <event>|key=value|…" with the lease details. */
+/** Our udhcpc script echoes "BENCHBOB-DHCP <event>|key=value|…" with the lease details. */
 export function parseUdhcpcLine(raw: string): DhcpEvent | null {
   const text = raw.trim();
   if (!text) return null;
   let m;
-  if ((m = /^DESKYPI-DHCP (\w+)\|(.*)$/.exec(text))) {
+  if ((m = /^BENCHBOB-DHCP (\w+)\|(.*)$/.exec(text))) {
     const lease: Record<string, string> = { event: m[1] };
     for (const kv of m[2].split("|")) {
       const i = kv.indexOf("=");

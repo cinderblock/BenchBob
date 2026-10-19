@@ -3,13 +3,13 @@
 // USB webcams and HDMI capture sticks (anything UVC). Each camera gets a `ustreamer` child,
 // started only when someone looks (the dashboard's live view, a snapshot, an agent) and
 // stopped once nobody has for a minute, so an idle camera costs nothing and its LED stays
-// off. The MJPEG stream and snapshots are proxied through DeskyPi's own port; a per-camera
+// off. The MJPEG stream and snapshots are proxied through BenchBob's own port; a per-camera
 // "share directly" switch instead binds ustreamer to the LAN for tools that want it raw.
 //
 // CSI cameras (libcamera) are listed when present, but not streamed: ustreamer can't drive
 // them and a Pi used as a bench server rarely has one fitted.
 //
-// Testing without hardware: DESKYPI_CAMERA_SIMULATE=/dev/video99 (any path) adds a fake
+// Testing without hardware: BENCHBOB_CAMERA_SIMULATE=/dev/video99 (any path) adds a fake
 // MJPEG camera "sim"; ustreamer can't open it and serves its NO SIGNAL placeholder frame,
 // which exercises the start-on-demand, proxy, snapshot and idle-stop paths.
 
@@ -23,10 +23,10 @@ import {
 } from "../lib/camera.ts";
 
 const IDLE_STOP_MS = 60_000;
-const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
+const PORT_OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
 const SHARE_PORT_BASE = 8080; // ustreamer's own default, so tools' examples work unchanged
-const RUN_DIR = `/tmp/deskypi-camera-${process.env.PORT || 80}`;
-const SIM = process.env.DESKYPI_CAMERA_SIMULATE || "";
+const RUN_DIR = `/tmp/benchbob-camera-${process.env.PORT || 80}`;
+const SIM = process.env.BENCHBOB_CAMERA_SIMULATE || "";
 
 interface Streamer {
   proc: ReturnType<Ctx["spawn"]>;
@@ -60,7 +60,7 @@ interface Cam {
   controls: Control[];
   stream: StreamChoice | null;
   streamer: Streamer | null;
-  proxied: number; // streams currently piped through DeskyPi
+  proxied: number; // streams currently piped through BenchBob
   lastUse: number;
   error: string;
   last?: { jpeg: Uint8Array; t: number };
@@ -165,7 +165,7 @@ async function rescan() {
     if (!cams.has("sim")) {
       const formats = [{ fourcc: "MJPG", description: "Motion-JPEG, compressed", compressed: true, sizes: [{ w: 640, h: 480, fps: [30, 15] }] }];
       cams.set("sim", {
-        id: "sim", key: "sim", dev: SIM, devpath: "", name: "Simulated camera", vendor: "DeskyPi", vid: "0000", pid: "0000", serial: "", kind: "webcam",
+        id: "sim", key: "sim", dev: SIM, devpath: "", name: "Simulated camera", vendor: "BenchBob", vid: "0000", pid: "0000", serial: "", kind: "webcam",
         usbPort: "-", driver: "simulated", formats, controls: [], stream: chooseStream(formats), streamer: null, proxied: 0, lastUse: 0, error: "",
       });
     }
@@ -215,7 +215,7 @@ function ensureStreamer(c: Cam): Promise<void> {
   const cmd = [
     "ustreamer", "--device", c.dev, "--format", fmt, "--resolution", `${c.stream.w}x${c.stream.h}`,
     "--desired-fps", String(c.stream.fps), "--encoder", encoder, "--exit-on-parent-death",
-    "--process-name-prefix", `deskypi-${c.id}`, "--no-log-colors",
+    "--process-name-prefix", `benchbob-${c.id}`, "--no-log-colors",
   ];
   const s: Streamer = { proc: null as any, started: Date.now(), shared, ready: null as any, stderr: [], clients: 0, fps: 0, online: false };
   if (shared) {
@@ -532,7 +532,7 @@ const driver: Driver = {
     {
       method: "POST",
       path: "/api/camera/:id/config",
-      doc: { body: { fourcc: "MJPG", w: 1280, h: 720, fps: 30, share: false, sharePort: 8080 }, description: "Stream format/resolution/fps, and 'share directly': ustreamer on 0.0.0.0:sharePort (its own /stream, /snapshot, /state) for tools that want it without DeskyPi in the path. A shared stream stays running until sharing is turned off" },
+      doc: { body: { fourcc: "MJPG", w: 1280, h: 720, fps: 30, share: false, sharePort: 8080 }, description: "Stream format/resolution/fps, and 'share directly': ustreamer on 0.0.0.0:sharePort (its own /stream, /snapshot, /state) for tools that want it without BenchBob in the path. A shared stream stays running until sharing is turned off" },
       async handler(req, p) {
         const c = cam(p.id);
         const b = await body(req);
@@ -573,7 +573,7 @@ const driver: Driver = {
   tools: [
     {
       name: "camera_list",
-      description: "List cameras attached to DeskyPi (USB webcams, HDMI capture sticks; CSI cameras are listed but can't be streamed). Returns ids for camera_snapshot, the stream format, and the URLs of the live MJPEG stream and snapshot endpoints.",
+      description: "List cameras attached to BenchBob (USB webcams, HDMI capture sticks; CSI cameras are listed but can't be streamed). Returns ids for camera_snapshot, the stream format, and the URLs of the live MJPEG stream and snapshot endpoints.",
       inputSchema: { type: "object", properties: {} },
       handler: () => {
         const base = baseUrl();

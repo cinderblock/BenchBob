@@ -39,7 +39,7 @@
       </div>
       <div class="pr-note">Sparklines: last 10 minutes, 0–100%.</div>
       <table class="pr-tbl" style="margin-top:8px">${rows.map(r => `<tr><td class="pr-note" style="width:9em">${r[0]}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>
-      ${u.events.length ? `<div class="pr-note" style="margin-top:8px">Power events</div><div class="pr-log" style="max-height:140px">${u.events.slice().reverse().map(e => `${esc(new Date(e.t).toLocaleString())}  ${esc(e.text)}`).join('\n')}</div>` : '<div class="pr-note" style="margin-top:8px">No power events since DeskyPi started.</div>'}
+      ${u.events.length ? `<div class="pr-note" style="margin-top:8px">Power events</div><div class="pr-log" style="max-height:140px">${u.events.slice().reverse().map(e => `${esc(new Date(e.t).toLocaleString())}  ${esc(e.text)}`).join('\n')}</div>` : '<div class="pr-note" style="margin-top:8px">No power events since BenchBob started.</div>'}
     </div>`;
   }
 
@@ -52,9 +52,9 @@
         <button class="btn btn-sm" onclick="papi('POST','/api/ups/restart')">Restart NUT</button>
       </div>
       <div class="pr-note">${n.shared
-        ? `NUT clients elsewhere can monitor <span class="pr-endpoint">deskypi@${esc(location.hostname)}:${n.port}</span>. For upsmon: <span class="pr-endpoint">MONITOR deskypi@${esc(location.hostname)}:${n.port} 1 ${esc(n.user)} ${esc(n.password || '')} secondary</span>`
-        : `Listening on 127.0.0.1:${n.port} only (DeskyPi itself).`}</div>
-      <div class="pr-note">Automatic shutdown of DeskyPi on low battery is <b>not configured</b>.</div>
+        ? `NUT clients elsewhere can monitor <span class="pr-endpoint">benchbob@${esc(location.hostname)}:${n.port}</span>. For upsmon: <span class="pr-endpoint">MONITOR benchbob@${esc(location.hostname)}:${n.port} 1 ${esc(n.user)} ${esc(n.password || '')} secondary</span>`
+        : `Listening on 127.0.0.1:${n.port} only (BenchBob itself).`}</div>
+      <div class="pr-note">Automatic shutdown of BenchBob on low battery is <b>not configured</b>.</div>
       ${n.log?.length ? `<div class="pr-log">${n.log.map(esc).join('\n')}</div>` : ''}
     </div>`;
   }

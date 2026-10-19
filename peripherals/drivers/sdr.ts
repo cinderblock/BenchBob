@@ -27,7 +27,7 @@ const RTL_TEST = "/usr/bin/rtl_test";
 const RTL_EEPROM = "/usr/bin/rtl_eeprom";
 
 // Side instances (tests, other agents) shift every default port so they never collide.
-const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
+const PORT_OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
 const DEFAULT_TCP_PORT = 1234 + PORT_OFFSET;
 
 export const PRESETS: Record<string, { label: string; freqs: string[] }> = {

@@ -1,7 +1,7 @@
 // Builds a fake /sys/bus/w1/devices tree with one slave of every family the onewire driver
 // decodes, laid out the way the 6.18 kernel modules expose them. Used by the unit tests and
 // by side instances on desky: `bun peripherals/lib/w1-fixtures.ts /tmp/w1fx`, then run the
-// server with DESKYPI_W1_ROOT=/tmp/w1fx. Binary attributes are generated (not committed) so
+// server with BENCHBOB_W1_ROOT=/tmp/w1fx. Binary attributes are generated (not committed) so
 // CRCs are computed, not hand-typed.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";

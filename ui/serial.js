@@ -437,7 +437,7 @@
         ${b.enabled ? `<div class="ser-cmds">${cmds(b.port).map(c => `<span class="pr-endpoint">${esc(c)}</span>`).join('')}</div>` : ''}`;
     };
     el.innerHTML =
-      block('tcp', 'Raw TCP', 'Plain bytes both ways. Line settings stay as set here.', port => [`nc ${host} ${port}`, `socat -,raw,echo=0 TCP:${host}:${port}`, `socat pty,link=/tmp/ttyDesky,raw,echo=0 TCP:${host}:${port}`])
+      block('tcp', 'Raw TCP', 'Plain bytes both ways. Line settings stay as set here.', port => [`nc ${host} ${port}`, `socat -,raw,echo=0 TCP:${host}:${port}`, `socat pty,link=/tmp/ttyBenchBob,raw,echo=0 TCP:${host}:${port}`])
       + block('rfc2217', 'RFC 2217', 'Telnet COM-PORT-OPTION: remote tools can change baud, framing, DTR/RTS and send breaks. Works with pyserial and esptool.', port => [`python -m serial.tools.miniterm rfc2217://${host}:${port} ${p.config.baud}`, `esptool --port 'rfc2217://${host}:${port}?ign_set_control' flash_id`, `pio device monitor --port rfc2217://${host}:${port} -b ${p.config.baud}`])
       + `<div class="pr-row"><b>WebSocket</b> <span class="pr-note">always on: binary frames are raw bytes; quiet=1 drops the JSON status frames, open=1 holds the port open while connected</span></div>
         <div class="ser-cmds"><span class="pr-endpoint">${esc(`websocat --binary '${wsUrl}?quiet=1&open=1'`)}</span></div>`;
@@ -456,7 +456,7 @@
       </div>
       <div class="ser-files"></div>
       <div class="pr-row"><button class="btn btn-sm ser-fl-add" data-act="fladd">Add file</button><button class="btn btn-sm btn-primary" data-act="flash">Start</button><button class="btn btn-sm btn-danger" data-act="flcancel">Cancel</button></div>
-      <div class="pr-note">DeskyPi releases the port while the tool runs and reopens it after. ESP32: bootloader 0x1000, partition table 0x8000, app 0x10000 (ESP32-S3/C3/C6 bootloader at 0x0), or one merged image at 0x0.</div>`;
+      <div class="pr-note">BenchBob releases the port while the tool runs and reopens it after. ESP32: bootloader 0x1000, partition table 0x8000, app 0x10000 (ESP32-S3/C3/C6 bootloader at 0x0), or one merged image at 0x0.</div>`;
     addFileRow('0x0');
     syncFlashForm();
   }
@@ -501,7 +501,7 @@
     const sig = JSON.stringify([p.openOnPlug, p.lock, mine, p.console]);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
-    el.innerHTML = `<div class="pr-row"><label><input type="checkbox" data-opt="openOnPlug" ${p.openOnPlug ? 'checked' : ''}> Open automatically when plugged in (and when DeskyPi starts)</label></div>
+    el.innerHTML = `<div class="pr-row"><label><input type="checkbox" data-opt="openOnPlug" ${p.openOnPlug ? 'checked' : ''}> Open automatically when plugged in (and when BenchBob starts)</label></div>
       ${p.console ? '' : `<div class="pr-row">${p.lock ? (mine ? '<span class="pr-pill on">You hold the write lock</span><button class="btn btn-sm" data-act="unlock">Release</button>' : `<span class="pr-pill warn">Writing locked by ${esc(p.lock.owner)}</span><button class="btn btn-sm btn-danger" data-act="breaklock">Break lock</button>`) : '<button class="btn btn-sm" data-act="lock">Lock writing to this tab</button><span class="pr-note">Other clients (bridges, agents, other tabs) can still read but not write</span>'}</div>`}
       <div class="pr-note">Port id <span class="pr-endpoint">${esc(p.id)}</span> for the API and MCP tools (serial_write, serial_read…).</div>`;
   }

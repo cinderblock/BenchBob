@@ -33,7 +33,7 @@ export function mpu6050Regs(): Record<number, number> {
 
 /** 24C02 with a Raspberry Pi HAT header and a vendor atom. */
 export function eepromRegs(): Record<number, number> {
-  const vendor = "DeskyPi";
+  const vendor = "BenchBob";
   const product = "Bench HAT";
   const atom = [...new Array(16).fill(0).map((_, i) => i + 1), ...le(0x1234), ...le(2), vendor.length, product.length, ...[...vendor, ...product].map((c) => c.charCodeAt(0))];
   const bytes = [..."R-Pi"].map((c) => c.charCodeAt(0)).concat([1, 0, ...le(1), ...le(12 + 8 + atom.length), 0, 0, ...le(1), ...le(0), ...le(atom.length), 0, 0, ...atom]);

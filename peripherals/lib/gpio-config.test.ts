@@ -69,7 +69,7 @@ describe("config.txt", () => {
     const r = readInterfaces(n);
     expect(r.i2c).toEqual({ enabled: false, baudrate: 400000 });
     expect(n).toContain("dtparam=i2c_arm=off");
-    expect(n.trimEnd().endsWith("# Added by DeskyPi (GPIO panel → Interfaces)\ndtparam=i2c_arm_baudrate=400000")).toBe(true);
+    expect(n.trimEnd().endsWith("# Added by BenchBob (GPIO panel → Interfaces)\ndtparam=i2c_arm_baudrate=400000")).toBe(true);
     // the file already ends in an [all] context, so no extra [all] header
     expect(n.match(/^\[all\]/gm)!.length).toBe(2);
   });
@@ -87,7 +87,7 @@ describe("config.txt", () => {
   test("appends under a new [all] when the file ends inside a conditional section", () => {
     const txt = "dtparam=audio=on\n[pi4]\narm_boost=1\n";
     const n = editConfig(txt, { uart: { enabled: true }, onewire: { enabled: true } });
-    expect(n).toBe("dtparam=audio=on\n[pi4]\narm_boost=1\n\n[all]\n# Added by DeskyPi (GPIO panel → Interfaces)\nenable_uart=1\ndtoverlay=w1-gpio,gpiopin=4\n");
+    expect(n).toBe("dtparam=audio=on\n[pi4]\narm_boost=1\n\n[all]\n# Added by BenchBob (GPIO panel → Interfaces)\nenable_uart=1\ndtoverlay=w1-gpio,gpiopin=4\n");
     expect(readInterfaces(n)).toMatchObject({ uart: { enabled: true }, onewire: { enabled: true, pin: 4 } });
   });
 
@@ -131,7 +131,7 @@ describe("extra I²C buses and UARTs (BCM2711 overlays)", () => {
     expect(r.conditional).toEqual([{ section: "cm4", line: "dtoverlay=i2c5" }]);
   });
 
-  test("enable appends under the DeskyPi block; disable comments out", () => {
+  test("enable appends under the BenchBob block; disable comments out", () => {
     const n = editConfig(DESKY, { extraI2c: { i2c6: { enabled: true, baudrate: 400000 } }, extraUart: { uart5: { enabled: true } } });
     expect(n.trimEnd().endsWith("dtoverlay=i2c6,pins_22_23,baudrate=400000\ndtoverlay=uart5")).toBe(true);
     const r = readInterfaces(n);

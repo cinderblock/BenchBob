@@ -14,7 +14,7 @@
 // (gpioinfo consumer), pins muxed to a peripheral (ALT functions: I²C, UART…), GPIO0/1 (HAT
 // ID EEPROM) and anything past GPIO27 (SoC-internal: Ethernet, SD, Wi-Fi). config.txt edits
 // are staged as a diff, applied only with an explicit confirm, backed up first, and need a
-// reboot, which is a second, separate confirm. DESKYPI_CONFIG_TXT points at a copy for
+// reboot, which is a second, separate confirm. BENCHBOB_CONFIG_TXT points at a copy for
 // testing, and while it's set reboot is refused outright.
 
 import { access, constants, readdir, readlink } from "node:fs/promises";
@@ -24,9 +24,9 @@ import * as G from "../lib/gpio-config.ts";
 import { openGpioLevels, type GpioLevels } from "../lib/gpiomem.ts";
 
 const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-const CONFIG = process.env.DESKYPI_CONFIG_TXT || "/boot/firmware/config.txt";
-const CONFIG_OVERRIDDEN = !!process.env.DESKYPI_CONFIG_TXT;
-const CMDLINE = process.env.DESKYPI_CMDLINE_TXT || "/boot/firmware/cmdline.txt";
+const CONFIG = process.env.BENCHBOB_CONFIG_TXT || "/boot/firmware/config.txt";
+const CONFIG_OVERRIDDEN = !!process.env.BENCHBOB_CONFIG_TXT;
+const CMDLINE = process.env.BENCHBOB_CMDLINE_TXT || "/boot/firmware/cmdline.txt";
 const STREAM_MS = 100;
 const CONSUMERS_MS = 5000;
 // With direct level reads, pinctrl (function, pull) only needs to run this often.
@@ -201,7 +201,7 @@ async function dtClock(path: string): Promise<number | null> {
 /** Pi 4 / 400 / CM4: the only boards the extra-controller overlays (i2c3–6, uart2–5) are offered on. */
 let bcm2711: boolean | null = null;
 async function isBcm2711() {
-  if (bcm2711 == null) bcm2711 = process.env.DESKYPI_BOARD_BCM2711 ? process.env.DESKYPI_BOARD_BCM2711 === "1" : (await readText("/proc/device-tree/compatible")).includes("brcm,bcm2711");
+  if (bcm2711 == null) bcm2711 = process.env.BENCHBOB_BOARD_BCM2711 ? process.env.BENCHBOB_BOARD_BCM2711 === "1" : (await readText("/proc/device-tree/compatible")).includes("brcm,bcm2711");
   return bcm2711;
 }
 
@@ -495,7 +495,7 @@ const routes: Route[] = [
     handler: async (req) => {
       const a = await body(req);
       if (a.confirm !== "REBOOT") throw new HttpError(400, 'Rebooting needs confirm: "REBOOT"');
-      if (CONFIG_OVERRIDDEN) throw new HttpError(409, `Refusing to reboot: DESKYPI_CONFIG_TXT points at a test copy (${CONFIG})`);
+      if (CONFIG_OVERRIDDEN) throw new HttpError(409, `Refusing to reboot: BENCHBOB_CONFIG_TXT points at a test copy (${CONFIG})`);
       ctx.event("Reboot requested from the GPIO panel");
       setTimeout(() => void run(["sudo", "-n", "systemctl", "reboot"]), 500);
       return { ok: true, message: "Rebooting in a moment" };

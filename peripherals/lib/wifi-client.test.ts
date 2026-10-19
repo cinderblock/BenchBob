@@ -73,10 +73,10 @@ describe("wpa_supplicant conf", () => {
 });
 
 test("dhcp script writes the netns resolv.conf, not the host's", () => {
-  const s = dhcpScript("deskypi-wt-3", { ip: "/usr/bin/ip" } as Bins);
-  expect(s).toContain("/etc/netns/deskypi-wt-3/resolv.conf");
+  const s = dhcpScript("benchbob-wt-3", { ip: "/usr/bin/ip" } as Bins);
+  expect(s).toContain("/etc/netns/benchbob-wt-3/resolv.conf");
   expect(s).not.toMatch(/>\s*\/etc\/resolv\.conf/);
-  expect(s).toContain('echo "DESKYPI-DHCP $1|ip=$ip|');
+  expect(s).toContain('echo "BENCHBOB-DHCP $1|ip=$ip|');
 });
 
 test("pidAlive: self and dead pids don't count as another owner", async () => {

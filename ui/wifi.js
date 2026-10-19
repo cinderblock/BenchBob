@@ -124,7 +124,7 @@
         <h4>${esc(r.label || r.phy)} <small>${esc(ifn)} · ${esc(r.driver || '?')} · ${where}</small><span class="pr-pill ${pill}">${esc(r.use.text)}</span></h4>
         <div class="pr-note">${r.bandInfo.map(bandSummary).join('<br>') || 'No band information'}</div>
         <div class="pr-note">Modes: ${esc(r.iftypes.join(', '))}${r.monitor ? '' : ' · <b>no monitor mode</b>'}${r.sae ? ' · WPA3-SAE capable' : ''}${r.netns ? '' : ' · <b>can’t move to a netns (no client tests)</b>'}${r.regCountry ? ` · own regulatory domain ${esc(r.regCountry)}` : ''}</div>
-        ${r.unmanagedByUs.length ? `<div class="pr-note" style="color:var(--warning)">DeskyPi told NetworkManager to leave ${esc(r.unmanagedByUs.join(', '))} alone (until reboot) so it can’t auto-connect while DeskyPi uses it.</div>` : ''}
+        ${r.unmanagedByUs.length ? `<div class="pr-note" style="color:var(--warning)">BenchBob told NetworkManager to leave ${esc(r.unmanagedByUs.join(', '))} alone (until reboot) so it can’t auto-connect while BenchBob uses it.</div>` : ''}
         <div class="pr-row"><button class="btn btn-sm" data-act="chans" data-phy="${r.phy}">${W.showChans.has(r.phy) ? 'Hide channels' : 'Show channels'}</button>${nmCtl}</div>
         ${W.showChans.has(r.phy) ? r.bandInfo.map((b) => `<div class="pr-note" style="margin-top:6px">${bandName[b.band]}: <span class="wf-ch">enabled</span> <span class="wf-ch dfs">DFS/radar</span> <span class="wf-ch off">disabled</span></div><div class="wf-chans">${b.channels.map((c) => `<span class="wf-ch ${c.disabled ? 'off' : c.radar ? 'dfs' : ''}">${c.ch}${c.maxPower && !c.disabled ? `<span class="wf-dim"> ${c.maxPower}</span>` : ''}${c.noIR && !c.disabled ? '<span class="wf-dim"> passive</span>' : ''}</span>`).join('')}</div>`).join('') : ''}
       </div>`;
@@ -411,9 +411,9 @@
     f.querySelectorAll('.wf-static').forEach((e) => (e.style.display = v('ip').value === 'static' ? '' : 'none'));
     const r = (W.radios?.radios || []).find((x) => x.phy === v('radio').value);
     let warn = '';
-    if (r && (r.use.kind === 'backup' || r.use.kind === 'connected')) warn = `${esc(r.ifaces.find((i) => i.name)?.name)} is in use (${esc(r.use.text)}). The test moves it into its own network namespace, so that connection drops for the test (~15 s plus the test time). NetworkManager reconnects it afterwards, and DeskyPi checks that it does.`;
-    if (r && r.use.kind === 'primary') warn = `<span style="color:var(--danger)">${esc(r.ifaces.find((i) => i.name)?.name)} is the primary uplink; DeskyPi will refuse to borrow it.</span>`;
-    if (r && !r.onboard) warn = `DeskyPi tells NetworkManager to leave ${esc(r.ifaces.find((i) => i.name)?.name || r.phy)} alone while it uses it (runtime only).`;
+    if (r && (r.use.kind === 'backup' || r.use.kind === 'connected')) warn = `${esc(r.ifaces.find((i) => i.name)?.name)} is in use (${esc(r.use.text)}). The test moves it into its own network namespace, so that connection drops for the test (~15 s plus the test time). NetworkManager reconnects it afterwards, and BenchBob checks that it does.`;
+    if (r && r.use.kind === 'primary') warn = `<span style="color:var(--danger)">${esc(r.ifaces.find((i) => i.name)?.name)} is the primary uplink; BenchBob will refuse to borrow it.</span>`;
+    if (r && !r.onboard) warn = `BenchBob tells NetworkManager to leave ${esc(r.ifaces.find((i) => i.name)?.name || r.phy)} alone while it uses it (runtime only).`;
     f.querySelector('.wf-warn').innerHTML = warn;
   }
 

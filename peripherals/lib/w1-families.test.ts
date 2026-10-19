@@ -120,7 +120,7 @@ describe("onewire driver on a fixture tree", () => {
 
   beforeAll(async () => {
     buildW1Fixture(dir);
-    process.env.DESKYPI_W1_ROOT = dir;
+    process.env.BENCHBOB_W1_ROOT = dir;
     drv = (await import("../drivers/onewire.ts")).default;
     await drv.init(ctx);
     // Wait for the first background cycle to read every slave.

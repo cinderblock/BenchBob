@@ -23,7 +23,7 @@ import { hostname } from "node:os";
 import { classifyUsb, ingest, newState, summarize, type GpsdState } from "../lib/gps-parse.ts";
 
 const GPSD = "/usr/sbin/gpsd";
-const PORT_OFFSET = parseInt(process.env.DESKYPI_PORT_OFFSET || "") || 0;
+const PORT_OFFSET = parseInt(process.env.BENCHBOB_PORT_OFFSET || "") || 0;
 const DEFAULT_PORT = 2947 + PORT_OFFSET;
 
 let ctx: Ctx;
@@ -92,7 +92,7 @@ function holdersOf(dev: string): { pid: number; comm: string }[] {
         try {
           comm = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
         } catch {}
-        out.push({ pid: +pid, comm: +pid === process.pid ? "DeskyPi (serial panel)" : comm });
+        out.push({ pid: +pid, comm: +pid === process.pid ? "BenchBob (serial panel)" : comm });
         break;
       }
     }
@@ -364,7 +364,7 @@ const routes: Route[] = [
 const tools: Tool[] = [
   {
     name: "gps_status",
-    description: "GPS fix and satellites from the GPS receiver on DeskyPi: fix mode (no fix/2D/3D), lat/lon/altitude, speed/track, UTC time and its offset from the system clock, HDOP/PDOP, satellites used/visible per constellation (GPS/GLONASS/Galileo/BeiDou) with elevation/azimuth/SNR, PPS offset. Also lists candidate serial devices when gpsd isn't running.",
+    description: "GPS fix and satellites from the GPS receiver on BenchBob: fix mode (no fix/2D/3D), lat/lon/altitude, speed/track, UTC time and its offset from the system clock, HDOP/PDOP, satellites used/visible per constellation (GPS/GLONASS/Galileo/BeiDou) with elevation/azimuth/SNR, PPS offset. Also lists candidate serial devices when gpsd isn't running.",
     inputSchema: { type: "object", properties: { satellites: { type: "boolean", description: "Include the per-satellite list (default false)" } } },
     handler: (a) => {
       const s = status();

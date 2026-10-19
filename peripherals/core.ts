@@ -536,9 +536,9 @@ async function mcpOne(msg: any): Promise<any | null> {
       return reply({
         protocolVersion: params?.protocolVersion || MCP_PROTOCOL,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "deskypi", version: "1.0" },
+        serverInfo: { name: "benchbob", version: "1.0" },
         instructions:
-          "DeskyPi is a Raspberry Pi bench server. These tools reach the peripherals plugged into it (serial ports, CAN, I²C, 1-Wire, GPIO, Wi-Fi, USB, radios). Call a *_list tool first to find device ids.",
+          "BenchBob is a bench server, usually a Raspberry Pi. These tools reach the peripherals plugged into it (serial ports, CAN, I²C, 1-Wire, GPIO, Wi-Fi, USB, radios). Call a *_list tool first to find device ids.",
       });
     case "ping":
       return reply({});

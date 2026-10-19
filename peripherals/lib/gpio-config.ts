@@ -288,7 +288,7 @@ export function pinConflicts(r: Interfaces): { gpio: number; users: string[] }[]
   return [...by].filter(([, users]) => users.length > 1).map(([gpio, users]) => ({ gpio, users })).sort((a, b) => a.gpio - b.gpio);
 }
 
-const MARK = "# Added by DeskyPi (GPIO panel → Interfaces)";
+const MARK = "# Added by BenchBob (GPIO panel → Interfaces)";
 
 /** Apply interface changes to config.txt text; only [all]-context lines are edited. */
 export function editConfig(text: string, ch: InterfaceChanges): string {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DeskyPi</title>
+<title>BenchBob</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -411,7 +411,7 @@ details[open] summary{margin-bottom:8px}
 
 <header>
   <div class="hdr-id">
-    <h1 id="title">DeskyPi</h1>
+    <h1 id="title">BenchBob</h1>
     <span class="hdr-board" id="hdr-board"></span>
   </div>
   <div class="hdr-right">
@@ -713,8 +713,8 @@ function wifiColor(dbm) {
 // ==================== Render ====================
 function render() {
   const s = S; if (!s) return;
-  Q('#title').textContent = s.hostname || 'DeskyPi';
-  document.title = s.hostname || 'DeskyPi';
+  Q('#title').textContent = s.hostname || 'BenchBob';
+  document.title = s.hostname || 'BenchBob';
   Q('#uptime').textContent = fmtUp(s.uptime);
   Q('#hdr-board').textContent = s.system.model + (s.system.ramMB ? ` · ${fmtRam(s.system.ramMB)} RAM` : '');
   Q('#hdr-storage').innerHTML = fmtRootStorage(s.rootStorage);
@@ -988,7 +988,7 @@ function bootResultHtml(r) {
   const m = r.metadata || {};
   const rows = [];
   if (r.installed) rows.push(['Bootloader', r.installed.label + (r.installed.bootConf ? ' · settings known' : '')]);
-  if (r.installed?.lastWrite) rows.push(['Last DeskyPi write', `${r.installed.lastWrite.imageLabel}, ${new Date(r.installed.lastWrite.at).toLocaleString()} (replaced since)`]);
+  if (r.installed?.lastWrite) rows.push(['Last BenchBob write', `${r.installed.lastWrite.imageLabel}, ${new Date(r.installed.lastWrite.at).toLocaleString()} (replaced since)`]);
   if (r.board) rows.push(['Board', `${r.board.model} · ${r.board.memory} · rev ${r.board.revision}`]);
   if (m.USER_BOARDREV) rows.push(['Board revision', m.USER_BOARDREV]);
   if (m.MAC_ADDR) rows.push(['MAC', m.MAC_ADDR]);
@@ -1320,7 +1320,7 @@ function blInstalledHtml(o) {
     <div class="img-detail" style="margin-top:4px">Nothing can read the bootloader back over USB, but <b>Bootloader info</b> can often recognise it. Run it first, power-cycle the module, then come back here to start from its current settings.</div></div>`;
   return `<div class="modal-dev">Installed bootloader: <b>${esc(inst.label)}</b>${o.checkedAt ? ` <span style="color:var(--dim)">(checked ${esc(new Date(o.checkedAt).toLocaleTimeString())})</span>` : ''}
     ${inst.bootConf == null ? '<div class="img-detail" style="margin-top:4px">Its settings are unknown, so whatever is written here replaces them completely.</div>' : ''}
-    ${inst.lastWrite ? `<div class="img-detail" style="margin-top:4px">DeskyPi last wrote ${esc(inst.lastWrite.imageLabel)} to this module on ${esc(new Date(inst.lastWrite.at).toLocaleString())}; something has replaced it since.</div>` : ''}</div>`;
+    ${inst.lastWrite ? `<div class="img-detail" style="margin-top:4px">BenchBob last wrote ${esc(inst.lastWrite.imageLabel)} to this module on ${esc(new Date(inst.lastWrite.at).toLocaleString())}; something has replaced it since.</div>` : ''}</div>`;
 }
 
 function blImageOpts(o) {
@@ -1367,12 +1367,12 @@ async function rpibootWrite(path) {
   try { o = await (await fetch('/api/rpiboot/eeprom/options?path=' + encodeURIComponent(path))).json(); } catch { o = { ok: false, message: 'Request failed' }; }
   if (!o.ok) return toast(o.message, 'error');
   if (!o.images.length) return toast('No bootloader images found (is rpi-eeprom installed?)', 'error');
-  // Starting points: what's installed (when recognised), DeskyPi's last write to this
+  // Starting points: what's installed (when recognised), BenchBob's last write to this
   // module, rpiboot's CM default, or the chosen release's own built-in config.
   const starts = () => {
     const inst = o.installed, s = [];
     if (inst?.bootConf != null) s.push(['installed', 'Installed settings', inst.bootConf, 'the installed settings']);
-    if (inst?.lastWrite) s.push(['last', "DeskyPi's last write", inst.lastWrite.bootConf, "DeskyPi's last write"]);
+    if (inst?.lastWrite) s.push(['last', "BenchBob's last write", inst.lastWrite.bootConf, "BenchBob's last write"]);
     s.push(['rpiboot', "rpiboot's CM default", o.bootConf, "rpiboot's CM default"]);
     return [...s, ...blImageStart()];
   };

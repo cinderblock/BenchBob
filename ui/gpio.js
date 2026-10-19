@@ -213,7 +213,7 @@
   }
 
   function rebootDlg() {
-    showModal(`<h3 style="color:var(--warning)">Reboot DeskyPi</h3><p>Everything served from this Pi (drives, bridges, this dashboard) goes away for about a minute.</p>
+    showModal(`<h3 style="color:var(--warning)">Reboot BenchBob</h3><p>Everything served from this Pi (drives, bridges, this dashboard) goes away for about a minute.</p>
       <div class="confirm-box"><label>Type REBOOT to confirm:</label><input type="text" id="gi-rb" autocomplete="off"></div>
       <div class="modal-btns"><button class="btn" id="mc">Cancel</button><button class="btn btn-danger" id="mk" disabled>Reboot</button></div>`);
     Q('#gi-rb').oninput = () => Q('#mk').disabled = Q('#gi-rb').value !== 'REBOOT';

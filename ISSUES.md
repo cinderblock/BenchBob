@@ -2,7 +2,7 @@
 
 ## NTFS partitions unmount immediately after auto-mount; vfat sometimes never mounts — fixed in `c260345`, installed on the Pi 2026-10-11
 
-Seen 2026-10-11 on `deskypi` with a Windows NVMe (`sda`: SYSTEM vfat, Windows ntfs,
+Seen 2026-10-11 on `benchbob` with a Windows NVMe (`sda`: SYSTEM vfat, Windows ntfs,
 WinRE_DRV ntfs). `/srv/nfs/drives/{SYSTEM,Windows,WinRE_DRV}` exist but nothing is mounted.
 
 - NTFS: `/var/log/nfs-drive-handler.log` says `MOUNTED /dev/sda3 at /srv/nfs/drives/Windows`,
@@ -38,7 +38,7 @@ present — but the unit sits failed in between, which shows up as a failed serv
 ## desky's root filesystem is ~95–99% full; flash downloads live on it
 
 Seen 2026-10-16: `/dev/mmcblk0p2 15G 14G 247M 99% /` (772M free after removing a test
-download). `doFlash` downloads the compressed image to `/var/tmp/deskypi-flash` on that
+download). `doFlash` downloads the compressed image to `/var/tmp/benchbob-flash` on that
 filesystem, so a lite image (~550 MB) barely fits and a full desktop image (~3 GB) will
 fail mid-download. A failed or cancelled flash also leaves its partial download behind
 (`rm -f dlPath` only runs on success), eating more of the space. Worth finding what fills
@@ -53,7 +53,7 @@ cleared, and the root filesystem is at 69% (4.4 GB free). The cache grows back w
 Seen 2026-10-17: a side instance on desky started and stopped its own receive-only lldpd
 on eth0 while the live one ran. Afterwards `ip maddr show dev eth0` no longer listed
 `01:80:c2:00:00:0e` and the live lldpd reported "no neighbor" until netdiag was restarted
-(disable/enable in Peripherals…). Only happens with two DeskyPi instances on one Pi, but
+(disable/enable in Peripherals…). Only happens with two BenchBob instances on one Pi, but
 netdiag could notice "listening for minutes, link up, no LLDP multicast address" and
 restart lldpd itself.
 

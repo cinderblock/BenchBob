@@ -76,7 +76,7 @@
         <label><input type="checkbox" class="cam-share" ${d.share ? 'checked' : ''} onchange="camShare('${esc(id)}')"> Share directly on port</label>
         <input type="number" class="cam-port" min="1024" max="65535" value="${d.sharePort}" style="width:6em" onchange="camShare('${esc(id)}')">
       </div>
-      <div class="pr-note">${d.share ? `ustreamer listens on all interfaces: <span class="pr-endpoint">http://${esc(location.hostname)}:${d.sharePort}/stream</span> (also /snapshot, /state). It stays running until you turn this off.` : 'Off: the camera is reachable only through DeskyPi and sleeps when nobody watches.'}</div>`;
+      <div class="pr-note">${d.share ? `ustreamer listens on all interfaces: <span class="pr-endpoint">http://${esc(location.hostname)}:${d.sharePort}/stream</span> (also /snapshot, /state). It stays running until you turn this off.` : 'Off: the camera is reachable only through BenchBob and sleeps when nobody watches.'}</div>`;
     // Re-filter the size/fps lists when the format or size changes, without applying yet.
     const el = k.el.querySelector('.cam-settings');
     el.querySelector('.cam-fmt')?.addEventListener('change', e => { k.detail.stream = { ...cur, fourcc: e.target.value, w: 0, h: 0 }; renderSettings(id); });
