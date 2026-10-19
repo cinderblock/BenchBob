@@ -15,7 +15,7 @@ import { Resolver } from "node:dns/promises";
 import type { Ctx, Driver, Props, UdevEvent } from "../core.ts";
 import { HttpError, body, readText, run, usbName } from "../core.ts";
 import {
-  fmtBps, iperfSummary, isErrorCounter, parseEee, parseEthtool, parseEthtoolStats, parseKeyColon, parseLldpNeighbors,
+  DEFAULT_IPERF_PRESETS, DEFAULT_PING_TARGETS, fmtBps, iperfError, iperfSummary, isErrorCounter, presetsFrom, type Preset, parseEee, parseEthtool, parseEthtoolStats, parseKeyColon, parseLldpNeighbors,
   mtuSearch, parsePing, parseResolvConf, slowJson, validHost, type EthLink, type Eee, type IperfSummary, type Neighbor, type PingResult,
 } from "../lib/netdiag.ts";
 
@@ -99,12 +99,17 @@ const server = {
 };
 
 let runs: ClientRun[] = [];
-const checks: { ping?: PingResult & { t: number }; dns?: any; http?: any; mtu?: any } = {};
+type PingCheck = PingResult & { t: number; target: string };
+// ping = the latest overall (API/MCP compatible); pings = the latest per target, newest first.
+const checks: { ping?: PingCheck; pings: PingCheck[]; dns?: any; http?: any; mtu?: any } = { pings: [] };
 const timers: ReturnType<typeof setInterval>[] = [];
 
 const lldpEnabled = () => ctx.settings.get("lldp", true);
 const iperfPort = () => ctx.settings.get("iperfPort", 5201 + PORT_OFFSET);
 const iperfAutoOffMin = () => ctx.settings.get("iperfAutoOffMin", 60);
+// Quick-pick hosts for the panel's iperf3 client and ping buttons; "gateway" = the default gateway.
+const iperfPresets = () => ctx.settings.get<Preset[]>("iperfPresets", DEFAULT_IPERF_PRESETS);
+const pingTargets = () => ctx.settings.get<Preset[]>("pingTargets", DEFAULT_PING_TARGETS);
 
 /** validHost as a 400 rather than a 500. */
 function hostOk(h: unknown): string {
@@ -461,7 +466,7 @@ function startRun(a: any): ClientRun {
     r.status = r.result && !r.error ? "done" : "error";
     // iperf3 still emits an (all-zero) "end" after a connect failure; don't present it as a result.
     if (r.status === "error") r.result = null;
-    if (r.status === "error" && !r.error) r.error = err.trim() || "iperf3 gave no result";
+    if (r.status === "error") r.error = iperfError(r.error || err.trim(), host, port);
     delete r.proc;
     ctx.event(`iperf3 to ${host}: ${r.result ? `${fmtBps(r.result.bps)}${r.reverse ? " (reverse)" : ""}` : r.error}`);
     ctx.changed();
@@ -481,14 +486,16 @@ function defaultGateway(): string {
   return gateways.find((g) => ifaces.has(g.dev))?.gateway || gateways[0]?.gateway || "";
 }
 
-async function ping(hostArg?: string, count = 10): Promise<PingResult & { t: number }> {
-  const host = hostArg ? hostOk(hostArg) : defaultGateway();
+async function ping(hostArg?: string, count = 10): Promise<PingCheck> {
+  const target = !hostArg || hostArg === "gateway" ? "gateway" : hostOk(hostArg);
+  const host = target === "gateway" ? defaultGateway() : target;
   if (!host) throw new HttpError(409, "No default gateway to ping; pass a host");
   if (!(count >= 1 && count <= 50)) throw new HttpError(400, "count must be 1–50");
   const r = await run(["ping", "-c", String(count), "-i", "0.2", "-W", "1", host], { timeoutMs: count * 1200 + 3000 });
-  const res = { ...parsePing(r.out + "\n" + r.err, host), t: Date.now() };
+  const res = { ...parsePing(r.out + "\n" + r.err, host), t: Date.now(), target };
   if (!res.sent) throw new HttpError(400, (r.err || r.out).split("\n")[0] || "ping failed");
   checks.ping = res;
+  checks.pings = [res, ...checks.pings.filter((p) => p.target !== target)].slice(0, 12);
   ctx.changed();
   return res;
 }
@@ -630,6 +637,7 @@ const driver: Driver = {
         runs: runs.slice(0, 10).map(publicRun),
       },
       checks,
+      presets: { iperf: iperfPresets(), ping: pingTargets() },
     };
   },
 
@@ -736,9 +744,30 @@ const driver: Driver = {
       },
     },
     {
+      method: "PUT",
+      path: "/api/netdiag/presets",
+      doc: { body: { iperf: "steamboat.tsl steamboat · LAN\n10.0.0.5", ping: [{ host: "gateway", label: "Gateway" }, { host: "1.1.1.1", label: "1.1.1.1" }], reset: false }, description: 'Quick-pick hosts for the iperf3 client and the ping buttons: text ("host label…" per line) or a list of {host, label}. In ping targets, host "gateway" means the default gateway. reset: true restores the defaults' },
+      async handler(req) {
+        const b = await body(req);
+        const parse = (v: unknown, gw: boolean) => {
+          try {
+            return presetsFrom(v, gw);
+          } catch (e: any) {
+            throw new HttpError(400, e.message);
+          }
+        };
+        const iperf = b.reset ? DEFAULT_IPERF_PRESETS : b.iperf != null ? parse(b.iperf, false) : null;
+        const pingT = b.reset ? DEFAULT_PING_TARGETS : b.ping != null ? parse(b.ping, true) : null;
+        if (iperf) ctx.settings.set("iperfPresets", iperf);
+        if (pingT) ctx.settings.set("pingTargets", pingT);
+        ctx.changed();
+        return { ok: true, iperf: iperfPresets(), ping: pingTargets() };
+      },
+    },
+    {
       method: "POST",
       path: "/api/netdiag/ping",
-      doc: { body: { host: "(default: the gateway)", count: 10 }, description: "Ping (0.2 s apart): loss and min/avg/max/mdev latency" },
+      doc: { body: { host: "(default: the gateway; \"gateway\" also works)", count: 10 }, description: "Ping (0.2 s apart): loss and min/avg/max/mdev latency. The latest result per host is kept in checks.pings" },
       async handler(req) {
         const b = await body(req);
         return slowJson(ping(b.host || undefined, b.count != null ? +b.count : 10));

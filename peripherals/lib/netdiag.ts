@@ -275,6 +275,66 @@ export function iperfSummary(end: any, start: any, role: "client" | "server"): I
   return { protocol, reverse, seconds: rcv?.seconds || 0, bytes: rcv?.bytes || 0, bps: rcv?.bits_per_second || 0, retransmits: snd.retransmits ?? null, jitterMs: null, lostPct: null };
 }
 
+/**
+ * iperf3's client error, said plainly. Its connect failures all read "unable to connect to
+ * server - server may have stopped running or use a different port, firewall issue, etc.:
+ * <errno text>" (3.18); the errno text is the useful part.
+ */
+export function iperfError(raw: string, host: string, port: number): string {
+  const s = String(raw || "").trim();
+  const why = s.replace(/^unable to connect to server[^:]*:\s*/i, "");
+  const at = `${host}:${port}`;
+  if (/connection refused/i.test(why)) return `connection refused: no iperf3 server listening on ${at}`;
+  if (/timed out/i.test(why)) return `no answer from ${at} (timed out): host down, or a firewall drops the port`;
+  if (/no route|unreachable/i.test(why)) return `can't reach ${host} (${why})`;
+  if (/name or service|not known|getaddrinfo|resolve|invalid argument/i.test(why) && why !== s) return `couldn't connect to ${at} (${why}): check the host name`;
+  if (/busy/i.test(s)) return `the iperf3 server on ${at} is busy with another test; try again shortly`;
+  return why || s || "iperf3 gave no result";
+}
+
+// ---------- presets ----------
+
+export interface Preset {
+  host: string; // "gateway" (ping only) = the default gateway
+  label: string;
+}
+
+export const DEFAULT_IPERF_PRESETS: Preset[] = [
+  { host: "steamboat.tsl", label: "steamboat · LAN" },
+  { host: "firefly.isozilla.com", label: "firefly · DO SF" },
+  { host: "beelzebub.isozilla.com", label: "beelzebub · Hetzner DE" },
+];
+
+export const DEFAULT_PING_TARGETS: Preset[] = [
+  { host: "gateway", label: "Gateway" },
+  { host: "1.1.1.1", label: "1.1.1.1" },
+  { host: "8.8.8.8", label: "8.8.8.8" },
+  ...DEFAULT_IPERF_PRESETS.map((p) => ({ host: p.host, label: p.label.split(" · ")[0] })),
+];
+
+/** Presets from text, one per line: "host label…" (label optional, # comments). Max 16. */
+export function parsePresets(text: string, allowGateway = false): Preset[] {
+  const out: Preset[] = [];
+  for (const raw of String(text ?? "").split("\n")) {
+    const l = raw.replace(/#.*$/, "").trim();
+    if (!l) continue;
+    const [host, ...rest] = l.split(/\s+/);
+    if (!(allowGateway && host === "gateway")) validHost(host);
+    out.push({ host, label: rest.join(" ") || host });
+  }
+  if (out.length > 16) throw new Error("At most 16 presets");
+  return out;
+}
+
+/** Presets from the API: text, or a list of {host, label}. */
+export function presetsFrom(v: unknown, allowGateway = false): Preset[] {
+  if (typeof v === "string") return parsePresets(v, allowGateway);
+  if (!Array.isArray(v)) throw new Error("presets must be text or a list of {host, label}");
+  return parsePresets(v.map((p: any) => `${p?.host ?? ""} ${String(p?.label ?? "").replace(/[\n#]/g, " ")}`).join("\n"), allowGateway);
+}
+
+export const formatPresets = (list: Preset[]) => list.map((p) => (p.label && p.label !== p.host ? `${p.host} ${p.label}` : p.host)).join("\n");
+
 export function fmtBps(bps: number): string {
   if (!bps) return "0 bit/s";
   const u = ["bit/s", "kbit/s", "Mbit/s", "Gbit/s"];

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mtuSearch, fmtBps, iperfSummary, isErrorCounter, parseEee, parseEthtool, parseEthtoolStats, parseKeyColon, parseLldpNeighbors, parsePing, parseResolvConf, slowJson, validHost } from "../lib/netdiag.ts";
+import { DEFAULT_PING_TARGETS, formatPresets, iperfError, mtuSearch, fmtBps, iperfSummary, parsePresets, presetsFrom, isErrorCounter, parseEee, parseEthtool, parseEthtoolStats, parseKeyColon, parseLldpNeighbors, parsePing, parseResolvConf, slowJson, validHost } from "../lib/netdiag.ts";
 
 // All fixtures below are real output captured on desky (Pi 4, bcmgenet, eth0) unless noted.
 const ethtool = `netlink error: Operation not permitted
@@ -209,4 +209,24 @@ test("path MTU binary search", async () => {
   expect((await mtuSearch(async () => true, 1500)).mtu).toBe(1500);
   expect((await mtuSearch(async () => false, 1500)).mtu).toBeNull();
   expect((await mtuSearch(async (p) => p + 28 <= 9000, 9000)).steps.length).toBe(1);
+});
+
+test("iperf3 connect errors in plain words", () => {
+  // Real iperf3 3.18 "error" events from desky, 2026-10-18.
+  const pre = "unable to connect to server - server may have stopped running or use a different port, firewall issue, etc.: ";
+  expect(iperfError(pre + "Connection refused", "steamboat.tsl", 5201)).toBe("connection refused: no iperf3 server listening on steamboat.tsl:5201");
+  expect(iperfError(pre + "Connection timed out", "10.255.0.77", 5201)).toMatch(/^no answer from 10\.255\.0\.77:5201 \(timed out\)/);
+  expect(iperfError(pre + "Invalid argument", "nosuch.invalid", 5201)).toBe("couldn't connect to nosuch.invalid:5201 (Invalid argument): check the host name");
+  expect(iperfError("the server is busy running a test. try again later", "h", 5201)).toMatch(/busy/);
+  expect(iperfError("", "h", 1)).toBe("iperf3 gave no result");
+});
+
+test("presets: text and list forms", () => {
+  const t = "# mine\nsteamboat.tsl steamboat · LAN\n\n10.0.0.5\n";
+  expect(parsePresets(t)).toEqual([{ host: "steamboat.tsl", label: "steamboat · LAN" }, { host: "10.0.0.5", label: "10.0.0.5" }]);
+  expect(formatPresets(parsePresets(t))).toBe("steamboat.tsl steamboat · LAN\n10.0.0.5");
+  expect(parsePresets("gateway Gateway", true)).toEqual([{ host: "gateway", label: "Gateway" }]);
+  expect(() => parsePresets("-oX=y bad")).toThrow();
+  expect(presetsFrom([{ host: "1.1.1.1", label: "CF\n#x" }])).toEqual([{ host: "1.1.1.1", label: "CF x" }]);
+  expect(presetsFrom(formatPresets(DEFAULT_PING_TARGETS), true)).toEqual(DEFAULT_PING_TARGETS);
 });
