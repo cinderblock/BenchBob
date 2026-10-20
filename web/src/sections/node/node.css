@@ -1,0 +1,5 @@
+/* Node sections. The level dot matches the GPIO panel's. */
+.nd-dot{width:8px;height:8px;border-radius:50%;display:inline-block;vertical-align:middle;margin:0 4px 0 0;background:#333;border:1px solid #555}
+.nd-dot.hi{background:var(--success);border-color:var(--success)}
+.nd-wrap{overflow-x:auto}
+.nd-wrap td:nth-child(4){white-space:nowrap}
