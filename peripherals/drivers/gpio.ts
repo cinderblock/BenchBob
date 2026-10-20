@@ -16,10 +16,26 @@
 // are staged as a diff, applied only with an explicit confirm, backed up first, and need a
 // reboot, which is a second, separate confirm. BENCHBOB_CONFIG_TXT points at a copy for
 // testing, and while it's set reboot is refused outright.
+//
+// Other boards (peripherals/boards/): everything above is the Raspberry Pi path, picked when
+// the board says gpio: "rpi". Elsewhere the panel reads the kernel's gpiochips through the
+// v2 uAPI (lib/gpiochip.ts): every line's name, owner and flags, mapped onto the board's
+// header where it has a map. Levels are only read for lines the user chooses to watch
+// (requested "as is", so nothing about the pin changes; released on unwatch), because the
+// uAPI can't read a level without a request. Pins can't be driven there yet. Boot-time
+// buses are device-tree overlays in armbianEnv.txt / orangepiEnv.txt / extlinux.conf
+// (lib/boot-env.ts), staged and applied with the same diff, backup and reboot steps.
+// BENCHBOB_BOOT_ENV (and BENCHBOB_OVERLAY_DIR) point that editor at test copies.
+// Watching also works on the Pi, for chips other than the SoC's header bank (USB GPIO
+// adapters such as an FT232H or MCP2221, the firmware's expander).
 
 import { access, constants, readdir, readlink } from "node:fs/promises";
+import { readdirSync } from "node:fs";
 import type { ServerWebSocket } from "bun";
+import { board, boardInfo, bootConfigOf, resolveChips } from "../boards/index.ts";
 import { body, HttpError, readText, run, type Ctx, type Driver, type Route, type Tool, type WsData } from "../core.ts";
+import * as BE from "../lib/boot-env.ts";
+import * as GC from "../lib/gpiochip.ts";
 import * as G from "../lib/gpio-config.ts";
 import { openGpioLevels, type GpioLevels } from "../lib/gpiomem.ts";
 
@@ -40,6 +56,7 @@ let loop: ReturnType<typeof setTimeout> | null = null;
 let snap: { at: number; pins: G.PinState[]; lines: G.LineInfo[]; linesAt: number; error: string } = { at: 0, pins: [], lines: [], linesAt: 0, error: "" };
 let lastSent = "";
 let lastSentAt = 0;
+let lastLevels = "";
 let staged: { token: string; text: string; base: string; at: number; summary: string[] } | null = null;
 let rebootRequired = false;
 
@@ -110,11 +127,176 @@ function pinView(p: G.PinState, lines: Map<number, G.LineInfo>) {
 }
 
 function stateView() {
+  if (!isPi()) return chipStateView();
   const lines = socLines(snap.lines);
-  return { at: snap.at, error: snap.error, outputEnabled: outputEnabled(), pins: snap.pins.map((p) => pinView(p, lines)) };
+  return { mode: "rpi", at: snap.at, error: snap.error, outputEnabled: outputEnabled(), pins: snap.pins.map((p) => pinView(p, lines)), chips: chipsView(true), watched: [...watches.keys()] };
 }
 
 const outputEnabled = () => !!ctx.settings.get("outputEnabled", false);
+
+// ---------- gpiochips (every board) ----------
+//
+// The uAPI view: on a Pi only the chips besides the SoC bank (that one is pinctrl's), on
+// every other board all of them, mapped onto the header where the board file has one.
+
+const isPi = () => board().def.gpio === "rpi";
+interface ChipState extends GC.Chip {
+  info: GC.LineInfo[];
+}
+let chipSnap: { at: number; list: ChipState[]; error: string } = { at: 0, list: [], error: "" };
+
+function refreshChips() {
+  try {
+    chipSnap.list = GC.listChips().map((c) => {
+      if (c.error) return { ...c, info: [] };
+      try {
+        return { ...c, info: GC.readLines(c) };
+      } catch (e: any) {
+        return { ...c, error: e.message, info: [] };
+      }
+    });
+    chipSnap.error = "";
+  } catch (e: any) {
+    chipSnap.error = e.message;
+  }
+  chipSnap.at = Date.now();
+  // A chip that went away (a USB adapter unplugged) takes its watches with it.
+  for (const [k, w] of watches) if (!chipSnap.list.some((c) => c.name === w.chip)) unwatch(k);
+  return chipSnap;
+}
+
+/** The Pi's header bank: shown through pinctrl, so not listed (or watchable) as a chip. */
+const isSocBank = (c: { label: string }) => /^pinctrl-(bcm|rp1)/.test(c.label);
+
+function chipsView(otherOnly: boolean) {
+  return chipSnap.list
+    .filter((c) => !otherOnly || !isSocBank(c))
+    .map((c) => ({
+      name: c.name,
+      label: c.label,
+      device: c.device,
+      usb: c.usb,
+      error: c.error || null,
+      count: c.lines,
+      lines: c.info.map((l) => ({ offset: l.offset, name: l.name, consumer: l.consumer, used: l.used, direction: l.direction, flags: l.flags, watched: watches.has(lineKey(c.name, l.offset)) })),
+    }));
+}
+
+/** The board's headers with each GPIO pin's live line info (null where the chip isn't found). */
+function headersView() {
+  const def = board().def;
+  const chips = resolveChips(def, chipSnap.list);
+  return def.headers.map((h) => ({
+    id: h.id,
+    name: h.name,
+    pins: h.pins.map((p) => {
+      if (p.kind !== "gpio") return p;
+      const c = chips.get(p.chip!);
+      const li = c?.info[p.line!];
+      return { ...p, chipName: c?.name ?? null, lineName: li?.name ?? null, consumer: li?.consumer ?? null, used: li?.used ?? null, direction: li?.direction ?? null, flags: li?.flags ?? [], watched: c ? watches.has(lineKey(c.name, p.line!)) : false };
+    }),
+  }));
+}
+
+function chipStateView() {
+  return { mode: "gpiochip", at: chipSnap.at, error: chipSnap.error, board: boardInfo(), headers: headersView(), chips: chipsView(false), watched: [...watches.keys()] };
+}
+
+// ---------- watching lines ----------
+//
+// A watch holds an as-is line request (see lib/gpiochip.ts) so the level can be read at the
+// stream's 10 Hz. It lasts until unwatched or BenchBob stops; it isn't saved, because a
+// held request blocks anything else (a driver, a script) from claiming that line.
+
+const MAX_WATCHES = 64;
+const lineKey = (chip: string, line: number) => `${chip}:${line}`;
+const watches = new Map<string, { chip: string; line: number; w: GC.LineWatch; level: 0 | 1 | null; error: string | null }>();
+
+function watch(chip: string, line: number) {
+  if (!chipSnap.list.some((c) => c.name === chip)) refreshChips();
+  const c = chipSnap.list.find((x) => x.name === chip);
+  if (!c) throw new HttpError(404, `No GPIO chip ${chip}`);
+  if (c.error) throw new HttpError(503, c.error);
+  if (isPi() && isSocBank(c)) throw new HttpError(409, `${chip} is the Pi's header bank: its levels are already live in the GPIO view`);
+  if (!(Number.isInteger(line) && line >= 0 && line < c.lines)) throw new HttpError(400, `${chip} has lines 0–${c.lines - 1}`);
+  const k = lineKey(chip, line);
+  if (watches.has(k)) return watchView(k);
+  if (watches.size >= MAX_WATCHES) throw new HttpError(409, `At most ${MAX_WATCHES} lines can be watched at once`);
+  const li = c.info[line];
+  if (li?.used) throw new HttpError(409, `${chip} line ${line}${li.name ? ` (${li.name})` : ""} is in use by ${li.consumer}; watching it would mean taking it from its owner`);
+  let w: GC.LineWatch;
+  try {
+    w = GC.watchLine(c.path, line, "benchbob");
+  } catch (e: any) {
+    throw new HttpError(e instanceof GC.GpioError && e.errno === 16 ? 409 : 502, e.message);
+  }
+  const x = { chip, line, w, level: null as 0 | 1 | null, error: null as string | null };
+  watches.set(k, x);
+  readWatch(x);
+  ctx.event(`Watching ${chip} line ${line}${li?.name ? ` (${li.name})` : ""}`);
+  refreshChips();
+  ctx.changed();
+  if (watchers.size) startLoop();
+  return watchView(k);
+}
+
+function unwatch(k: string) {
+  const x = watches.get(k);
+  if (!x) return false;
+  x.w.close();
+  watches.delete(k);
+  return true;
+}
+
+function readWatch(x: { w: GC.LineWatch; level: 0 | 1 | null; error: string | null }) {
+  try {
+    x.level = x.w.read();
+    x.error = null;
+  } catch (e: any) {
+    x.level = null;
+    x.error = e.message;
+  }
+}
+
+function levelsView() {
+  return Object.fromEntries([...watches].map(([k, x]) => [k, x.error ? { level: null, error: x.error } : { level: x.level }]));
+}
+
+function watchView(k: string) {
+  const x = watches.get(k)!;
+  return { key: k, chip: x.chip, line: x.line, level: x.level, error: x.error };
+}
+
+/**
+ * One-shot reads for the API and MCP: a watched line's last level, otherwise an as-is
+ * request held just long enough to read it. Same refusal as watching for lines in use.
+ */
+function readOnce(chip: string, line: number): { chip: string; line: number; name: string | null; level: 0 | 1 | null; error?: string } {
+  const k = lineKey(chip, line);
+  const x = watches.get(k);
+  if (x) {
+    readWatch(x);
+    return { chip, line, name: chipSnap.list.find((c) => c.name === chip)?.info[line]?.name || null, level: x.level, ...(x.error ? { error: x.error } : {}) };
+  }
+  if (!chipSnap.list.some((c) => c.name === chip)) refreshChips();
+  const c = chipSnap.list.find((y) => y.name === chip);
+  const name = c?.info[line]?.name || null;
+  try {
+    if (!c) throw new Error(`No GPIO chip ${chip}`);
+    if (isPi() && isSocBank(c)) throw new Error("the Pi's header bank: use gpios instead");
+    const li = c.info[line];
+    if (!li) throw new Error(`${chip} has lines 0–${c.lines - 1}`);
+    if (li.used) throw new Error(`in use by ${li.consumer}`);
+    const w = GC.watchLine(c.path, line, "benchbob");
+    try {
+      return { chip, line, name, level: w.read() };
+    } finally {
+      w.close();
+    }
+  } catch (e: any) {
+    return { chip, line, name, level: null, error: e.message };
+  }
+}
 
 // ---------- streaming ----------
 
@@ -133,9 +315,13 @@ function startLoop() {
       loop = null;
       return;
     }
-    levels ??= openGpioLevels();
-    if (!levels || Date.now() - snap.at > FULL_MS) await refresh(Date.now() - snap.linesAt > CONSUMERS_MS);
-    else overlayLevels(levels.read());
+    if (isPi()) {
+      levels ??= openGpioLevels();
+      if (!levels || Date.now() - snap.at > FULL_MS) await refresh(Date.now() - snap.linesAt > CONSUMERS_MS);
+      else overlayLevels(levels.read());
+      // Other chips (USB adapters) change rarely: their line info at the consumers' pace.
+      if (Date.now() - chipSnap.at > CONSUMERS_MS) refreshChips();
+    } else if (Date.now() - chipSnap.at > FULL_MS) refreshChips();
     const msg = JSON.stringify({ type: "state", ...stateView() });
     // Only push changes, plus a heartbeat so clients can show "live".
     const body = msg.replace(/"at":\d+,/, "");
@@ -143,6 +329,15 @@ function startLoop() {
       lastSent = body;
       lastSentAt = Date.now();
       for (const ws of watchers) ws.send(msg);
+    }
+    // Watched lines' levels go separately, so a toggling input doesn't resend every chip.
+    if (watches.size) {
+      for (const x of watches.values()) readWatch(x);
+      const lv = JSON.stringify({ type: "levels", levels: levelsView() });
+      if (lv !== lastLevels) {
+        lastLevels = lv;
+        for (const ws of watchers) ws.send(lv);
+      }
     }
     loop = watchers.size ? setTimeout(tick, STREAM_MS) : null;
   };
@@ -152,6 +347,7 @@ function startLoop() {
 // ---------- output control ----------
 
 async function writePin(gpio: number, a: { mode?: string; pull?: string }) {
+  if (!isPi()) throw new HttpError(409, `Driving pins is only implemented on the Raspberry Pi so far; on ${board().name} lines can be watched (POST /api/gpio/watch) but not set`);
   if (!outputEnabled()) throw new HttpError(403, "GPIO output control is off. Enable it first (POST /api/gpio/output-control with enabled: true, confirm: true).");
   if (!pinctrlBin) throw new HttpError(503, "pinctrl not found");
   await refresh(true);
@@ -419,18 +615,170 @@ async function apply(a: any) {
     staged = null;
     throw new HttpError(409, `${CONFIG} changed since the diff was made; stage again`);
   }
-  const ts = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
-  const backup = `${CONFIG}.bak-${ts}`;
-  const cp = await run(["cp", "-p", CONFIG, backup]);
-  if (cp.code !== 0) {
-    const s = await run(["sudo", "-n", "cp", "-p", CONFIG, backup]);
-    if (s.code !== 0) throw new HttpError(502, `backup failed: ${s.err}`);
-  }
-  await writeRoot(CONFIG, staged.text);
+  const backup = await backupAndWrite(CONFIG, staged.text);
   const summary = staged.summary;
   staged = null;
   rebootRequired = true;
   ctx.event(`config.txt changed (${summary.join(", ")}); backup ${backup}; reboot required`);
+  ctx.changed();
+  return { ok: true, backup, summary, rebootRequired: true, message: "Saved. The change takes effect after a reboot." };
+}
+
+/** Copy `path` to path.bak-<timestamp> (as root if need be), then write `text`. Returns the backup's path. */
+async function backupAndWrite(path: string, text: string) {
+  const ts = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+  const backup = `${path}.bak-${ts}`;
+  const cp = await run(["cp", "-p", path, backup]);
+  if (cp.code !== 0) {
+    const s = await run(["sudo", "-n", "cp", "-p", path, backup]);
+    if (s.code !== 0) throw new HttpError(502, `backup failed: ${s.err}`);
+  }
+  await writeRoot(path, text);
+  return backup;
+}
+
+// ---------- boot overlays (boards other than the Pi) ----------
+//
+// The list U-Boot applies at boot, in whichever file this image keeps it (boards/*.ts list
+// the candidates). Only overlays installed on this image can be enabled (a missing .dtbo
+// makes U-Boot skip it or, on Armbian, run its fixup script), and a change that puts two
+// of the board's documented overlays on one pin is refused, as on the Pi.
+
+const ENV_OVERRIDE = process.env.BENCHBOB_BOOT_ENV || "";
+const DIR_OVERRIDE = process.env.BENCHBOB_OVERLAY_DIR || "";
+let stagedOv: { token: string; text: string; base: string; path: string; at: number; summary: string[] } | null = null;
+
+function overlayTarget() {
+  const def = board().def;
+  const bc = def.bootConfig;
+  if (!bc) return null;
+  const found = bootConfigOf(def);
+  const kind = ENV_OVERRIDE ? (found?.kind ?? bc.files.find((f) => f.kind !== "config.txt")?.kind) : found?.kind;
+  if (!kind || kind === "config.txt") return null;
+  return { kind, path: ENV_OVERRIDE || found!.path, env: (kind === "extlinux" ? "extlinux" : "env") as BE.EnvKind, bc, testCopy: !!ENV_OVERRIDE };
+}
+
+function noOverlays(): string {
+  const b = board();
+  if (isPi()) return "This is a Raspberry Pi: its buses are in config.txt (GET /api/gpio/interfaces)";
+  const files = b.def.bootConfig?.files.map((f) => f.path) || [];
+  return files.length ? `None of ${files.join(", ")} exists on this image, so BenchBob can't change boot overlays here${b.def.notes?.length ? ` (${b.def.notes.join(" ")})` : ""}` : `BenchBob doesn't know where ${b.name} keeps its boot configuration`;
+}
+
+type Target = NonNullable<ReturnType<typeof overlayTarget>>;
+
+/** The board's documented overlay that this name (an installed file's, or one in overlays=) is. */
+function known(t: Target, name: string) {
+  const short = name.replace(/^.*\//, "").replace(/\.dtbo$/, "");
+  return (t.bc.overlays || []).find((o) => [o.name, ...(o.aliases || [])].some((n) => short === n || short.endsWith(`-${n}`))) || null;
+}
+
+/** .dtbo files this image has, as they'd be written in the boot file. */
+function installedOverlays(t: Target, prefix: string | null) {
+  const out: { name: string; file: string; what: string | null; pins: number[] }[] = [];
+  for (const dir of DIR_OVERRIDE ? [DIR_OVERRIDE] : t.bc.overlayDirs || []) {
+    let files: string[] = [];
+    try {
+      files = readdirSync(dir).filter((f) => f.endsWith(".dtbo")).sort();
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      const base = f.slice(0, -5);
+      // env: Armbian/Orange Pi load <prefix>-<name>.dtbo, so the short name is written;
+      // a file without the prefix is written whole (the boot scripts try that too).
+      const name = t.env === "extlinux" ? `${t.bc.overlayRef ?? dir + "/"}${f}` : prefix && base.startsWith(`${prefix}-`) ? base.slice(prefix.length + 1) : base;
+      const k = known(t, name);
+      out.push({ name, file: `${dir}/${f}`, what: k?.what ?? null, pins: k?.pins ?? [] });
+    }
+  }
+  return out;
+}
+
+function overlayConflicts(t: Target, enabled: string[]) {
+  const by = new Map<number, string[]>();
+  for (const n of enabled) for (const p of known(t, n)?.pins || []) by.set(p, [...(by.get(p) || []), n]);
+  return [...by].filter(([, u]) => u.length > 1).map(([pin, users]) => ({ pin, users })).sort((a, b) => a.pin - b.pin);
+}
+
+async function readTarget(t: Target) {
+  // Raw text: the diff and the write keep the file's own line endings.
+  return Bun.file(t.path).text().catch(() => {
+    throw new HttpError(500, `Can't read ${t.path}`);
+  });
+}
+
+async function overlaysInfo() {
+  const t = overlayTarget();
+  if (!t) throw new HttpError(409, noOverlays());
+  const cur = BE.readOverlays(t.env, await readTarget(t));
+  const installed = installedOverlays(t, cur.prefix);
+  return {
+    kind: t.kind,
+    path: t.path,
+    testCopy: t.testCopy,
+    prefix: cur.prefix,
+    label: cur.label,
+    enabled: cur.enabled.map((n) => ({ name: n, what: known(t, n)?.what ?? null, pins: known(t, n)?.pins ?? [], installed: installed.some((i) => i.name === n) })),
+    user: cur.user,
+    installed,
+    overlayDirs: DIR_OVERRIDE ? [DIR_OVERRIDE] : t.bc.overlayDirs || [],
+    conflicts: overlayConflicts(t, cur.enabled),
+    rebootRequired,
+    staged: stagedOv ? { token: stagedOv.token, summary: stagedOv.summary, at: stagedOv.at } : null,
+  };
+}
+
+async function stageOverlays(a: any) {
+  const t = overlayTarget();
+  if (!t) throw new HttpError(409, noOverlays());
+  const list = (v: any, what: string): string[] => {
+    if (v == null) return [];
+    if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) throw new HttpError(400, `${what} must be a list of overlay names`);
+    return v;
+  };
+  const enable = list(a.enable, "enable"), disable = list(a.disable, "disable");
+  const raw = await readTarget(t);
+  const cur = BE.readOverlays(t.env, raw);
+  const installed = installedOverlays(t, cur.prefix);
+  const missing = enable.filter((n) => !cur.enabled.includes(n) && !installed.some((i) => i.name === n));
+  if (missing.length) throw new HttpError(400, `Not installed on this image: ${missing.join(", ")} (looked in ${(DIR_OVERRIDE ? [DIR_OVERRIDE] : t.bc.overlayDirs || []).join(", ") || "no overlay directory"})`);
+  let next: string;
+  try {
+    next = BE.editOverlays(t.env, raw, { enable, disable });
+  } catch (e: any) {
+    throw new HttpError(400, e.message);
+  }
+  const after = BE.readOverlays(t.env, next).enabled;
+  const key = (c: { pin: number; users: string[] }) => `${c.pin}:${c.users.join("|")}`;
+  const had = new Set(overlayConflicts(t, cur.enabled).map(key));
+  const fresh = overlayConflicts(t, after).filter((c) => !had.has(key(c)));
+  if (fresh.length) throw new HttpError(400, `Pin conflict: ${fresh.map((c) => `pin ${c.pin} would be ${c.users.join(" and ")}`).join("; ")}. Turn one off first.`);
+  const warnings = overlayConflicts(t, after).map((c) => `Pin ${c.pin} is already claimed by ${c.users.join(" and ")}; only one of them can work.`);
+  for (const n of after) if (!known(t, n) && !cur.enabled.includes(n)) warnings.push(`${n} isn't one of the overlays documented for ${board().name}, so its pins can't be checked for conflicts.`);
+  const diff = G.unifiedDiff(raw, next, t.path);
+  if (!diff) {
+    stagedOv = null;
+    return { diff: "", summary: [], warnings, message: `No change: ${t.path} already says that.` };
+  }
+  const summary = [...after.filter((n) => !cur.enabled.includes(n)).map((n) => `${n} on`), ...cur.enabled.filter((n) => !after.includes(n)).map((n) => `${n} off`)];
+  stagedOv = { token: crypto.randomUUID(), text: next, base: raw, path: t.path, at: Date.now(), summary };
+  return { token: stagedOv.token, diff, summary, warnings, configPath: t.path, testCopy: t.testCopy };
+}
+
+async function applyOverlays(a: any) {
+  if (a.confirm !== true) throw new HttpError(400, 'Applying changes the boot configuration; repeat with "confirm": true');
+  if (!stagedOv || stagedOv.token !== a.token) throw new HttpError(409, "Nothing staged with that token (stage again)");
+  const path = stagedOv.path;
+  if ((await Bun.file(path).text()) !== stagedOv.base) {
+    stagedOv = null;
+    throw new HttpError(409, `${path} changed since the diff was made; stage again`);
+  }
+  const backup = await backupAndWrite(path, stagedOv.text);
+  const summary = stagedOv.summary;
+  stagedOv = null;
+  rebootRequired = true;
+  ctx.event(`Boot overlays changed in ${path} (${summary.join(", ")}); backup ${backup}; reboot required`);
   ctx.changed();
   return { ok: true, backup, summary, rebootRequired: true, message: "Saved. The change takes effect after a reboot." };
 }
@@ -440,10 +788,11 @@ async function apply(a: any) {
 const sockets = [
   {
     path: "/ws/gpio",
-    doc: "Live GPIO state while connected: {type:'state', pins:[{gpio, header, func, level, pull, consumer, refusal}], outputEnabled}, pushed on change (polled at 10 Hz) plus a 2 s heartbeat. Polling stops when the last client disconnects.",
+    doc: "Live GPIO state while connected: {type:'state', mode:'rpi', pins:[{gpio, header, func, level, pull, consumer, refusal}], outputEnabled, chips} on a Pi, or {type:'state', mode:'gpiochip', headers, chips} elsewhere (as GET /api/gpio), pushed on change (polled at 10 Hz) plus a 2 s heartbeat; {type:'levels', levels:{'gpiochip2:17':{level}}} when a watched line changes. Polling stops when the last client disconnects.",
     open(ws: ServerWebSocket<WsData>) {
       watchers.add(ws);
-      if (snap.at) ws.send(JSON.stringify({ type: "state", ...stateView() }));
+      if (isPi() ? snap.at : chipSnap.at) ws.send(JSON.stringify({ type: "state", ...stateView() }));
+      if (watches.size) ws.send(JSON.stringify({ type: "levels", levels: levelsView() }));
       startLoop();
     },
     close(ws: ServerWebSocket<WsData>) {
@@ -456,11 +805,45 @@ const routes: Route[] = [
   {
     method: "GET",
     path: "/api/gpio",
-    doc: "GPIO bank state now (pinctrl + gpioinfo): function/alt name, level, pull, kernel consumer, and why a pin can't be driven; plus the 40-pin header map",
+    doc: "GPIO state now. Raspberry Pi (mode rpi): the SoC bank from pinctrl + gpioinfo (function/alt name, level, pull, kernel consumer, why a pin can't be driven) and the 40-pin header map, plus other gpiochips (USB adapters). Other boards (mode gpiochip): every gpiochip line (name, consumer, direction, flags) and the board's headers with each pin's line. levels: the watched lines. board: which board this is and whether it's been tested",
     handler: async () => {
+      refreshChips();
+      if (!isPi()) return { ...stateView(), levels: levelsView() };
       await refresh(true);
-      return { ...stateView(), header: G.HEADER };
+      return { ...stateView(), header: G.HEADER, board: boardInfo(), levels: levelsView() };
     },
+  },
+  {
+    method: "POST",
+    path: "/api/gpio/watch",
+    doc: { description: "Start or stop watching a gpiochip line's level (streamed on /ws/gpio as {type:'levels'}). The line is requested as-is, so its direction, bias and drive don't change; lines in use by a driver are refused. Not for the Pi's header bank, whose levels are always live", body: { chip: "gpiochip2", line: 17, watch: true } },
+    handler: async (req) => {
+      const a = await body(req);
+      const chip = String(a.chip || ""), line = Number(a.line);
+      if (!/^gpiochip\d+$/.test(chip)) throw new HttpError(400, 'chip must be a gpiochip name, e.g. "gpiochip2"');
+      if (a.watch === false) {
+        const was = unwatch(lineKey(chip, line));
+        if (was) {
+          refreshChips();
+          ctx.changed();
+        }
+        return { ok: true, watching: false };
+      }
+      return { ok: true, watching: true, ...watch(chip, line) };
+    },
+  },
+  { method: "GET", path: "/api/gpio/overlays", doc: "Boards other than the Pi: the device-tree overlays the boot file enables (armbianEnv.txt, orangepiEnv.txt or extlinux.conf), the ones installed on this image, which header pins each documented one takes, and conflicts", handler: () => overlaysInfo() },
+  {
+    method: "POST",
+    path: "/api/gpio/overlays/stage",
+    doc: { description: "Compute a boot-overlay change and return a unified diff + token. Nothing is written. Only installed overlays can be enabled; a change that puts two documented overlays on one pin is refused (400)", body: { enable: ["i2c5-m3"], disable: ["uart1-m1"] } },
+    handler: async (req) => stageOverlays(await body(req)),
+  },
+  {
+    method: "POST",
+    path: "/api/gpio/overlays/apply",
+    doc: { description: "Write the staged overlay change (backup first: <file>.bak-<timestamp>). Needs the stage token and confirm: true. Takes effect after a reboot", body: { token: "…", confirm: true } },
+    handler: async (req) => applyOverlays(await body(req)),
   },
   {
     method: "POST",
@@ -475,27 +858,28 @@ const routes: Route[] = [
       return { outputEnabled: !!a.enabled };
     },
   },
-  { method: "GET", path: "/api/gpio/interfaces", doc: "I²C / SPI / UART / 1-Wire and the extra I²C/UART controllers: what config.txt says ([all] context), what is live now, the GPIOs each uses and any pin conflicts", handler: () => interfaces() },
+  { method: "GET", path: "/api/gpio/interfaces", doc: "Raspberry Pi: I²C / SPI / UART / 1-Wire and the extra I²C/UART controllers: what config.txt says ([all] context), what is live now, the GPIOs each uses and any pin conflicts. Other boards: see /api/gpio/overlays", handler: () => piOnly(interfaces) },
   {
     method: "POST",
     path: "/api/gpio/interfaces/stage",
     doc: { description: "Compute a config.txt change and return a unified diff + token. Nothing is written. extraI2c (i2c3–6, pins = pins_a_b), extraUart (uart2–5) and i2cGpio are offered on BCM2711 boards only (see catalog in GET /api/gpio/interfaces). A change that puts two interfaces on one GPIO is refused (400)", body: { i2c: { enabled: true, baudrate: 400000 }, spi: { enabled: true }, uart: { enabled: true }, onewire: { enabled: true, pin: 4 }, extraI2c: { i2c6: { enabled: true, pins: "pins_22_23", baudrate: 400000 } }, extraUart: { uart2: { enabled: true, ctsrts: false } }, i2cGpio: { enabled: false, sda: 23, scl: 24, bus: 11 } } },
-    handler: async (req) => stage(await body(req)),
+    handler: async (req) => piOnly(async () => stage(await body(req))),
   },
   {
     method: "POST",
     path: "/api/gpio/interfaces/apply",
     doc: { description: "Write the staged config.txt (backup first: config.txt.bak-<timestamp>). Needs the stage token and confirm: true. Takes effect after a reboot", body: { token: "…", confirm: true } },
-    handler: async (req) => apply(await body(req)),
+    handler: async (req) => piOnly(async () => apply(await body(req))),
   },
   {
     method: "POST",
     path: "/api/gpio/reboot",
-    doc: { description: 'Reboot the Pi so config.txt changes take effect. Requires confirm: "REBOOT"', body: { confirm: "REBOOT" } },
+    doc: { description: 'Reboot so config.txt or boot-overlay changes take effect. Requires confirm: "REBOOT"', body: { confirm: "REBOOT" } },
     handler: async (req) => {
       const a = await body(req);
       if (a.confirm !== "REBOOT") throw new HttpError(400, 'Rebooting needs confirm: "REBOOT"');
       if (CONFIG_OVERRIDDEN) throw new HttpError(409, `Refusing to reboot: BENCHBOB_CONFIG_TXT points at a test copy (${CONFIG})`);
+      if (ENV_OVERRIDE) throw new HttpError(409, `Refusing to reboot: BENCHBOB_BOOT_ENV points at a test copy (${ENV_OVERRIDE})`);
       ctx.event("Reboot requested from the GPIO panel");
       setTimeout(() => void run(["sudo", "-n", "systemctl", "reboot"]), 500);
       return { ok: true, message: "Rebooting in a moment" };
@@ -514,15 +898,48 @@ const routes: Route[] = [
   },
 ];
 
+/** config.txt routes on a board that has none: say where to look instead. */
+async function piOnly<T>(f: () => Promise<T>): Promise<T> {
+  if (!isPi()) throw new HttpError(409, `${board().name} isn't a Raspberry Pi: there is no config.txt. ${overlayTarget() ? "Boot overlays: GET /api/gpio/overlays" : noOverlays()}`);
+  return f();
+}
+
+/** gpio_read's lines argument: [{chip, line}], read once each. */
+function readLinesArg(v: any) {
+  if (!Array.isArray(v) || !v.length) return undefined;
+  refreshChips();
+  return v.slice(0, 64).map((x) => readOnce(String(x?.chip), Number(x?.line)));
+}
+
+/** A compact header view for agents: GPIO pins with their line and owner. */
+function headersForTool() {
+  return headersView().map((h) => ({
+    header: h.name,
+    pins: h.pins.filter((p: any) => p.kind === "gpio").map((p: any) => ({ pin: p.pin, soc: p.soc, chip: p.chipName, line: p.line, lineName: p.lineName, consumer: p.consumer, direction: p.direction, funcs: p.funcs || [] })),
+  }));
+}
+
 const tools: Tool[] = [
   {
     name: "gpio_read",
-    description: "Read Raspberry Pi GPIO state: for each pin the function (input/output/ALT name like SDA1, TXD1), level, pull, header pin number and kernel consumer. Optionally limit to a list of BCM GPIO numbers.",
-    inputSchema: { type: "object", properties: { gpios: { type: "array", items: { type: "integer", minimum: 0, maximum: 57 }, description: "BCM numbers; default all of 0–27" } } },
+    description:
+      "Read GPIO state. On a Raspberry Pi: for each pin the function (input/output/ALT name like SDA1, TXD1), level, pull, header pin number and kernel consumer; optionally limit to a list of BCM GPIO numbers. On other boards: the board's header pins with their gpiochip line, owner and direction, and every chip's lines in use. `lines` reads levels of specific gpiochip lines (any board, incl. USB GPIO adapters) with an as-is request, so the pin isn't reconfigured; lines a driver holds can't be read.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        gpios: { type: "array", items: { type: "integer", minimum: 0, maximum: 57 }, description: "Raspberry Pi: BCM numbers; default all of 0–27" },
+        lines: { type: "array", items: { type: "object", properties: { chip: { type: "string", description: "e.g. gpiochip2" }, line: { type: "integer", minimum: 0 } }, required: ["chip", "line"] }, description: "gpiochip lines to read once" },
+      },
+    },
     handler: async (a) => {
+      const lines = readLinesArg(a.lines);
+      if (!isPi()) {
+        refreshChips();
+        return { board: boardInfo(), headers: headersForTool(), chips: chipsView(false).map((c) => ({ name: c.name, label: c.label, device: c.device, usb: c.usb, lines: c.count, error: c.error, inUse: c.lines.filter((l) => l.used).map((l) => ({ line: l.offset, name: l.name, consumer: l.consumer, direction: l.direction })) })), ...(lines ? { read: lines } : {}) };
+      }
       await refresh(true);
       const want = Array.isArray(a.gpios) && a.gpios.length ? new Set(a.gpios.map(Number)) : null;
-      return { outputEnabled: outputEnabled(), pins: stateView().pins.filter((p) => (want ? want.has(p.gpio) : p.gpio <= 27)) };
+      return { outputEnabled: outputEnabled(), pins: (stateView() as { pins: ReturnType<typeof pinView>[] }).pins.filter((p) => (want ? want.has(p.gpio) : p.gpio <= 27)), ...(lines ? { read: lines } : {}) };
     },
   },
   {
@@ -533,9 +950,9 @@ const tools: Tool[] = [
   },
   {
     name: "gpio_interfaces",
-    description: "Show whether I²C (and extra buses i2c3–6, i2c-gpio), SPI, UART (extra UARTs uart2–5, and the serial console) and 1-Wire are enabled, which GPIOs each uses, and any pin conflicts, both in /boot/firmware/config.txt and live. Read-only; changing them is done from the dashboard (needs a reboot).",
+    description: "Raspberry Pi: show whether I²C (and extra buses i2c3–6, i2c-gpio), SPI, UART (extra UARTs uart2–5, and the serial console) and 1-Wire are enabled, which GPIOs each uses, and any pin conflicts, both in /boot/firmware/config.txt and live. Other boards: the boot device-tree overlays (armbianEnv.txt, orangepiEnv.txt or extlinux.conf), the installed ones and the header pins each takes. Read-only; changing them is done from the dashboard (needs a reboot).",
     inputSchema: { type: "object", properties: {} },
-    handler: () => interfaces(),
+    handler: async () => (isPi() ? interfaces() : overlayTarget() ? overlaysInfo() : { board: boardInfo(), message: noOverlays() }),
   },
 ];
 
@@ -543,11 +960,12 @@ const driver: Driver = {
   id: "gpio",
   title: "GPIO",
   order: 42,
-  description: "Live GPIO header view, opt-in output control, and I²C/SPI/UART/1-Wire switches in config.txt",
+  description: "Live GPIO header view (Raspberry Pi and mapped boards) or gpiochip lines, opt-in output control on the Pi, and the boot-time bus switches (config.txt, or device-tree overlays elsewhere)",
   async init(c) {
     ctx = c;
     pinctrlBin = Bun.which("pinctrl", { PATH });
     gpioinfoBin = Bun.which("gpioinfo", { PATH });
+    refreshChips();
   },
   stop() {
     if (loop) clearTimeout(loop);
@@ -556,17 +974,38 @@ const driver: Driver = {
     watchers.clear();
     levels?.close();
     levels = null;
+    for (const k of [...watches.keys()]) unwatch(k);
   },
   status() {
     const on = outputEnabled();
+    const b = boardInfo();
+    if (!isPi()) {
+      const h = board().def.headers;
+      const t = overlayTarget();
+      return {
+        active: watches.size > 0,
+        summary: `${h.length ? h.map((x) => x.name).join(" + ") : `${chipSnap.list.length} GPIO chip${chipSnap.list.length === 1 ? "" : "s"}`}${watches.size ? ` · watching ${watches.size}` : ""}${b.tested ? "" : " · untested board"}${rebootRequired ? " · reboot required" : ""}`,
+        mode: "gpiochip",
+        board: b,
+        watchers: watchers.size,
+        watching: watches.size,
+        rebootRequired,
+        bootConfig: t ? { kind: t.kind, path: t.path, testCopy: t.testCopy } : null,
+        header: h[0]?.pins || [],
+      };
+    }
     return {
       active: on,
-      summary: `40-pin header${on ? " · output control ON" : ""}${rebootRequired ? " · reboot required" : ""}`,
+      summary: `40-pin header${on ? " · output control ON" : ""}${rebootRequired ? " · reboot required" : ""}${b.tested ? "" : " · untested board"}`,
+      mode: "rpi",
+      board: b,
       outputEnabled: on,
       watchers: watchers.size,
+      watching: watches.size,
       rebootRequired,
       configPath: CONFIG,
       testCopy: CONFIG_OVERRIDDEN,
+      bootConfig: { kind: "config.txt", path: CONFIG, testCopy: CONFIG_OVERRIDDEN },
       tools: { pinctrl: !!pinctrlBin, gpioinfo: !!gpioinfoBin },
       header: G.HEADER,
     };

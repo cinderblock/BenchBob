@@ -1,8 +1,13 @@
 // GPIO panel: live 40-pin header (or table) over /ws/gpio, opt-in output control, and the
 // config.txt interface switches (stage → diff → confirm → backup + write → reboot confirm).
 // The WebSocket only exists while this section is open, so the server only polls then.
+//
+// Boards other than the Pi (state.mode 'gpiochip'): the board's headers mapped onto
+// gpiochip lines, every chip's lines, per-line watching for levels, and boot overlays
+// (same stage → diff → apply → reboot flow). Untested boards say so above the header.
 (() => {
   let root = null, sock = null, pins = [], st = null, view = 'header', live = 0, err = '';
+  let gs = null, chips = [], levels = {}; // gpiochip state (any board) and watched lines' levels
   try { view = localStorage.getItem('gpioView') || 'header'; } catch {}
 
   const CSS = `
@@ -72,11 +77,135 @@
       ${st?.outputEnabled ? `<td>${canDrive(p) ? `<button class="btn btn-sm" data-act="pin" data-g="${p.gpio}">Set…</button>` : ''}</td>` : ''}</tr>`).join('')}</table></div>`;
   }
 
+  // ---------- gpiochip boards ----------
+
+  const lv = (chip, line) => levels[`${chip}:${line}`];
+  const lvDot = l => l && l.level != null ? `<span class="gp-dot${l.level ? ' hi' : ''}"></span>` : '';
+  const gcls = p => !p.chipName || !p.direction ? 'gp-off' : p.direction === 'output' ? 'gp-out' : 'gp-in';
+  const lineText = p => [p.direction, p.consumer ? `used by ${p.consumer}` : '', p.flags?.filter(f => !['used', 'input', 'output'].includes(f)).join(' ')].filter(Boolean).join(' · ');
+
+  function boardNotes(b) {
+    if (!b) return '';
+    let h = '';
+    if (!b.tested) h += `<div class="pr-note" style="color:var(--warning)">Untested board: BenchBob's ${b.capabilities?.headers?.length ? 'pin map' : 'support'} for ${esc(b.name)} comes from the vendor's documentation and the kernel device tree, but nobody has run BenchBob on one yet. Check pins against the vendor's pinout before wiring anything.${b.sources?.length ? ` Sources: ${b.sources.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener">${i + 1}</a>`).join(' ')}` : ''}</div>`;
+    for (const n of b.notes || []) h += `<div class="pr-note">${esc(n)}</div>`;
+    return h;
+  }
+
+  function gLabel(p, side) {
+    if (p.kind !== 'gpio') return `<div class="gp-${side}">${esc(p.kind === 'gnd' ? 'GND' : p.kind === '3v3' ? '3.3 V' : p.kind === '5v' ? '5 V' : p.kind === 'nc' ? 'NC' : p.label || '')}</div>`;
+    const l = p.chipName ? lv(p.chipName, p.line) : null;
+    const name = `<b>${esc(p.soc)}</b>`;
+    const sub = [p.chipName ? `${p.chipName} line ${p.line}${p.lineName && p.lineName !== p.soc ? ` "${p.lineName}"` : ''}` : 'chip not found', p.chipName ? lineText(p) : '', p.funcs?.length ? p.funcs.join(', ') : '', p.note || ''].filter(Boolean).join(' · ');
+    const main = side === 'l' ? `${lvDot(l)}${name}` : `${name}${lvDot(l)}`;
+    return `<div class="gp-${side}">${main}<small>${esc(sub)}</small></div>`;
+  }
+
+  function gPin(p) {
+    const k = p.kind === 'gpio' ? gcls(p) : p.kind === 'other' || p.kind === 'nc' ? 'gp-off' : 'gp-' + p.kind;
+    const click = p.kind === 'gpio' && p.chipName;
+    return `<button class="gp-pin ${k}${p.used ? ' gp-claimed' : ''}${click ? ' click' : ''}" ${click ? `data-act="gline" data-c="${esc(p.chipName)}" data-l="${p.line}"` : 'tabindex="-1"'} aria-label="Pin ${p.pin}">${p.pin}</button>`;
+  }
+
+  function gHeaderHtml(h) {
+    // Two-row headers (26/40/46 pins) as on the board; a single-row one (the Zero 3's 13-pin) as a list.
+    if (h.pins.length % 2) return `<div style="overflow-x:auto"><table class="pr-tbl"><tr><th>Pin</th><th>Name</th><th>Line</th><th>State</th><th>Functions</th></tr>${h.pins.map(p => `<tr><td>${p.pin}</td><td>${esc(p.soc || p.label || p.kind.toUpperCase())}</td><td>${p.chipName ? `${esc(p.chipName)}:${p.line}` : p.kind === 'gpio' ? '—' : ''}</td><td>${p.kind === 'gpio' ? lvDot(p.chipName && lv(p.chipName, p.line)) + esc(lineText(p)) : ''}</td><td>${esc((p.funcs || []).join(', '))}${p.note ? `<span class="pr-note">${esc(p.note)}</span>` : ''}</td></tr>`).join('')}</table></div>`;
+    let s = '<div class="gp-hdr">';
+    for (let i = 0; i < h.pins.length; i += 2) s += gLabel(h.pins[i], 'l') + gPin(h.pins[i]) + gPin(h.pins[i + 1]) + gLabel(h.pins[i + 1], 'r');
+    return s + '</div><div class="gp-key"><span><i class="gp-in"></i>input</span><span><i class="gp-out"></i>output</span><span><i style="border:2px solid var(--warning)"></i>in use</span><span><span class="gp-dot hi" style="margin:0"></span>high (watched lines)</span><span><i class="gp-3v3"></i>3.3 V</span><span><i class="gp-5v"></i>5 V</span><span><i class="gp-gnd"></i>GND</span></div>';
+  }
+
+  function chipsHtml(list) {
+    return list.map(c => `<div class="pr-card"><h4>${esc(c.name)} <small>${esc(c.label)}${c.device ? ` · ${esc(c.device)}` : ''}${c.usb ? ' · USB' : ''} · ${c.count} lines</small></h4>
+      ${c.error ? `<div class="pr-note" style="color:var(--danger)">${esc(c.error)}</div>` : `<div style="overflow-x:auto"><table class="pr-tbl"><tr><th>Line</th><th>Name</th><th>Used by</th><th>State</th><th>Level</th><th></th></tr>${c.lines.map(l => {
+        const x = lv(c.name, l.offset);
+        return `<tr><td>${l.offset}</td><td>${esc(l.name || '')}</td><td>${esc(l.watched ? 'benchbob (watching)' : l.consumer || '')}</td><td>${esc(l.flags.filter(f => f !== 'used').join(' '))}</td><td>${x ? (x.error ? `<span class="pr-note">${esc(x.error)}</span>` : lvDot(x) + (x.level ? 'high' : 'low')) : '—'}</td>
+          <td>${l.watched ? `<button class="btn btn-sm" data-act="unwatch" data-c="${esc(c.name)}" data-l="${l.offset}">Stop</button>` : l.used ? '' : `<button class="btn btn-sm" data-act="watch" data-c="${esc(c.name)}" data-l="${l.offset}" title="Requests the line as-is (direction, bias and drive unchanged) to read its level; released when you stop">Watch</button>`}</td></tr>`;
+      }).join('')}</table></div>`}</div>`).join('');
+  }
+
+  function renderChips() {
+    const b = gs.board || st.board;
+    const heads = gs.headers || [];
+    const chipsOpen = root.querySelector('#gp-allchips')?.open;
+    root.innerHTML = `
+      <div class="pr-row">
+        <span class="pr-pill ${live && Date.now() - live < 4000 ? 'on' : 'warn'}">${live && Date.now() - live < 4000 ? 'live' : 'connecting'}</span>
+        ${st.bootConfig ? '<button class="btn btn-sm" data-act="overlays">Boot overlays…</button>' : ''}
+        <span class="pr-note">${esc(b?.name || '')}${b?.soc ? ` · ${esc(b.soc)}` : ''}</span>
+      </div>
+      ${boardNotes(b)}
+      <div class="pr-note">${heads.length ? 'Tap a pin for its line; levels are shown for lines you watch.' : 'No header map for this board: every GPIO line the kernel has is listed below.'} Watching requests a free line as-is (nothing about the pin changes) and releases it when you stop. Driving pins isn't available on this board yet.</div>
+      ${st.rebootRequired ? '<div class="pr-note" style="color:var(--warning)">Boot overlays changed: reboot required. <button class="btn btn-sm btn-warn" data-act="reboot">Reboot now…</button></div>' : ''}
+      ${gs.error || err ? `<div class="pr-note" style="color:var(--danger)">${esc(gs.error || err)}</div>` : ''}
+      ${heads.map(h => `<h4 style="margin:10px 0 0">${esc(h.name)}</h4>${gHeaderHtml(h)}`).join('')}
+      ${chips.length ? `<details id="gp-allchips" ${chipsOpen || !heads.length ? 'open' : ''} style="margin-top:10px"><summary class="pr-note" style="cursor:pointer">All GPIO lines (${chips.length} chip${chips.length === 1 ? '' : 's'}${chips.some(c => c.usb) ? ', incl. USB adapters' : ''})</summary>${chipsHtml(chips)}</details>` : '<div class="pr-note">No GPIO chips (/dev/gpiochip*) on this machine. USB GPIO adapters (FT232H, CH341, MCP2221) appear here when plugged in.</div>'}`;
+  }
+
+  function linePinDlg(chip, line) {
+    const c = chips.find(x => x.name === chip), l = c?.lines[line];
+    const p = (gs?.headers || []).flatMap(h => h.pins.map(x => ({ ...x, header: h.name }))).find(x => x.chipName === chip && x.line === line);
+    if (!l) return;
+    const x = lv(chip, line);
+    showModal(`<h3>${esc(p ? `${p.header} pin ${p.pin} · ${p.soc}` : `${chip} line ${line}`)}</h3>
+      <p>${esc(chip)} (${esc(c.label)}) line ${line}${l.name ? ` "${esc(l.name)}"` : ''}: ${esc(l.flags.join(', ') || 'input')}${l.consumer ? `, used by ${esc(l.consumer)}` : ''}.${x ? ` Level: ${x.error ? esc(x.error) : x.level ? 'high' : 'low'}.` : ''}</p>
+      ${p?.funcs?.length ? `<p class="pr-note">Alternate functions: ${esc(p.funcs.join(', '))}</p>` : ''}${p?.note ? `<p class="pr-note">${esc(p.note)}</p>` : ''}
+      <div class="pr-note" id="gp-res"></div>
+      <div class="modal-btns">${l.watched ? '<button class="btn" id="gw">Stop watching</button>' : l.used ? '' : '<button class="btn" id="gw" title="Requests the line as-is to read its level">Watch level</button>'}<button class="btn btn-primary" id="mk">Done</button></div>`);
+    Q('#mk').onclick = hideModal;
+    if (Q('#gw')) Q('#gw').onclick = async () => { try { await papi('POST', '/api/gpio/watch', { chip, line, watch: !l.watched }); hideModal(); } catch (e) { Q('#gp-res').textContent = e.message; } };
+  }
+
+  async function ovDlg() {
+    let info;
+    try { info = await papi('GET', '/api/gpio/overlays'); } catch { return; }
+    const on = new Set(info.enabled.map(e => e.name));
+    const known = info.installed.filter(o => o.what), other = info.installed.filter(o => !o.what);
+    const row = o => `<label class="pr-note" style="display:flex;gap:6px;align-items:baseline"><input type="checkbox" data-ov="${esc(o.name)}" ${on.has(o.name) ? 'checked' : ''}> <span><b>${esc(o.name)}</b>${o.what ? ` · ${esc(o.what)}` : ''}</span></label>`;
+    const missing = info.enabled.filter(e => !e.installed);
+    showModal(`<h3>Boot overlays</h3>
+      <p class="pr-note">Edits ${esc(info.path)}${info.testCopy ? ' (test copy)' : ''}${info.label ? ` (label "${esc(info.label)}")` : ''}: the device-tree overlays applied at boot${info.prefix ? ` (prefix ${esc(info.prefix)})` : ''}. You review the diff before anything is written. Changes need a reboot.</p>
+      ${!info.installed.length ? `<p class="pr-note" style="color:var(--warning)">No overlays found in ${esc(info.overlayDirs.join(', ') || 'any overlay directory')}.</p>` : ''}
+      ${missing.length ? `<p class="pr-note" style="color:var(--warning)">Enabled but not installed on this image: ${esc(missing.map(e => e.name).join(', '))}. Untick to remove.</p>${missing.map(row).join('')}` : ''}
+      ${known.length ? `<div class="pr-card"><h4>Header overlays for this board</h4>${known.map(row).join('')}</div>` : ''}
+      ${other.length ? `<details ${known.length ? '' : 'open'}><summary class="pr-note" style="cursor:pointer">Other installed overlays (${other.length})</summary><input type="search" id="ov-q" placeholder="Filter" style="margin:6px 0;width:100%"><div id="ov-other">${other.map(row).join('')}</div></details>` : ''}
+      ${info.user.length ? `<p class="pr-note">user_overlays (not changed here): ${esc(info.user.join(', '))}</p>` : ''}
+      ${info.conflicts.length ? `<p class="pr-note" style="color:var(--danger)">Pin conflicts now: ${info.conflicts.map(c => `pin ${c.pin} (${esc(c.users.join(', '))})`).join('; ')}</p>` : ''}
+      <div id="gi-out"></div>
+      <div class="modal-btns"><button class="btn" id="mc">Close</button><button class="btn btn-primary" id="mk">Review changes</button></div>`, 'wide');
+    Q('#mc').onclick = hideModal;
+    if (Q('#ov-q')) Q('#ov-q').oninput = () => { const q = Q('#ov-q').value.toLowerCase(); Q('#ov-other').querySelectorAll('label').forEach(l => l.style.display = l.textContent.toLowerCase().includes(q) ? '' : 'none'); };
+    Q('#mk').onclick = async () => {
+      const boxes = [...Q('#modal').querySelectorAll('[data-ov]')];
+      const enable = boxes.filter(b => b.checked && !on.has(b.dataset.ov)).map(b => b.dataset.ov);
+      const disable = boxes.filter(b => !b.checked && on.has(b.dataset.ov)).map(b => b.dataset.ov);
+      const out = Q('#gi-out');
+      let r;
+      try { r = await papi('POST', '/api/gpio/overlays/stage', { enable, disable }); } catch (e) { out.innerHTML = `<p class="pr-note" style="color:var(--danger)">${esc(e.message)}</p>`; return; }
+      if (!r.diff) { out.innerHTML = `<p class="pr-note">${esc(r.message)}</p>`; return; }
+      out.innerHTML = `<div class="pr-card"><h4>Proposed change<small>${esc(r.summary.join(', '))}</small></h4>
+        <div class="pr-log gp-diff">${diffHtml(r.diff)}</div>
+        ${r.warnings.map(w => `<div class="pr-note" style="color:var(--warning)">${esc(w)}</div>`).join('')}
+        <label class="pr-note" style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="gi-ok"> Write this to ${esc(r.configPath)} (a timestamped backup is made first)</label>
+        <div class="pr-row"><button class="btn btn-warn" id="gi-apply" disabled>Apply</button></div></div>`;
+      Q('#gi-ok').onchange = () => Q('#gi-apply').disabled = !Q('#gi-ok').checked;
+      Q('#gi-apply').onclick = async () => {
+        try {
+          const a = await papi('POST', '/api/gpio/overlays/apply', { token: r.token, confirm: true });
+          out.innerHTML = `<div class="pr-card"><h4>Saved</h4><div class="pr-note">Backup: <span class="pr-endpoint">${esc(a.backup)}</span></div><div class="pr-note" style="color:var(--warning)">Reboot required for ${esc(a.summary.join(', '))}.</div><div class="pr-row"><button class="btn btn-warn" id="gi-reboot">Reboot now…</button></div></div>`;
+          Q('#mk').style.display = 'none';
+          Q('#gi-reboot').onclick = rebootDlg;
+        } catch {}
+      };
+    };
+  }
+
   function render() {
     if (!root || !st) return;
+    if (st.mode === 'gpiochip') { if (gs) renderChips(); else root.innerHTML = '<div class="pr-note">Waiting for the first reading…</div>'; return; }
     const header = st.header || [];
     const bank = pins.filter(p => p.gpio <= 27), soc = pins.filter(p => p.gpio > 27);
-    const socOpen = root.querySelector('#gp-soc')?.open;
+    const socOpen = root.querySelector('#gp-soc')?.open, chipsOpen = root.querySelector('#gp-chips')?.open;
     root.innerHTML = `
       <div class="pr-row">
         <button class="btn btn-sm${view === 'header' ? ' btn-primary' : ''}" data-act="view" data-v="header">Header</button>
@@ -88,8 +217,10 @@
       ${st.outputEnabled ? '<div class="pr-note" style="color:var(--warning)">Output control is on: tap a free GPIO to drive it. Pins used by the kernel or a peripheral are refused.</div>' : '<div class="pr-note">Read-only view. Output control is off.</div>'}
       ${st.rebootRequired ? '<div class="pr-note" style="color:var(--warning)">config.txt changed: reboot required. <button class="btn btn-sm btn-warn" data-act="reboot">Reboot now…</button></div>' : ''}
       ${err ? `<div class="pr-note" style="color:var(--danger)">${esc(err)}</div>` : ''}
+      ${boardNotes(st.board)}
       ${!pins.length ? '<div class="pr-note">Waiting for the first reading…</div>' : view === 'header' ? headerHtml(header) : tableHtml(bank)}
-      ${soc.length ? `<details id="gp-soc" ${socOpen ? 'open' : ''} style="margin-top:10px"><summary class="pr-note" style="cursor:pointer">SoC-internal GPIO 28–${soc[soc.length - 1].gpio} (Ethernet, SD, Wi-Fi/BT, LEDs; read-only)</summary>${tableHtml(soc)}</details>` : ''}`;
+      ${soc.length ? `<details id="gp-soc" ${socOpen ? 'open' : ''} style="margin-top:10px"><summary class="pr-note" style="cursor:pointer">SoC-internal GPIO 28–${soc[soc.length - 1].gpio} (Ethernet, SD, Wi-Fi/BT, LEDs; read-only)</summary>${tableHtml(soc)}</details>` : ''}
+      ${chips.length ? `<details id="gp-chips" ${chipsOpen ? 'open' : ''} style="margin-top:10px"><summary class="pr-note" style="cursor:pointer">Other GPIO chips: ${esc(chips.map(c => c.label || c.name).join(', '))} (lines can be watched, not driven)</summary>${chipsHtml(chips)}</details>` : ''}`;
   }
 
   // ---------- dialogs ----------
@@ -221,9 +352,11 @@
     Q('#mk').onclick = async () => { try { await papi('POST', '/api/gpio/reboot', { confirm: 'REBOOT' }); hideModal(); toast('Rebooting…', 'info'); } catch {} };
   }
 
-  // For the other panels. The routes live in this driver, so no button while it's turned off.
+  // For the other panels. The routes live in this driver, so no button while it's turned off,
+  // and none on boards without config.txt: the I²C/Serial/1-Wire panels' hints are about
+  // config.txt, and other boards' overlays are edited from this panel.
   window.gpioInterfaces = o => ifaceDlg(o?.focus).catch(() => {});
-  window.gpioIfaceBtn = (focus, label) => S?.peripherals?.list?.some(d => d.id === 'gpio' && !d.disabled) ? `<button class="btn btn-sm" onclick="gpioInterfaces({focus:'${focus}'})">${label}</button>` : '';
+  window.gpioIfaceBtn = (focus, label) => S?.peripherals?.list?.some(d => d.id === 'gpio' && !d.disabled) && (S.peripherals.state?.gpio?.bootConfig?.kind ?? 'config.txt') === 'config.txt' ? `<button class="btn btn-sm" onclick="gpioInterfaces({focus:'${focus}'})">${label}</button>` : '';
 
   async function onClick(e) {
     const t = e.target.closest('[data-act]');
@@ -235,6 +368,9 @@
       else if (a === 'output') await outputToggle();
       else if (a === 'ifaces') await ifaceDlg();
       else if (a === 'reboot') rebootDlg();
+      else if (a === 'overlays') await ovDlg();
+      else if (a === 'gline') linePinDlg(t.dataset.c, Number(t.dataset.l));
+      else if (a === 'watch' || a === 'unwatch') await papi('POST', '/api/gpio/watch', { chip: t.dataset.c, line: Number(t.dataset.l), watch: a === 'watch' });
     } catch {}
   }
 
@@ -242,10 +378,20 @@
     mount(el, s) {
       root = el; st = s; ensureCss();
       el.addEventListener('click', onClick);
-      sock = pws('/ws/gpio', { onmessage: m => { if (m?.type === 'state') { pins = m.pins; err = m.error || ''; live = Date.now(); if (st) st.outputEnabled = m.outputEnabled; render(); } } });
+      sock = pws('/ws/gpio', { onmessage: m => {
+        if (m?.type === 'levels') { levels = m.levels || {}; render(); return; }
+        if (m?.type !== 'state') return;
+        live = Date.now(); err = m.error || ''; chips = m.chips || [];
+        if (m.mode === 'gpiochip') gs = m;
+        else { pins = m.pins; if (st) st.outputEnabled = m.outputEnabled; }
+        // Lines no longer watched drop their last level.
+        const w = new Set(m.watched || []);
+        for (const k of Object.keys(levels)) if (!w.has(k)) delete levels[k];
+        render();
+      } });
       render();
     },
     update(s) { st = s; render(); },
-    unmount() { sock?.close(); sock = null; root = null; pins = []; live = 0; },
+    unmount() { sock?.close(); sock = null; root = null; pins = []; live = 0; gs = null; chips = []; levels = {}; },
   });
 })();
