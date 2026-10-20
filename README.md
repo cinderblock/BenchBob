@@ -92,6 +92,7 @@ claude mcp add --transport http benchbob http://benchbob.local/mcp
 - `ui/<id>.js`: each panel's dashboard script, inlined into `index.html` at serve time
 - `paths.ts`: where settings live (`/var/lib/benchbob` when installed), the version
 - `packaging/`: the `.deb` build, systemd unit, udev rule, drive handler, `benchbob-setup`
+- `firmware/`: node firmware for microcontroller boards (Rust + Embassy; its own README)
 
 Serial, CAN, I²C and GPIO talk to the kernel through `bun:ffi`. There are no npm
 dependencies: Bun runs the TypeScript directly.
@@ -135,6 +136,14 @@ packaging/build-deb.sh arm64 # just build it (CI, any Debian box, WSL)
 
 Running from a checkout, settings are kept next to the code unless `BENCHBOB_STATE_DIR`
 says otherwise.
+
+## Microcontroller nodes
+
+`firmware/` holds Rust + Embassy firmware that turns a Raspberry Pi Pico 2 W or an
+ESP32-C6 into a BenchBob **node**: a Wi-Fi board with the same REST shapes and MCP tool
+names for the GPIO and I²C it has, provisioned over Improv Wi-Fi (USB) or, on the Pico, a
+`config.uf2`, and discoverable over mDNS (`_benchbob._tcp`). It is v0.1 and not yet tested
+on hardware; see [firmware/README.md](firmware/README.md).
 
 ## License
 
