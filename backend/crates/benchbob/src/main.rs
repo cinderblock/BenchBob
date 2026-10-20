@@ -25,7 +25,19 @@ Environment:
 
 fn main() -> ExitCode {
     // SAFETY: first thing in main, before any thread exists.
-    unsafe { benchbob_core::paths::alias_legacy_env() };
+    unsafe {
+        benchbob_core::paths::alias_legacy_env();
+        // The tools behind the panels (iw, ip, pinctrl, vcgencmd…) live in the sbin
+        // directories too, which a login shell's PATH (a side instance) may not have.
+        let path = std::env::var("PATH").unwrap_or_default();
+        let mut dirs: Vec<&str> = path.split(':').filter(|d| !d.is_empty()).collect();
+        for d in benchbob_core::run::SYSTEM_PATH.split(':') {
+            if !dirs.contains(&d) {
+                dirs.push(d);
+            }
+        }
+        std::env::set_var("PATH", dirs.join(":"));
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("benchbob {} (app {})", env!("CARGO_PKG_VERSION"), version());

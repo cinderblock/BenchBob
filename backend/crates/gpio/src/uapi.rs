@@ -637,4 +637,34 @@ mod tests {
         assert_eq!(GpioError { what: "gpiochip0 line 4".into(), errno: 16 }.to_string(), "gpiochip0 line 4: EBUSY (the line is in use)");
         assert!(GpioError { what: "x".into(), errno: 13 }.to_string().contains("gpio group"));
     }
+
+    /// The TS server took consumers from `gpioinfo`; this one decodes the uAPI itself. Both
+    /// captures are from desky on the same day: the four lines with raw buffers must agree
+    /// with what libgpiod printed for them.
+    #[test]
+    fn decoded_consumers_match_gpioinfo_on_desky() {
+        let text = include_str!("../fixtures/gpioinfo-v2-desky.txt");
+        let re = regex::Regex::new(r#"^\s*line\s+(\d+):\s+"([^"]*)"\s+(input|output)(.*)$"#).unwrap();
+        let cons = regex::Regex::new(r#"consumer="([^"]*)""#).unwrap();
+        let mut chip0 = std::collections::HashMap::new();
+        let mut in_chip0 = false;
+        for l in text.lines() {
+            if l.starts_with("gpiochip") {
+                in_chip0 = l.starts_with("gpiochip0 ");
+                continue;
+            }
+            if let (true, Some(m)) = (in_chip0, re.captures(l)) {
+                chip0.insert(
+                    m[1].parse::<u32>().unwrap(),
+                    (m[2].to_string(), m[3].to_string(), cons.captures(&m[4]).map(|c| c[1].to_string())),
+                );
+            }
+        }
+        assert_eq!(chip0.len(), 58);
+        for k in ["0:2", "0:4", "0:17", "0:42"] {
+            let l = decode_line_info(&desky(k));
+            let (name, dir, consumer) = &chip0[&l.offset];
+            assert_eq!((&l.name, l.direction, &l.consumer), (name, dir.as_str(), consumer), "line {}", l.offset);
+        }
+    }
 }
