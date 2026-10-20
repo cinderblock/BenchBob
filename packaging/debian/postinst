@@ -31,6 +31,8 @@ if [ "$1" = "configure" ]; then
   if [ -d /run/systemd/system ]; then
     systemctl daemon-reload
     systemctl restart benchbob.service
+    # Rust mode (benchbob-setup rust on), if it's on: restart that server too.
+    systemctl try-restart benchbob-rust.service > /dev/null 2>&1 || true
   fi
 
   cat << 'EOF'

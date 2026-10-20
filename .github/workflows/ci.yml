@@ -78,7 +78,8 @@ jobs:
         run: |
           bin=target/${{ matrix.target }}/release/benchbob
           file "$bin"
-          file "$bin" | grep -q 'statically linked'
+          # x86-64 musl links static-pie; the others plain static.
+          file "$bin" | grep -Eq 'statically linked|static-pie linked'
           ls -l "$bin"
       - name: Smoke test (x86-64)
         if: matrix.arch == 'amd64'
@@ -218,6 +219,60 @@ jobs:
         with:
           name: deb-${{ matrix.arch }}
           path: ${{ steps.build.outputs.deb }}
+
+  # The opt-in Rust packaging (RUST_BIN), installed and switched into Rust mode and back.
+  # Its .deb is a test artifact only: releases ship the plain package from `package`.
+  package-rust:
+    needs: [test, backend-build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: benchbob-rust-amd64
+          path: rust
+      - name: Build
+        id: build
+        run: |
+          chmod +x rust/benchbob
+          echo "deb=$(RUST_BIN=rust/benchbob packaging/build-deb.sh amd64)" >> "$GITHUB_OUTPUT"
+      - name: Install (Bun on :80, as always)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "${{ steps.build.outputs.deb }}"
+          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && break; sleep 2; done
+          jq -e '.backend == null' api.json
+          test "$(sudo benchbob-setup rust status)" = off
+          ls /usr/share/benchbob/boards/rpi.toml
+      - name: Rust mode on
+        run: |
+          sudo benchbob-setup rust on
+          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && jq -e '.backend' api.json > /dev/null && break; sleep 2; done
+          jq -e '.backend.server == "benchbob (Rust)" and .backend.legacy == "http://127.0.0.1:8081"' api.json
+          jq -e '.board.id == "x86" and (.endpoints | has("POST /api/eject"))' api.json
+          curl -fsS http://localhost/api/status | jq -e '.version != "dev" and (.peripherals.list | map(.id) | index("gpio") != null)'
+          curl -fsS -D - -o /dev/null http://localhost/api/gpio | grep -qi '^x-benchbob-backend: native'
+          curl -fsS -D - -o /dev/null http://localhost/api/quicklist | grep -qi '^x-benchbob-backend: legacy'
+          curl -fsS http://localhost/ | grep -q '<h1 id="title">BenchBob</h1>'
+          curl -fsS http://localhost/api/boards | jq -e '.dirs[0] == "/usr/share/benchbob/boards" and (.errors | length) == 0'
+          systemctl is-active benchbob benchbob-rust
+      - name: Rust mode off
+        run: |
+          sudo benchbob-setup rust off
+          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && jq -e '.backend == null' api.json > /dev/null && break; sleep 2; done
+          jq -e '.backend == null' api.json
+          if systemctl is-active --quiet benchbob-rust; then echo "benchbob-rust still running" >&2; exit 1; fi
+      - name: Service logs
+        if: always()
+        run: sudo journalctl -u benchbob -u benchbob-rust --no-pager -n 200
+      - name: Remove and purge
+        run: |
+          sudo benchbob-setup rust on
+          sudo apt-get purge -y benchbob
+          if systemctl is-active --quiet benchbob-rust; then echo "benchbob-rust still running" >&2; exit 1; fi
+          test ! -e /etc/systemd/system/benchbob.service.d/50-rust-mode.conf
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

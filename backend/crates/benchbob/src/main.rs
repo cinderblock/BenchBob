@@ -6,7 +6,10 @@ use benchbob_core::paths::version;
 
 const HELP: &str = "benchbob: the BenchBob server (dashboard, REST API, SSE, WebSockets, MCP)
 
-Usage: benchbob [--version | --help]
+Usage: benchbob [--version | --native-drivers | --help]
+
+  --native-drivers        print the ids of the drivers this server runs itself
+                          (what BENCHBOB_NATIVE_DRIVERS tells the Bun server to skip)
 
 Environment:
   PORT                    listen port (default 80), IPv6 + IPv4
@@ -41,6 +44,13 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("benchbob {} (app {})", env!("CARGO_PKG_VERSION"), version());
+        return ExitCode::SUCCESS;
+    }
+    if args.iter().any(|a| a == "--native-drivers") {
+        // For packaging: the drivers the Bun server must leave alone (BENCHBOB_NATIVE_DRIVERS).
+        let boards = benchbob_boards::Boards::builtin();
+        let board = std::sync::Arc::new(benchbob_boards::pick(&boards, &benchbob_boards::DetectInput::default(), None));
+        println!("{}", benchbob::drivers(&board).iter().map(|d| d.id()).collect::<Vec<_>>().join(","));
         return ExitCode::SUCCESS;
     }
     if !args.is_empty() {
