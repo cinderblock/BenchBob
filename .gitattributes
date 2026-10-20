@@ -4,3 +4,6 @@
 *.rules text eol=lf
 *.service text eol=lf
 packaging/** text eol=lf
+# Test fixtures are captures from a Linux box and the tests compare them byte for byte:
+# CRLF in a Windows checkout made 19 tests fail there.
+peripherals/**/*-fixtures/** text eol=lf

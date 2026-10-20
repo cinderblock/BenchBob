@@ -544,7 +544,7 @@ async function mcpOne(msg: any): Promise<any | null> {
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "benchbob", version: "1.0" },
         instructions:
-          "BenchBob is a bench server, usually a Raspberry Pi. These tools reach the peripherals plugged into it (serial ports, CAN, I²C, 1-Wire, GPIO, Wi-Fi, USB, radios). Call a *_list tool first to find device ids.",
+          "BenchBob is a bench server: a Raspberry Pi or another Linux box (GET /api says which board, and whether it has a mapped pin header). These tools reach the peripherals plugged into it (serial ports, CAN, I²C, 1-Wire, GPIO, Wi-Fi, USB, radios). Call a *_list tool first to find device ids.",
       });
     case "ping":
       return reply({});

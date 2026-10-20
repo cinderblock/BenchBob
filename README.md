@@ -34,7 +34,7 @@ restarting BenchBob doesn't, so remote USB/IP clients stay attached across a dep
 | CAN bus | SocketCAN and SLCAN adapters, vcan; bitrate/FD config and listen-only auto-bitrate; per-ID table, frame log, send and periodic jobs, candump recordings; socketcand server for python-can and SavvyCAN |
 | I²C | Bus scan using i2cdetect's safe defaults; ~40 chips identified and decoded into readings; raw register access (writes need confirmation); per-bus clock speed, with the bus speed and extra buses settable from the panel |
 | 1-Wire | DS18B20 and every other common family, iButton touch log, DS2482 bridges; move or turn off the GPIO master from the panel |
-| GPIO | Live 40-pin header (function, level, pull, kernel owner); optional output control; staged `config.txt` changes with a diff, backup and reboot: I²C1 and its speed, SPI0, UART, 1-Wire, and on a Pi 4 extra I²C3–6, UART2–5 and a software i2c-gpio bus. A change that puts two interfaces on one GPIO is refused |
+| GPIO | Raspberry Pi: live 40-pin header (function, level, pull, kernel owner); optional output control; staged `config.txt` changes with a diff, backup and reboot: I²C1 and its speed, SPI0, UART, 1-Wire, and on a Pi 4 extra I²C3–6, UART2–5 and a software i2c-gpio bus. Other boards: the header mapped onto the kernel's GPIO lines (name, owner, direction, alternate functions) where the board has a map, every gpiochip's lines (USB adapters included), levels for lines you choose to watch, and staged boot-overlay changes (armbianEnv.txt, orangepiEnv.txt, extlinux.conf). A change that puts two interfaces on one pin is refused |
 | Wi-Fi | Scanner across every band the radio supports, with channel charts and an hour of per-network signal history (scans every 30 s while the panel is open); client tests (associate, DHCP, ping/DNS/HTTP/iperf3) run in an isolated network namespace |
 | Bluetooth LE | Advertiser scanner with decoded beacons (iBeacon, Eddystone, BTHome, Ruuvi, Xiaomi, Govee, Apple, Microsoft) |
 | Camera | UVC webcams and HDMI capture sticks; controls; on-demand MJPEG stream and snapshots |
@@ -88,6 +88,7 @@ claude mcp add --transport http benchbob http://benchbob.local/mcp
 - `server.ts`: HTTP server, drives, flashing, rpiboot, status stream
 - `peripherals/core.ts`: driver registry, udev hotplug, routes, WebSockets, MCP
 - `peripherals/drivers/<id>.ts`: one file per panel (auto-discovered)
+- `peripherals/boards/`: one file per board family (pin headers, boot config, health), picked at startup
 - `peripherals/lib/`: parsers, FFI layers (termios, SocketCAN, I²C, gpiomem), tests
 - `ui/<id>.js`: each panel's dashboard script, inlined into `index.html` at serve time
 - `paths.ts`: where settings live (`/var/lib/benchbob` when installed), the version
@@ -96,6 +97,37 @@ claude mcp add --transport http benchbob http://benchbob.local/mcp
 
 Serial, CAN, I²C and GPIO talk to the kernel through `bun:ffi`. There are no npm
 dependencies: Bun runs the TypeScript directly.
+
+## Hardware
+
+BenchBob picks a board file at startup from the device tree (ARM) or DMI (x86). `GET /api`
+and the status stream say which (`board`: id, name, whether it's tested, what it supports),
+and `BENCHBOB_BOARD=<id>` forces one.
+
+- **Tested:** Raspberry Pi 4 (desky, Debian 13). Other Raspberry Pis (3, 5, 400/500,
+  CM3/4/5, Zero 2 W on a 64-bit OS) run the same code but haven't been tried here; the Pi 5
+  reads levels through `pinctrl` instead of `/dev/gpiomem`.
+- **Any other 64-bit Linux box** (an x86 mini PC, a VM, an unknown ARM board): everything
+  but the pin header. Drives, USB, serial, CAN, I²C, 1-Wire, Wi-Fi, BLE, cameras, probes,
+  SDR, GPS, UPS and network panels are plain Linux. GPIO lists the kernel's gpiochips and
+  their lines, which also covers USB GPIO adapters (FT232H, CH341, MCP2221). Health comes from
+  thermal zones, hwmon and power supplies. x86 machines are named from DMI.
+- **Listed but untested** (pinouts from vendor documentation and the kernel device tree,
+  cited in each board file; nobody here has run BenchBob on one): Orange Pi 5, 5B, 5 Plus,
+  3B, Zero 3 and Zero 2W; Radxa ROCK 5B and 5B+; BeagleY-AI; Libre Computer Le Potato,
+  Sweet Potato and Renegade. Recognised without a pin map: Orange Pi 5 Pro / Max / Ultra and
+  BeagleBone AI-64. The dashboard marks these "untested board". Check pins against the
+  vendor's pinout before wiring anything.
+- **Can't run BenchBob:** 32-bit boards (BeagleBone Black/Green, Pi Zero W, Pi 1/2), because
+  Bun has no 32-bit ARM build.
+
+Off the Pi, GPIO is read through the kernel's character-device API, which can't read a level
+without requesting the line. So levels are shown only for lines you pick to watch, requested
+"as is" so the pin's direction and pull don't change, and released when you stop. Pins can't
+be driven there yet. Boot-time buses are device-tree overlays: the GPIO panel edits
+`overlays=` in Armbian's `armbianEnv.txt` or Orange Pi's `orangepiEnv.txt`, or `fdtoverlays`
+in BeagleBoard.org's `extlinux.conf`, offering the overlays installed on the image. Boards
+whose vendor tool owns that config (Radxa OS's rsetup, Libre's `ldto`) are left to it.
 
 ## Install
 

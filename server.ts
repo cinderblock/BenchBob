@@ -4,6 +4,9 @@ import { constants as zlibConstants, createGzip } from "node:zlib";
 import { analyseDisk, type DiskInfo } from "./osinfo.ts";
 import * as rpi from "./rpiboot.ts";
 import * as periph from "./peripherals/core.ts";
+import { board, boardInfo } from "./peripherals/boards/index.ts";
+import { rpiPower } from "./peripherals/boards/rpi.ts";
+import { cpuTemp, readSensors, type Sensors } from "./peripherals/lib/health.ts";
 import { statePath, VERSION } from "./paths.ts";
 import * as update from "./update.ts";
 
@@ -124,11 +127,11 @@ async function sampleIO(): Promise<void> {
 
 // ==================== System Info ====================
 
-let piModel = "";
+// The board layer (peripherals/boards/) names the machine: the device-tree model on ARM
+// (unchanged on a Pi), DMI vendor + product on a PC.
+const hostModel = board().name;
 let ramMB = 0;
 (async () => {
-  piModel = await readSysFile("/proc/device-tree/model");
-  piModel = piModel.replace(/\0/g, "");
   // Installed RAM from the board revision code (bits 20-22 of a new-style code), since
   // MemTotal is short by whatever the GPU reserved. Old-style codes: round MemTotal up.
   const rev = parseInt((await readSysFile("/proc/cpuinfo")).match(/^Revision\s*:\s*([0-9a-f]+)/im)?.[1] || "", 16);
@@ -139,8 +142,17 @@ let ramMB = 0;
   }
 })();
 
+// Generic sensors (thermal, hwmon, power_supply), re-read at most every 5 s.
+let sensorCache: { at: number; s: Sensors } | null = null;
+function sensors(): Sensors {
+  if (!sensorCache || Date.now() - sensorCache.at > 5000) sensorCache = { at: Date.now(), s: readSensors() };
+  return sensorCache.s;
+}
+
 async function getSystemInfo() {
-  const temp = parseInt(await readSysFile("/sys/class/thermal/thermal_zone0/temp")) / 1000 || 0;
+  // A Pi's thermal_zone0 is the SoC, as it always was here; elsewhere zone0 can be an ACPI
+  // zone that never moves, so the sensor list picks the CPU package.
+  const temp = board().def.health === "vcgencmd" ? parseInt(await readSysFile("/sys/class/thermal/thermal_zone0/temp")) / 1000 || 0 : cpuTemp(sensors()) ?? 0;
   const memRaw = await readSysFile("/proc/meminfo");
   const mem: Record<string, number> = {};
   for (const line of memRaw.split("\n")) {
@@ -150,7 +162,7 @@ async function getSystemInfo() {
   const cores = (await readSysFile("/proc/cpuinfo")).split("processor").length - 1;
 
   return {
-    model: piModel,
+    model: hostModel,
     ramMB,
     cores: cores || 4,
     cpuUsage: Math.round(cpuUsage * 10) / 10,
@@ -336,48 +348,12 @@ async function getNbdExports(): Promise<string[]> {
 
 // ==================== Host Power ====================
 //
-// A sagging supply on this Pi is worth shouting about: USB drives (and any Compute
-// Module powered from our ports) hang off the same 5 V rail, and under-voltage shows
-// up as flaky writes, dropped disks and corrupted flashes long before anything else.
-
-const THROTTLE_FLAGS: [number, string][] = [[0, "under-voltage"], [1, "ARM frequency capped"], [2, "throttled"], [3, "soft temperature limit"]];
-let uvLog = { at: 0, times: [] as number[] };
-let ext5vSupported = true;
+// The Pi's firmware flags under-voltage and throttling (boards/rpi.ts, through vcgencmd);
+// other boards have no such source, so `power` is null there and the generic readings
+// (thermal, hwmon, power supplies) go out as `sensors` instead.
 
 async function getPower() {
-  const { out, code } = await run(["vcgencmd", "get_throttled"]);
-  const m = out.match(/throttled=(0x[0-9a-f]+)/i);
-  if (code !== 0 || !m) return null;
-  const v = parseInt(m[1], 16);
-  const now = THROTTLE_FLAGS.filter(([b]) => v & (1 << b)).map(([, n]) => n);
-  const sinceBoot = THROTTLE_FLAGS.filter(([b]) => v & (1 << (b + 16))).map(([, n]) => n);
-
-  // get_throttled only says "it happened since boot". The firmware hwmon driver logs
-  // every episode, which gives a count and how recent the last one was. Re-read at most
-  // every 30 s, and only once there is something to find.
-  if (v & (1 << 16) && Date.now() - uvLog.at > 30000) {
-    uvLog.at = Date.now();
-    const j = await run(["sudo", "journalctl", "-k", "-b", "-o", "short-unix", "--no-pager", "-g", "Undervoltage detected"]);
-    uvLog.times = j.out.split("\n").map((l) => parseFloat(l) * 1000).filter((t) => t > 0);
-  }
-
-  // Pi 5 can read its 5 V input directly; older boards can't ("Command not registered").
-  let inputVolts: number | null = null;
-  if (ext5vSupported) {
-    const r = await run(["vcgencmd", "pmic_read_adc", "EXT5V_V"]);
-    const vm = r.out.match(/=([\d.]+)V/);
-    if (vm) inputVolts = Math.round(parseFloat(vm[1]) * 100) / 100;
-    else ext5vSupported = false;
-  }
-
-  return {
-    raw: m[1],
-    now,
-    sinceBoot,
-    undervoltageEvents: uvLog.times.length,
-    lastUndervoltage: uvLog.times.length ? uvLog.times[uvLog.times.length - 1] : null,
-    inputVolts,
-  };
+  return board().def.health === "vcgencmd" ? rpiPower() : null;
 }
 
 // ==================== Status Assembly ====================
@@ -409,8 +385,10 @@ async function getStatus() {
     // Alias kept so dashboards still open from the previous deploy — which compare
     // `uiVersion` — see the change and reload themselves once.
     uiVersion: (await getBuild()).version,
+    board: boardInfo(),
     system,
     power,
+    sensors: sensors(),
     network,
     rootStorage,
     rootDevice,
@@ -1973,7 +1951,7 @@ const API_DOCS = {
   name: "BenchBob API", version: "1.0", appVersion: VERSION, base: "http://benchbob.local", // rewritten to the host asked, per request
   endpoints: {
     "GET /api": "This documentation",
-    "GET /api/status": "System status snapshot (same data as SSE)",
+    "GET /api/status": "System status snapshot (same data as SSE). board: { id, name, model, tested, capabilities } says which board file BenchBob picked and what it supports; sensors: thermal/hwmon/power_supply readings",
     "GET /api/events": "SSE stream, sends status every ~2s",
     "POST /api/eject": { body: { device: "sdb" }, description: "Safely eject USB device (unmount, remove NFS/NBD, power off)" },
     "POST /api/erase": { body: { device: "sdb", mode: "quick|full|discard" }, description: "Erase device. Returns immediately; track via SSE. Queueable before flash." },
@@ -2103,7 +2081,9 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
     }
     if (p === "/api" || p === "/api/") {
       // Examples name the host the caller reached us by, so they paste and run as-is.
-      const docs = JSON.stringify({ ...API_DOCS, endpoints: { ...API_DOCS.endpoints, ...update.DOCS, ...periph.docs() } });
+      // The board says what this machine can do (header, boot config), so agents reading
+      // the docs don't assume a Pi.
+      const docs = JSON.stringify({ ...API_DOCS, board: boardInfo(), endpoints: { ...API_DOCS.endpoints, ...update.DOCS, ...periph.docs() } });
       return new Response(docs.replaceAll("http://benchbob.local", url.origin), { headers: { "Content-Type": "application/json" } });
     }
     if (p.startsWith("/api/update")) {
