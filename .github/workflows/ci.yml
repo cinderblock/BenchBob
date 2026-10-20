@@ -309,6 +309,9 @@ jobs:
           curl -fsS http://localhost/legacy | grep -q '<h1 id="title">BenchBob</h1>'
           curl -fsS http://localhost/api/boards | jq -e '.dirs[0] == "/usr/share/benchbob/boards" and (.errors | length) == 0'
           systemctl is-active benchbob benchbob-rust
+          # The Bun server behind it listens on loopback only.
+          ss -Hltn 'sport = :8081'
+          test "$(ss -Hltn 'sport = :8081' | awk '{print $4}' | sort -u)" = "127.0.0.1:8081"
       - name: Rust mode off
         run: |
           sudo benchbob-setup rust off

@@ -154,7 +154,7 @@ write_rust_dropin() {
 # drivers below, and proxies every other route to this Bun server on port $LEGACY_PORT.
 [Service]
 ExecStart=
-ExecStart=/usr/bin/env PORT=$LEGACY_PORT BENCHBOB_NATIVE_DRIVERS=$native /usr/lib/benchbob/bin/bun run /usr/lib/benchbob/server.ts
+ExecStart=/usr/bin/env PORT=$LEGACY_PORT BENCHBOB_BIND=127.0.0.1 BENCHBOB_NATIVE_DRIVERS=$native /usr/lib/benchbob/bin/bun run /usr/lib/benchbob/server.ts
 EOF
 }
 

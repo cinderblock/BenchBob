@@ -12,6 +12,9 @@ import * as update from "./update.ts";
 import { Glob } from "bun";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
+// "::" is every interface (dual-stack). In Rust mode the Bun server sits behind the Rust
+// one and needs only loopback: benchbob-setup sets BENCHBOB_BIND=127.0.0.1.
+const BIND = process.env.BENCHBOB_BIND || "::";
 const DEFAULTS_PATH = statePath("defaults.json");
 const FLASH_DIR = "/var/tmp/benchbob-flash";
 const BOOT_MOUNT = "/tmp/benchbob-boot";
@@ -2121,7 +2124,7 @@ await periph.start(() => {
 });
 
 Bun.serve({
-  port: PORT, hostname: "::",
+  port: PORT, hostname: BIND,
   // Bun drops a request that is quiet for 10 s by default. Peripheral calls legitimately
   // wait longer (an agent waiting for a serial prompt, a CAN capture, a Wi-Fi client
   // test), so allow up to 2 minutes. SSE and WebSockets are unaffected: they send often.
@@ -2314,4 +2317,4 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
   }
 }
 
-console.log(`BenchBob running on http://[::]:${PORT} (dual-stack: IPv6 + IPv4)`);
+console.log(BIND === "::" ? `BenchBob running on http://[::]:${PORT} (dual-stack: IPv6 + IPv4)` : `BenchBob running on http://${BIND.includes(":") ? `[${BIND}]` : BIND}:${PORT}`);
