@@ -114,7 +114,12 @@ jobs:
         run: |
           sudo apt-get install -y -qq systemd-container
           xz -dc "${{ steps.build.outputs.out }}" > boot.img
-          sudo systemd-nspawn --image=boot.img --private-network --boot --machine=bbimg > boot.log 2>&1 &
+          # --image= only finds GPT root partitions; Pi OS is MBR, so mount it ourselves.
+          loop=$(sudo losetup -f --show -P boot.img)
+          mkdir -p root
+          sudo mount "${loop}p2" root
+          sudo mount "${loop}p1" root/boot/firmware
+          sudo systemd-nspawn -D root --private-network --boot --machine=bbimg > boot.log 2>&1 &
           ok=
           for i in $(seq 90); do
             if sudo systemctl -M bbimg is-active --quiet benchbob 2>/dev/null &&
@@ -126,6 +131,8 @@ jobs:
           sudo systemctl -M bbimg --no-pager status benchbob | head -20 || true
           sudo machinectl poweroff bbimg || true
           sleep 5
+          sudo umount root/boot/firmware root || true
+          sudo losetup -d "$loop" || true
           [ -n "$ok" ] || { tail -60 boot.log; exit 1; }
           jq -c '{version, board: .board.id, model: .system.model}' status.json
       - if: startsWith(github.ref, 'refs/tags/v')
