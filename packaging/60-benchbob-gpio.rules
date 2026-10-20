@@ -1,0 +1,4 @@
+# BenchBob: GPIO character devices for the gpio group, so the GPIO panel can list lines
+# (and watch them) without root. Raspberry Pi OS already does this; stock Debian, Ubuntu
+# and Armbian leave /dev/gpiochip* root-only. postinst creates the group if it's missing.
+SUBSYSTEM=="gpio", KERNEL=="gpiochip*", GROUP="gpio", MODE="0660"

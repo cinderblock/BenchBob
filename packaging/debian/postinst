@@ -6,6 +6,12 @@ if [ "$1" = "configure" ]; then
     useradd --system --user-group --home-dir /var/lib/benchbob --no-create-home \
       --shell /usr/sbin/nologin --comment "BenchBob" benchbob
   fi
+  # The gpio group our udev rule hands /dev/gpiochip* to. Raspberry Pi OS has one;
+  # Debian and Ubuntu don't.
+  getent group gpio > /dev/null || groupadd --system gpio
+  udevadm control --reload-rules 2>/dev/null || true
+  udevadm trigger --subsystem-match=gpio --action=add 2>/dev/null || true
+
   # Device access without sudo: serial ports, GPIO, I²C, SPI, cameras, USB, Bluetooth.
   # Only the groups this system has; Raspberry Pi OS has them all.
   for g in dialout plugdev gpio i2c spi video bluetooth netdev input; do
