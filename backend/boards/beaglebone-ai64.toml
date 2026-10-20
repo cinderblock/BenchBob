@@ -1,0 +1,51 @@
+# ==================== BeagleBoard.org ====================
+#
+# UNTESTED: nobody here has a Beagle board. The pinout is BeagleBoard.org's and the
+# kernel's; what hasn't been checked is BenchBob running on the hardware.
+#
+# The classic BeagleBone Black / Green (TI AM335x, 32-bit) never ran the Bun server, which
+# has no 32-bit ARM build. The Rust server does run there, but it has no board file yet
+# (no sourced P8/P9 map), so it comes up as the generic board. These files cover the
+# 64-bit boards:
+#
+#  - BeagleY-AI (TI AM67A / J722S): a Raspberry Pi-style 40-pin header, fully mapped.
+#    Sources, cross-checked: the kernel's gpio-line-names (each line is named after the
+#    Pi's BCM number, "GPIO14"…) and the pad comments in BeagleBoard.org's pinmux file;
+#    balls and alternate functions from pinout.beagleboard.io. That site lists pin 8 as
+#    GPIO0_14; both device trees say main_gpio1 line 14 (pad comment
+#    "(F24) MCASP0_ACLKR.GPIO1_14"), which is what's used here.
+#      https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/ti/k3-am67a-beagley-ai.dts
+#      https://github.com/beagleboard/BeagleBoard-DeviceTrees/blob/v6.12.x-Beagle/src/arm64/ti/k3-am67a-beagley-ai-pinmux.dtsi
+#      https://pinout.beagleboard.io/
+#    Chips: gpio-davinci labels each controller by device name ("600000.gpio" main_gpio0,
+#    "601000.gpio" main_gpio1, "4201000.gpio" mcu_gpio0); the gpiochipN numbers aren't
+#    documented and depend on probe order.
+#    Boot config: overlays go on the default label's `fdtoverlays` line in
+#    /boot/firmware/extlinux/extlinux.conf, .dtbo files in /boot/firmware/overlays/
+#    (https://docs.beagleboard.org/boards/beagley/ai/demos/using-pwm.html).
+#
+#  - BeagleBone AI-64 (TDA4VM): recognised, but no header map. Its device tree has no
+#    line names, many P8/P9 pins connect two SoC balls each, and BeagleBoard.org's own
+#    tables disagree with their worked example, so nothing here would be trustworthy
+#    without the hardware (https://docs.beagleboard.org/boards/beaglebone/ai-64/04-expansion.html).
+
+id = "beaglebone-ai64"
+name = "BeagleBone AI-64"
+vendor = "BeagleBoard.org"
+soc = "TI TDA4VM"
+tested = false
+health = "sysfs"
+sources = [
+  "https://docs.beagleboard.org/boards/beaglebone/ai-64/04-expansion.html",
+]
+notes = [
+  "No P8/P9 map: many header pins connect two SoC balls and the published tables disagree, so the GPIO panel lists the SoC's lines instead.",
+]
+
+[detect]
+priority = 50
+compatible = ['^beagle,j721e-beagleboneai64$']
+
+[gpio]
+panel = "gpiochip"
+reader = "gpiochip"

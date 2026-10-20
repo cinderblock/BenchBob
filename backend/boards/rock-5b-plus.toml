@@ -1,0 +1,102 @@
+# ==================== Radxa ====================
+#
+# UNTESTED: nobody here has a ROCK 5B. The pinout is Radxa's; what hasn't been checked is
+# BenchBob running on the hardware.
+#
+# ROCK 5B and 5B+ (RK3588, 40-pin). Sources:
+#  - Pin table: https://docs.radxa.com/en/rock5/rock5b/hardware-design/hardware-interface
+#    ("GPIO Pinout", ROCK 5B and ROCK 5B+ tabs; the 5B+ differs at pins 29 and 31). All
+#    GPIOs are 3.3 V; SARADC_IN4 (pin 22) is a 1.8 V ADC input. Pin 37's GPIO number is
+#    blank in Radxa's table; the line follows from its name (GPIO0_A0 = bank 0, line 0).
+#    I²S / SPDIF functions are left out of the lists below.
+#  - Kernel: compatible "radxa,rock-5b" / "radxa,rock-5b-plus" (mainline rk3588-rock-5b.dts,
+#    and the same in radxa/kernel); banks labelled "gpio0".."gpio4" by gpio-rockchip.c at
+#    the rk3588-base.dtsi addresses.
+#
+# Boot config: Radxa OS manages overlays with rsetup, which renames .dtbo files and runs
+# u-boot-update to regenerate /boot/extlinux/extlinux.conf, so editing that file by hand
+# (or from here) would be overwritten. Only Armbian's armbianEnv.txt is offered.
+
+id = "rock-5b-plus"
+name = "Radxa ROCK 5B+"
+vendor = "Radxa"
+soc = "Rockchip RK3588"
+tested = false
+health = "sysfs"
+sources = [
+  "https://docs.radxa.com/en/rock5/rock5b/hardware-design/hardware-interface",
+  "https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts",
+  "https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/rockchip/rk3588-rock-5b-plus.dts",
+]
+notes = [
+  "On Radxa OS, change overlays with `sudo rsetup` (Overlays): it regenerates extlinux.conf, so BenchBob leaves it alone. On Armbian the GPIO panel edits armbianEnv.txt.",
+]
+
+[detect]
+priority = 50
+compatible = ['^radxa,rock-5b-plus$']
+
+[gpio]
+panel = "gpiochip"
+reader = "gpiochip"
+
+# Chip keys → the gpiochip's uAPI label or sysfs device name.
+[chips]
+gpio0 = ["gpio0", "fd8a0000.gpio"]
+gpio1 = ["gpio1", "fec20000.gpio"]
+gpio2 = ["gpio2", "fec30000.gpio"]
+gpio3 = ["gpio3", "fec40000.gpio"]
+gpio4 = ["gpio4", "fec50000.gpio"]
+
+# As the ROCK 5B except pins 29 and 31 (Radxa's ROCK 5B+ tab).
+[[header]]
+id = "40pin"
+name = "40-pin header"
+pins = [
+  { pin = 1, kind = "3v3" },
+  { pin = 2, kind = "5v" },
+  { pin = 3, soc = "GPIO4_B3", chip = "gpio4", line = 11, funcs = ["PWM15_IR_M1", "UART8_CTSN_M0", "I2C7_SDA_M3"] },
+  { pin = 4, kind = "5v" },
+  { pin = 5, soc = "GPIO4_B2", chip = "gpio4", line = 10, funcs = ["PWM14_M1", "UART8_RTSN_M0", "I2C7_SCL_M3"] },
+  { pin = 6, kind = "gnd" },
+  { pin = 7, soc = "GPIO3_C3", chip = "gpio3", line = 19, funcs = ["PWM15_IR_M0", "UART7_CTSN_M1", "I2C8_SDA_M4", "SPI1_CS1_M1"] },
+  { pin = 8, soc = "GPIO0_B5", chip = "gpio0", line = 13, funcs = ["UART2_TX_M0", "I2C1_SCL_M0"], note = "debug console" },
+  { pin = 9, kind = "gnd" },
+  { pin = 10, soc = "GPIO0_B6", chip = "gpio0", line = 14, funcs = ["UART2_RX_M0", "I2C1_SDA_M0"], note = "debug console" },
+  { pin = 11, soc = "GPIO3_C1", chip = "gpio3", line = 17, funcs = ["UART7_RX_M1", "SPI1_CLK_M1"] },
+  { pin = 12, soc = "GPIO3_B5", chip = "gpio3", line = 13, funcs = ["PWM12_M0", "UART3_TX_M1"] },
+  { pin = 13, soc = "GPIO3_B7", chip = "gpio3", line = 15, funcs = ["I2C3_SCL_M1", "SPI1_MOSI_M1"] },
+  { pin = 14, kind = "gnd" },
+  { pin = 15, soc = "GPIO3_C0", chip = "gpio3", line = 16, funcs = ["UART7_TX_M1", "I2C3_SDA_M1", "SPI1_MISO_M1"] },
+  { pin = 16, soc = "GPIO3_A4", chip = "gpio3", line = 4 },
+  { pin = 17, kind = "3v3" },
+  { pin = 18, soc = "GPIO4_C4", chip = "gpio4", line = 20, funcs = ["PWM5_M2", "SPI3_MISO_M0"] },
+  { pin = 19, soc = "GPIO1_B2", chip = "gpio1", line = 10, funcs = ["UART4_RX_M2", "SPI0_MOSI_M2"] },
+  { pin = 20, kind = "gnd" },
+  { pin = 21, soc = "GPIO1_B1", chip = "gpio1", line = 9, funcs = ["SPI0_MISO_M2"] },
+  { pin = 22, kind = "other", label = "SARADC_IN4" },
+  { pin = 23, soc = "GPIO1_B3", chip = "gpio1", line = 11, funcs = ["UART4_TX_M2", "SPI0_CLK_M2"] },
+  { pin = 24, soc = "GPIO1_B4", chip = "gpio1", line = 12, funcs = ["UART7_RX_M2", "SPI0_CS0_M2"] },
+  { pin = 25, kind = "gnd" },
+  { pin = 26, soc = "GPIO1_B5", chip = "gpio1", line = 13, funcs = ["UART7_TX_M2", "SPI0_CS1_M2"] },
+  { pin = 27, soc = "GPIO4_C6", chip = "gpio4", line = 22, funcs = ["PWM7_IR_M3", "I2C0_SDA_M1", "SPI3_CLK_M0"] },
+  { pin = 28, soc = "GPIO4_C5", chip = "gpio4", line = 21, funcs = ["PWM6_M2", "I2C0_SCL_M1", "SPI3_MOSI_M0"] },
+  { pin = 29, soc = "GPIO1_A3", chip = "gpio1", line = 3, funcs = ["I2C4_SCL_M3", "PWM1_M2"] },
+  { pin = 30, kind = "gnd" },
+  { pin = 31, soc = "GPIO1_A2", chip = "gpio1", line = 2, funcs = ["I2C4_SDA_M3", "PWM0_M2"] },
+  { pin = 32, soc = "GPIO3_C2", chip = "gpio3", line = 18, funcs = ["PWM14_M0", "UART7_RTSN_M1", "I2C8_SCL_M4", "SPI1_CS0_M1"] },
+  { pin = 33, soc = "GPIO3_A7", chip = "gpio3", line = 7, funcs = ["PWM8_M0"] },
+  { pin = 34, kind = "gnd" },
+  { pin = 35, soc = "GPIO3_B6", chip = "gpio3", line = 14, funcs = ["PWM13_M0", "UART3_RX_M1"] },
+  { pin = 36, soc = "GPIO3_B1", chip = "gpio3", line = 9, funcs = ["PWM2_M1", "UART2_TX_M2"] },
+  { pin = 37, soc = "GPIO0_A0", chip = "gpio0", line = 0 },
+  { pin = 38, soc = "GPIO3_B2", chip = "gpio3", line = 10, funcs = ["PWM3_IR_M1", "UART2_RX_M2"] },
+  { pin = 39, kind = "gnd" },
+  { pin = 40, soc = "GPIO3_B3", chip = "gpio3", line = 11, funcs = ["UART2_RTSN"] },
+]
+
+[boot]
+files = [
+  { kind = "armbianEnv", path = "/boot/armbianEnv.txt" },
+]
+overlay_dirs = ["/boot/dtb/rockchip/overlay"]

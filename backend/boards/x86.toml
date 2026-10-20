@@ -1,0 +1,32 @@
+# ==================== x86 PC ====================
+#
+# Mini PCs, NUCs, laptops, servers: named from DMI (/sys/class/dmi/id), no pin header.
+# GPIO is whatever gpiochips the kernel has, which on a PC is usually just a USB adapter
+# (FT232H, CH341, MCP2221) or the chipset's own lines. Health is generic: thermal zones and
+# hwmon (coretemp, k10temp, acpitz…) and power supplies (a laptop battery, a UPS).
+
+id = "x86"
+name = "x86-64 PC"
+vendor = ""
+tested = true
+health = "sysfs"
+sources = []
+
+[detect]
+priority = 10
+arch = ["x86_64", "x86"]
+
+# Named from DMI; WSL has none at all.
+[[refine]]
+when = { wsl = true }
+name = "Windows Subsystem for Linux"
+
+[[refine]]
+name = "{dmi}"
+
+[[refine]]
+name = "x86-64 PC"
+
+[gpio]
+panel = "gpiochip"
+reader = "gpiochip"

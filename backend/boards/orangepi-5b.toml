@@ -1,0 +1,131 @@
+# ==================== Orange Pi (Shenzhen Xunlong) ====================
+#
+# UNTESTED: nobody here has an Orange Pi. The pinouts are the vendor's and the kernel's;
+# what hasn't been checked is BenchBob running on the hardware.
+#
+# Boards: Orange Pi 5 / 5B (RK3588S, 26-pin), 5 Plus (RK3588, 40-pin), 3B (RK3566,
+# 40-pin), Zero 3 (H618, 26-pin + 13-pin) and Zero 2W (H618, 40-pin). The 5 Pro, 5 Max and
+# 5 Ultra are recognised but have no header map: their 40-pin headers differ from the
+# 5 Plus (wiringOP has a separate table for each) and we haven't sourced them.
+#
+# Sources:
+#  - Vendor wiki pin tables (the online user manuals):
+#    http://www.orangepi.org/orangepiwiki/index.php/26_Pin_Interface_Pin_Description (OPi 5)
+#    http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_5_Plus
+#    http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_3B
+#    http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_Zero_3
+#    http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_Zero_2W
+#  - Orange Pi's wiringOP (physToGpio_* / physNames_*), which agrees with the OPi 5 table
+#    on every pin and corrects the 5 Plus wiki, whose GPIO numbers for pins 8, 10, 16, 18
+#    don't match the pin names printed beside them (it says 109/110/32/33):
+#    https://github.com/orangepi-xunlong/wiringOP/blob/next/wiringPi/wiringPi.c
+#  - Kernel: compatible strings from the mainline dts files (arch/arm64/boot/dts/rockchip
+#    and allwinner) and Orange Pi's kernel (orangepi-xunlong/linux-orangepi), whose
+#    strings differ ("rockchip,rk3588s-orangepi-5", "allwinner,sun50i-h616" on a Zero 3).
+#    Chip labels: gpio-rockchip.c labels banks "gpio0".."gpio4" (offset = group A–D × 8 +
+#    index); sunxi labels its controller by device name ("300b000.pinctrl" on H616/H618,
+#    offset = (port − 'A') × 32 + n). Register bases from rk3588-base.dtsi,
+#    rk356x-base.dtsi, sun50i-h616.dtsi.
+#
+# Gotcha for users comparing with the vendor's numbers: on mainline kernels Rockchip GPIO
+# bases are dynamic (512+), so the vendor's "GPIO 47" isn't Linux GPIO 47 there. The
+# header map is chip + line, which is the same on both kernels.
+#
+# Boot config: Orange Pi's images keep overlays in /boot/orangepiEnv.txt, Armbian in
+# /boot/armbianEnv.txt (same `overlays=` format). The overlay *names* differ between the
+# two (Zero 3: "ph-i2c3" vs "i2c3-ph"; Armbian's vendor-kernel Rockchip images want the
+# full "rk3588-i2c5-m3"), so the panel offers what is installed in the overlay directory
+# and uses the catalogs below only to say which pins each takes.
+
+id = "orangepi-5b"
+name = "Orange Pi 5B"
+vendor = "Orange Pi"
+soc = "Rockchip RK3588S"
+tested = false
+health = "sysfs"
+sources = [
+  "http://www.orangepi.org/orangepiwiki/index.php/26_Pin_Interface_Pin_Description",
+  "https://github.com/orangepi-xunlong/wiringOP/blob/next/wiringPi/wiringPi.c",
+  "https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/rockchip/rk3588s-orangepi-5.dts",
+  "https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/rockchip/rk3588s-orangepi-5b.dts",
+]
+
+[detect]
+# One above the Orange Pi 5, whose strings a 5B's device tree may also carry.
+priority = 51
+compatible = ['^xunlong,orangepi-5b$']
+
+[gpio]
+panel = "gpiochip"
+reader = "gpiochip"
+
+# Chip keys → the gpiochip's uAPI label or sysfs device name.
+[chips]
+gpio0 = ["gpio0", "fd8a0000.gpio"]
+gpio1 = ["gpio1", "fec20000.gpio"]
+gpio2 = ["gpio2", "fec30000.gpio"]
+gpio3 = ["gpio3", "fec40000.gpio"]
+gpio4 = ["gpio4", "fec50000.gpio"]
+
+# Same header as the 5 except pin 22, which wiringOP (physToGpio_5B: -1, physNames_5B:
+# "PowerKey") says is the power key. No vendor pin table for the 5B was found.
+[[header]]
+id = "26pin"
+name = "26-pin header"
+pins = [
+  { pin = 1, kind = "3v3" },
+  { pin = 2, kind = "5v" },
+  { pin = 3, soc = "GPIO1_B7", chip = "gpio1", line = 15, funcs = ["I2C5_SDA_M3", "UART1_RX_M1", "PWM13_M2"] },
+  { pin = 4, kind = "5v" },
+  { pin = 5, soc = "GPIO1_B6", chip = "gpio1", line = 14, funcs = ["I2C5_SCL_M3", "UART1_TX_M1"] },
+  { pin = 6, kind = "gnd" },
+  { pin = 7, soc = "GPIO1_C6", chip = "gpio1", line = 22, funcs = ["PWM15_IR_M2"] },
+  { pin = 8, soc = "GPIO4_A3", chip = "gpio4", line = 3, funcs = ["UART0_TX_M2"] },
+  { pin = 9, kind = "gnd" },
+  { pin = 10, soc = "GPIO4_A4", chip = "gpio4", line = 4, funcs = ["UART0_RX_M2"] },
+  { pin = 11, soc = "GPIO4_B2", chip = "gpio4", line = 10, funcs = ["CAN1_RX_M1", "PWM14_M1"] },
+  { pin = 12, soc = "GPIO0_D5", chip = "gpio0", line = 29, funcs = ["CAN2_TX_M1", "I2C1_SDA_M2"] },
+  { pin = 13, soc = "GPIO4_B3", chip = "gpio4", line = 11, funcs = ["CAN1_TX_M1"] },
+  { pin = 14, kind = "gnd" },
+  { pin = 15, soc = "GPIO0_D4", chip = "gpio0", line = 28, funcs = ["CAN2_RX_M1", "I2C1_SCL_M2", "PWM3_IR_M0"] },
+  { pin = 16, soc = "GPIO1_D3", chip = "gpio1", line = 27, funcs = ["UART4_RX_M0", "I2C1_SDA_M4", "PWM1_M1"] },
+  { pin = 17, kind = "3v3" },
+  { pin = 18, soc = "GPIO1_D2", chip = "gpio1", line = 26, funcs = ["UART4_TX_M0", "I2C1_SCL_M4", "PWM0_M1"] },
+  { pin = 19, soc = "GPIO1_C1", chip = "gpio1", line = 17, funcs = ["SPI4_MOSI_M0", "UART3_TX_M0", "I2C3_SCL_M0"] },
+  { pin = 20, kind = "gnd" },
+  { pin = 21, soc = "GPIO1_C0", chip = "gpio1", line = 16, funcs = ["SPI4_MISO_M0", "UART3_RX_M0", "I2C3_SDA_M0"] },
+  { pin = 22, kind = "other", label = "PowerKey", note = "per wiringOP" },
+  { pin = 23, soc = "GPIO1_C2", chip = "gpio1", line = 18, funcs = ["SPI4_CLK_M0", "PWM3_IR_M2"] },
+  { pin = 24, soc = "GPIO1_C4", chip = "gpio1", line = 20, funcs = ["SPI4_CS1_M0"] },
+  { pin = 25, kind = "gnd" },
+  { pin = 26, soc = "GPIO1_A3", chip = "gpio1", line = 3, funcs = ["PWM1_M2"] },
+]
+
+# Orange Pi 5 user manual v2.4 §3.18, as for the Orange Pi 5.
+[boot]
+files = [
+  { kind = "armbianEnv", path = "/boot/armbianEnv.txt" },
+  { kind = "orangepiEnv", path = "/boot/orangepiEnv.txt" },
+]
+overlay_dirs = ["/boot/dtb/rockchip/overlay"]
+overlays = [
+  { name = "i2c1-m2", what = "I²C1 (SDA 12, SCL 15)", pins = [12, 15] },
+  { name = "i2c1-m4", what = "I²C1 (SDA 16, SCL 18)", pins = [16, 18] },
+  { name = "i2c3-m0", what = "I²C3 (SDA 21, SCL 19)", pins = [21, 19] },
+  { name = "i2c5-m3", what = "I²C5 (SDA 3, SCL 5)", pins = [3, 5] },
+  { name = "uart0-m2", what = "UART0 (TX 8, RX 10)", pins = [8, 10] },
+  { name = "uart1-m1", what = "UART1 (TX 5, RX 3)", pins = [5, 3] },
+  { name = "uart3-m0", what = "UART3 (TX 19, RX 21)", pins = [19, 21] },
+  { name = "uart4-m0", what = "UART4 (TX 18, RX 16)", pins = [18, 16] },
+  { name = "spi4-m0-cs1-spidev", what = "SPI4 → /dev/spidev4.1 (MOSI 19, MISO 21, CLK 23, CS1 24)", pins = [19, 21, 23, 24] },
+  { name = "pwm0-m1", what = "PWM0 on 18", pins = [18] },
+  { name = "pwm1-m1", what = "PWM1 on 16", pins = [16] },
+  { name = "pwm1-m2", what = "PWM1 on 26", pins = [26] },
+  { name = "pwm3-m0", what = "PWM3 on 15", pins = [15] },
+  { name = "pwm3-m2", what = "PWM3 on 23", pins = [23] },
+  { name = "pwm13-m2", what = "PWM13 on 3", pins = [3] },
+  { name = "pwm14-m1", what = "PWM14 on 11", pins = [11] },
+  { name = "pwm15-m2", what = "PWM15 on 7", pins = [7] },
+  { name = "can1-m1", what = "CAN1 (RX 11, TX 13); not on Linux 6.1 images (manual)", pins = [11, 13] },
+  { name = "can2-m1", what = "CAN2 (RX 15, TX 12); not on Linux 6.1 images (manual)", pins = [15, 12] },
+]

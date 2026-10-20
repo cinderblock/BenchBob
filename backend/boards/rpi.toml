@@ -1,0 +1,119 @@
+# ==================== Raspberry Pi ====================
+#
+# Every Pi with the 40-pin header: Pi 1 B+ / Zero / 2 / 3 / 4 / 5, 400 / 500, CM3 / CM4 /
+# CM5. The Pi keeps the path BenchBob grew up on: pinctrl for function/pull, a passive
+# register reader for 10 Hz levels (/dev/gpiomem GPLEV0/1 on BCM283x/2711, RP1's SYS_RIO
+# on the Pi 5), config.txt for the header buses, and the firmware's throttling flags and
+# PMIC through vcgencmd for host power.
+#
+# Tested on a Pi 4 (desky). The other models run the same code, but nobody here has a Pi 5
+# or Pi 3 to try it on, so they are reported as untested. The RP1 reader in particular has
+# never run on hardware.
+#
+# Header: the standard 40-pin layout, from
+# https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio
+
+id = "rpi"
+name = "Raspberry Pi"
+vendor = "Raspberry Pi"
+tested = false
+health = "vcgencmd"
+sources = [
+  "https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio",
+  "https://www.raspberrypi.com/documentation/computers/config_txt.html",
+]
+
+[detect]
+priority = 100
+compatible = ['^(raspberrypi,|brcm,bcm(2835|2836|2837|2710|2711|2712))']
+
+# Only the Pi 4 family has been run here (desky); the others run the same code.
+[[refine]]
+when = { compatible = ['^brcm,bcm2711$'] }
+tested = true
+
+# The SoC is the brcm,bcmNNNN compatible string.
+[[refine]]
+when = { compatible = ['^brcm,bcm2835$'] }
+soc = "BCM2835"
+
+[[refine]]
+when = { compatible = ['^brcm,bcm2836$'] }
+soc = "BCM2836"
+
+[[refine]]
+when = { compatible = ['^brcm,bcm2837$'] }
+soc = "BCM2837"
+
+[[refine]]
+when = { compatible = ['^brcm,bcm2710$'] }
+soc = "BCM2710"
+
+[[refine]]
+when = { compatible = ['^brcm,bcm2711$'] }
+soc = "BCM2711"
+
+[[refine]]
+when = { compatible = ['^brcm,bcm2712$'] }
+soc = "BCM2712"
+
+[gpio]
+panel = "rpi"
+# Fast passive levels: RP1's registers on a Pi 5, GPLEV0/1 on the older SoCs, else
+# pinctrl every tick.
+reader = [
+  { when = { compatible = ['^brcm,bcm2712$'] }, use = "rp1" },
+  { when = { compatible = ['^brcm,bcm(2835|2836|2837|2711)$'] }, use = "bcm2711-gpiomem" },
+  { use = "pinctrl" },
+]
+
+[[header]]
+id = "j8"
+name = "40-pin header"
+pins = [
+  { pin = 1, kind = "3v3" },
+  { pin = 2, kind = "5v" },
+  { pin = 3, gpio = 2 },
+  { pin = 4, kind = "5v" },
+  { pin = 5, gpio = 3 },
+  { pin = 6, kind = "gnd" },
+  { pin = 7, gpio = 4 },
+  { pin = 8, gpio = 14 },
+  { pin = 9, kind = "gnd" },
+  { pin = 10, gpio = 15 },
+  { pin = 11, gpio = 17 },
+  { pin = 12, gpio = 18 },
+  { pin = 13, gpio = 27 },
+  { pin = 14, kind = "gnd" },
+  { pin = 15, gpio = 22 },
+  { pin = 16, gpio = 23 },
+  { pin = 17, kind = "3v3" },
+  { pin = 18, gpio = 24 },
+  { pin = 19, gpio = 10 },
+  { pin = 20, kind = "gnd" },
+  { pin = 21, gpio = 9 },
+  { pin = 22, gpio = 25 },
+  { pin = 23, gpio = 11 },
+  { pin = 24, gpio = 8 },
+  { pin = 25, kind = "gnd" },
+  { pin = 26, gpio = 7 },
+  { pin = 27, gpio = 0 },
+  { pin = 28, gpio = 1 },
+  { pin = 29, gpio = 5 },
+  { pin = 30, kind = "gnd" },
+  { pin = 31, gpio = 6 },
+  { pin = 32, gpio = 12 },
+  { pin = 33, gpio = 13 },
+  { pin = 34, kind = "gnd" },
+  { pin = 35, gpio = 19 },
+  { pin = 36, gpio = 16 },
+  { pin = 37, gpio = 26 },
+  { pin = 38, gpio = 20 },
+  { pin = 39, kind = "gnd" },
+  { pin = 40, gpio = 21 },
+]
+
+[boot]
+files = [
+  { kind = "config.txt", path = "/boot/firmware/config.txt" },
+]
