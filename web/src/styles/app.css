@@ -44,3 +44,8 @@
   .drive-hdr{flex-direction:column}
   .settings-grid{grid-template-columns:1fr}
 }
+/* The file list keeps name and size on a phone; the modified date goes. */
+@media(max-width:560px){
+  .fb-tbl col.fb-mod{width:0!important}
+  .fb-tbl th:nth-child(3),.fb-tbl td:nth-child(3){display:none}
+}
