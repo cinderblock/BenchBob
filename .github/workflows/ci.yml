@@ -84,6 +84,41 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --generate-notes ./*.deb SHA256SUMS
 
+  # A Raspberry Pi OS Lite (64-bit) SD image with BenchBob preinstalled: attached to the
+  # release on v* tags, or kept as a workflow artifact when run by hand.
+  image:
+    if: always() && needs.package.result == 'success' && (needs.release.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.release.result == 'skipped'))
+    needs: [package, release]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb-arm64
+          path: debs
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq parted e2fsprogs xz-utils
+      - name: Build
+        id: build
+        run: |
+          deb=$(ls debs/benchbob_*_arm64.deb)
+          v=$(dpkg-deb -f "$deb" Version)
+          out="benchbob-$v-raspios-lite-arm64.img.xz"
+          sudo packaging/build-image.sh "$deb" "$out"
+          sha256sum "$out" > "$out.sha256"
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+      - if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}" "${{ steps.build.outputs.out }}" "${{ steps.build.outputs.out }}.sha256"
+      - if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sd-image
+          path: ${{ steps.build.outputs.out }}*
+          compression-level: 0
+
   # The apt repository on GitHub Pages, rebuilt from the newest app releases each time.
   # Also runnable by hand (workflow_dispatch) to republish without a new release.
   pages:
