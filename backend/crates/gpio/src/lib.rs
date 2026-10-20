@@ -1043,7 +1043,7 @@ impl Driver for Gpio {
         42
     }
     fn description(&self) -> &'static str {
-        "Live GPIO header view (Raspberry Pi and mapped boards) or gpiochip lines, opt-in output control on the Pi, and the boot-time bus switches (config.txt, or device-tree overlays elsewhere)"
+        "Live GPIO header view (Raspberry Pi and mapped boards) or gpiochip lines, opt-in output control on any board, and the boot-time bus switches (config.txt, or device-tree overlays elsewhere)"
     }
 
     async fn init(&self, ctx: Ctx) -> anyhow::Result<()> {

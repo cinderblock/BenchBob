@@ -96,6 +96,7 @@ claude mcp add --transport http benchbob http://benchbob.local/mcp
 - `update.ts`: the release check and the dashboard's Update button
 - `packaging/`: the `.deb` build, the apt repository build, systemd unit, udev rule, drive handler, `benchbob-setup`
 - `firmware/`: node firmware for microcontroller boards (Rust + Embassy; its own README)
+- `backend/`: the Rust server that will replace the Bun one, and the board files (its own README)
 
 Serial, CAN, I²C and GPIO talk to the kernel through `bun:ffi`. There are no npm
 dependencies: Bun runs the TypeScript directly.
@@ -121,7 +122,8 @@ and `BENCHBOB_BOARD=<id>` forces one.
   BeagleBone AI-64. The dashboard marks these "untested board". Check pins against the
   vendor's pinout before wiring anything.
 - **Can't run BenchBob:** 32-bit boards (BeagleBone Black/Green, Pi Zero W, Pi 1/2), because
-  Bun has no 32-bit ARM build.
+  Bun has no 32-bit ARM build. (The Rust server in `backend/` builds for them, but isn't
+  packaged for them yet.)
 
 Off the Pi, GPIO is read through the kernel's character-device API, which can't read a level
 without requesting the line. So levels are shown only for lines you pick to watch, requested
@@ -192,6 +194,18 @@ packaging/build-deb.sh arm64 # just build it (CI, any Debian box, WSL)
 
 Running from a checkout, settings are kept next to the code unless `BENCHBOB_STATE_DIR`
 says otherwise.
+
+## Rust backend (in progress)
+
+`backend/` is the Rust server that will replace the Bun one: one static binary per
+architecture (x86-64, arm64, ARMv7 and ARMv6), the same API and settings, and board
+definitions as TOML files you can add without rebuilding
+([backend/boards/README.md](backend/boards/README.md)). It serves the dashboard, status,
+events, updates, MCP and the GPIO panel itself (with pin output on every board), and
+proxies every panel it doesn't have yet to the Bun server, so it can take port 80 early.
+The released package still runs Bun only; `RUST_BIN=… packaging/build-deb.sh` adds the
+Rust server, and `sudo benchbob-setup rust on` switches it in. See
+[backend/README.md](backend/README.md).
 
 ## Microcontroller nodes
 
