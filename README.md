@@ -150,6 +150,15 @@ port. For APFS drives, build the module once with `sudo benchbob-setup apfs`.
 Installing over a DeskyPi (`install.sh`) setup moves its settings over and retires
 `deskypi-web.service`.
 
+### Raspberry Pi SD card image
+
+Each release also carries `benchbob-<version>-raspios-lite-arm64.img.xz`: the latest
+Raspberry Pi OS Lite (64-bit) with BenchBob and the panels' tools already installed. Flash
+it with Raspberry Pi Imager ("Use custom"); its OS customisation (user, Wi-Fi, SSH) still
+applies. BenchBob is running when the Pi first boots. Or, to make a card from any Pi OS
+image, flash it from a BenchBob dashboard with "Install BenchBob on first boot" ticked in
+the flash settings.
+
 ### Updates
 
 The package adds BenchBob's apt repository (`/etc/apt/sources.list.d/benchbob.sources`,
