@@ -249,7 +249,8 @@ jobs:
       - name: Rust mode on
         run: |
           sudo benchbob-setup rust on
-          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && jq -e '.backend' api.json > /dev/null && break; sleep 2; done
+          # Up once the Rust server answers and the Bun one behind it does too.
+          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && jq -e '.backend and (.endpoints | has("POST /api/eject"))' api.json > /dev/null && break; sleep 2; done
           jq -e '.backend.server == "benchbob (Rust)" and .backend.legacy == "http://127.0.0.1:8081"' api.json
           jq -e '.board.id == "x86" and (.endpoints | has("POST /api/eject"))' api.json
           curl -fsS http://localhost/api/status | jq -e '.version != "dev" and (.peripherals.list | map(.id) | index("gpio") != null)'
