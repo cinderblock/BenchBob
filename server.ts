@@ -9,6 +9,7 @@ import { rpiPower } from "./peripherals/boards/rpi.ts";
 import { cpuTemp, readSensors, type Sensors } from "./peripherals/lib/health.ts";
 import { statePath, VERSION } from "./paths.ts";
 import * as update from "./update.ts";
+import { Glob } from "bun";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = statePath("defaults.json");
@@ -2006,8 +2007,24 @@ const API_DOCS = {
 // It hashes every file whose content defines the running app, not just index.html: a
 // server.ts-only deploy leaves index.html byte-identical, so hashing the page alone would
 // let an open dashboard keep talking to a changed API forever.
+//
+// Two dashboards are served from one hash: the component UI built into web/dist (at /;
+// `cd web && bun install && bun run build`), and the old single-file page (index.html with
+// ui/*.js inlined) at /legacy until it is removed. Every file of the web build is in the
+// hash, so a new UI build reloads open dashboards just like a new backend does. A checkout
+// without a web build serves the old page at / as well.
 
 const UI_PATH = import.meta.dir + "/index.html";
+const WEB_DIST = import.meta.dir + "/web/dist";
+
+/** Files of the web build, relative to WEB_DIST, sorted ("index.html", "assets/…"). */
+function webFiles(): string[] {
+  try {
+    return [...new Glob("**/*").scanSync({ cwd: WEB_DIST, onlyFiles: true })].map((f) => f.replaceAll("\\", "/")).sort();
+  } catch {
+    return [];
+  }
+}
 
 // UI_PATH must stay first — getBuild() serves texts[0] as the page.
 // defaults.json, favorites.json and quicklist.json are deliberately excluded: they are user data, rewritten
@@ -2016,11 +2033,14 @@ const UI_PATH = import.meta.dir + "/index.html";
 // (and its ui/*.js is inlined into the page) without editing this list.
 const CORE_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "paths.ts", "regf.ts", "rpiboot.ts", "update.ts"].map((f) => `${import.meta.dir}/${f}`)];
 
-let buildCache: { stamp: string; version: string; html: string } | null = null;
+let buildCache: { stamp: string; version: string; html: string; legacy: string } | null = null;
 
-async function getBuild(): Promise<{ version: string; html: string }> {
+/** html: the page served at / (the web build, or the old page without one); legacy: the old page. */
+async function getBuild(): Promise<{ version: string; html: string; legacy: string }> {
   const uiFiles = periph.uiFiles();
-  const files = [...CORE_FILES, ...periph.buildFiles()].map((p) => Bun.file(p));
+  const web = webFiles();
+  const webPaths = web.map((f) => `${WEB_DIST}/${f}`);
+  const files = [...CORE_FILES, ...webPaths, ...periph.buildFiles()].map((p) => Bun.file(p));
   // Cheap staleness check so a git pull is picked up without a restart.
   const stamp = files.map((f) => `${f.lastModified}:${f.size}`).join("|");
   if (!buildCache || buildCache.stamp !== stamp) {
@@ -2031,9 +2051,60 @@ async function getBuild(): Promise<{ version: string; html: string }> {
     // One <script> per driver UI, so a mistake in one can't take down the rest of the page.
     const uiTexts = texts.slice(files.length - uiFiles.length);
     const uiScripts = uiTexts.map((t, i) => `<script>/* ${uiFiles[i].split("/").pop()} */\n${t}\n</script>`).join("\n");
-    buildCache = { stamp, version, html: texts[0].replace("<!--PERIPH_UI-->", () => uiScripts).replaceAll("__BUILD_VERSION__", version) };
+    const legacy = texts[0].replace("<!--PERIPH_UI-->", () => uiScripts).replaceAll("__BUILD_VERSION__", version);
+    const webIndex = web.indexOf("index.html");
+    const html = webIndex === -1 ? legacy : texts[CORE_FILES.length + webIndex].replaceAll("__BUILD_VERSION__", version);
+    buildCache = { stamp, version, html, legacy };
   }
   return buildCache;
+}
+
+/** A hashed asset of the web build (/assets/index-1a2b3c.js): served for a year, gzipped once. */
+const gzAssets = new Map<string, { stamp: string; body: Uint8Array }>();
+async function webAsset(req: Request, p: string): Promise<Response | null> {
+  if (!/^\/assets\/[\w.-]+$/.test(p) || p.includes("..")) return null;
+  const f = Bun.file(WEB_DIST + p);
+  if (!(await f.exists())) return null;
+  const headers: Record<string, string> = { "Content-Type": f.type, "Cache-Control": "public, max-age=31536000, immutable", Vary: "Accept-Encoding" };
+  if (!acceptsGzip(req) || !/\.(js|css|svg|json|html|txt|map)$/.test(p)) return new Response(f, { headers });
+  const stamp = `${f.lastModified}:${f.size}`;
+  let gz = gzAssets.get(p);
+  if (gz?.stamp !== stamp) gzAssets.set(p, (gz = { stamp, body: Bun.gzipSync(new Uint8Array(await f.arrayBuffer())) }));
+  return new Response(gz.body, { headers: { ...headers, "Content-Encoding": "gzip" } });
+}
+
+// ==================== CORS ====================
+//
+// Every bob answers with permissive CORS, so a UI served from somewhere else (the Vite dev
+// server, a desktop app holding several bobs) can use its API, SSE stream and MCP endpoint.
+// There is no login and no cookie, so "*" without credentials is the whole policy. Browsers
+// don't apply CORS to WebSockets, and the upgrade below doesn't check Origin, so those work
+// cross-origin already. Chrome's Private Network Access preflight (a public page reaching
+// a LAN address) is answered too.
+
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id",
+  "Access-Control-Max-Age": "86400",
+};
+
+function corsPreflight(req: Request): Response {
+  const headers = new Headers(CORS_HEADERS);
+  if (req.headers.get("access-control-request-private-network") === "true") headers.set("Access-Control-Allow-Private-Network", "true");
+  return new Response(null, { status: 204, headers });
+}
+
+function withCors(res: Response): Response {
+  try {
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    return res;
+  } catch {
+    // Immutable headers (a fetched response passed through): copy them.
+    const headers = new Headers(res.headers);
+    headers.set("Access-Control-Allow-Origin", "*");
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+  }
 }
 
 // A peripheral change only pushes the peripherals part, as its own event. A full getStatus()
@@ -2057,8 +2128,9 @@ Bun.serve({
   idleTimeout: 120,
   websocket: periph.websocket,
   async fetch(req, server) {
+    if (req.method === "OPTIONS") return corsPreflight(req);
     const res = await handle(req, server);
-    return res ? compress(req, res) : res;
+    return res ? withCors(await compress(req, res)) : res;
   },
 });
 
@@ -2073,15 +2145,22 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
 
     // no-cache (revalidate every load), not no-store — otherwise a deploy is invisible
     // until the user knows to hard-refresh. The ETag keeps revalidation cheap.
-    if (p === "/" || p === "/index.html") {
+    if (p === "/" || p === "/index.html" || p === "/legacy" || p === "/legacy/") {
       const ui = await getBuild();
-      const etag = `"${ui.version}"`;
+      const legacy = p.startsWith("/legacy");
+      const page = legacy ? ui.legacy : ui.html;
+      const etag = `"${ui.version}${legacy ? "-legacy" : ""}"`;
       const headers: Record<string, string> = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache", ETag: etag, Vary: "Accept-Encoding" };
       if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
-      if (!acceptsGzip(req)) return new Response(ui.html, { headers });
-      // ~430 KB of HTML with every driver UI inlined; gzip it once per build.
-      if (gzPage?.version !== ui.version) gzPage = { version: ui.version, body: Bun.gzipSync(new TextEncoder().encode(ui.html)) };
+      if (!acceptsGzip(req)) return new Response(page, { headers });
+      // The old page is ~430 KB of HTML with every driver UI inlined; gzip once per build.
+      const key = `${ui.version}${legacy ? "-legacy" : ""}`;
+      if (gzPage?.version !== key) gzPage = { version: key, body: Bun.gzipSync(new TextEncoder().encode(page)) };
       return new Response(gzPage.body, { headers: { ...headers, "Content-Encoding": "gzip" } });
+    }
+    if (p.startsWith("/assets/")) {
+      const a = await webAsset(req, p);
+      if (a) return a;
     }
     if (p === "/api" || p === "/api/") {
       // Examples name the host the caller reached us by, so they paste and run as-is.

@@ -91,14 +91,15 @@ claude mcp add --transport http benchbob http://benchbob.local/mcp
 - `peripherals/drivers/<id>.ts`: one file per panel (auto-discovered)
 - `peripherals/boards/`: one file per board family (pin headers, boot config, health), picked at startup
 - `peripherals/lib/`: parsers, FFI layers (termios, SocketCAN, I²C, gpiomem), tests
-- `ui/<id>.js`: each panel's dashboard script, inlined into `index.html` at serve time
+- `web/`: the dashboard (Vite + React/TypeScript on preact/compat), built to `web/dist` and served at `/`
+- `index.html`, `ui/<id>.js`: the previous dashboard, served at `/legacy` until it's removed
 - `paths.ts`: where settings live (`/var/lib/benchbob` when installed), the version
 - `update.ts`: the release check and the dashboard's Update button
 - `packaging/`: the `.deb` build, the apt repository build, systemd unit, udev rule, drive handler, `benchbob-setup`
 - `firmware/`: node firmware for microcontroller boards (Rust + Embassy; its own README)
 
-Serial, CAN, I²C and GPIO talk to the kernel through `bun:ffi`. There are no npm
-dependencies: Bun runs the TypeScript directly.
+Serial, CAN, I²C and GPIO talk to the kernel through `bun:ffi`. The server has no npm
+dependencies: Bun runs the TypeScript directly. Only the web UI has a build step.
 
 ## Hardware
 
@@ -192,6 +193,29 @@ packaging/build-deb.sh arm64 # just build it (CI, any Debian box, WSL)
 
 Running from a checkout, settings are kept next to the code unless `BENCHBOB_STATE_DIR`
 says otherwise.
+
+### The web UI
+
+`web/` is the dashboard: React components built against `preact/compat` with Vite, one
+lazily loaded module per section and panel, so a bob only downloads the panels it reports.
+It talks to the bob's API as it stands; request and response types sit next to each
+panel's client (`api.ts`). Without a build, the server serves the old page at `/` too.
+
+```sh
+cd web && bun install
+bun run dev                  # http://localhost:5173; append ?bob=http://deskypi.local to use a real bob
+BOB_PROXY=http://deskypi.local bun run dev   # or proxy /api, /ws and /mcp to one (same-origin)
+bun run test                 # Vitest component and unit tests
+bun run typecheck
+bun run build                # dist/ (full) and dist-mcu/ (node build), then the size budget
+bun scripts/mock-node.ts     # a pretend microcontroller node on :8099, for the node sections
+```
+
+Every request goes through a `BobConnection` (base URL), and a `<Bob>` component holds
+one bob's whole dashboard, so a page can show several bobs; every bob answers with
+permissive CORS for that. A page reloads itself when the bob that served it reports a new
+build (server or UI); a page served from elsewhere shows a notice instead. The MCU build
+holds only what a node serves (status, GPIO, I²C) and must stay under 60 KB gzipped.
 
 ## Microcontroller nodes
 
