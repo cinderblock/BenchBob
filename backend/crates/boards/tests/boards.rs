@@ -374,6 +374,24 @@ files = [{ kind = "script", path = "/usr/local/lib/my-board-boot" }]
     assert_eq!(b.defs.len(), 17);
 }
 
+/// The README's worked example is a board file that loads and matches.
+#[test]
+fn the_readme_worked_example_parses() {
+    let readme = include_str!("../../../boards/README.md");
+    let after = &readme[readme.find("## Worked example").unwrap()..];
+    let start = after.find("```toml\n").unwrap() + 8;
+    let text = &after[start..start + after[start..].find("```").unwrap()];
+    let d = parse(text).unwrap();
+    assert_eq!(d.id, "acme-x1");
+    assert_eq!(d.score(&arm(&["acme,x1", "rockchip,rk3566"], "Acme X1")), 50);
+    assert_eq!(d.boot.unwrap().files[0].kind, BootKind::Script);
+    // And so is the annotated format reference above it.
+    let fmt = &readme[readme.find("## Format").unwrap()..];
+    let start = fmt.find("```toml\n").unwrap() + 8;
+    let d = parse(&fmt[start..start + fmt[start..].find("```").unwrap()]).unwrap();
+    assert_eq!(d.refine[0].name.as_deref(), Some("{model} (v2)"));
+}
+
 #[test]
 fn bad_files_are_refused_with_a_reason() {
     assert!(parse("id = \"x\"\nname = \"x\"\nhealth = \"sysfs\"\n[detect]\npriority = 1\n[gpio]\npanel = \"gpiochip\"\n[[header]]\nid = \"h\"\nname = \"h\"\npins = [{ pin = 1, chip = \"nope\", line = 0, soc = \"A\" }]\n").unwrap_err().contains("isn't in [chips]"));
