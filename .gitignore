@@ -6,3 +6,4 @@ quicklist.json
 peripherals.json
 peripherals/lib/radios-fixtures/ble-scan.btsnoop
 dist/
+.claude/worktrees/
