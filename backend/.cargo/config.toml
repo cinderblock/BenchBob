@@ -1,0 +1,23 @@
+# Static musl builds link with the rust-lld that ships with rustc, against the musl CRT and
+# libc that the musl targets' rust-std carries (link-self-contained). The workspace has no
+# C dependencies, so no cross C toolchain is needed: plain `cargo build --target …` works
+# from any Linux (or Windows, or macOS) host once the target is added with rustup.
+
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes"]
+
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes"]
+
+# ARMv7 hard-float: BeagleBone Black, Pi 2, most armhf boards.
+[target.armv7-unknown-linux-musleabihf]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes"]
+
+# ARMv6 hard-float: Pi Zero W and Pi 1 (Raspberry Pi OS's armhf is ARMv6), and it runs on
+# every ARMv7 board too. The armhf package ships this one.
+[target.arm-unknown-linux-musleabihf]
+linker = "rust-lld"
+rustflags = ["-C", "linker-flavor=ld.lld", "-C", "link-self-contained=yes"]

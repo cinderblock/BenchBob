@@ -1,0 +1,56 @@
+# BenchBob's Rust backend: one statically linked binary per architecture.
+#
+# Its own workspace, separate from firmware/ (no_std, embedded targets). Crates:
+#   benchbob-core    driver registry, settings, udev hotplug, MCP, HTTP helpers
+#   benchbob-boards  board definitions (TOML data files), loading and detection
+#   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
+#   benchbob         the server binary: HTTP, UI, status, SSE, update, legacy proxy
+# Each later panel (serial, CAN, I²C…) becomes its own crate registered in the binary.
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.88"
+publish = false
+
+[workspace.dependencies]
+benchbob-core = { path = "crates/core" }
+benchbob-boards = { path = "crates/boards" }
+benchbob-gpio = { path = "crates/gpio" }
+
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "query"] }
+bytes = "1"
+flate2 = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "client", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1"] }
+indexmap = { version = "2", features = ["serde"] }
+libc = "0.2"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+# preserve_order: object keys come out in insertion order, as JavaScript's do, so the
+# API's JSON matches the Bun server's byte for byte.
+serde_json = { version = "1", features = ["preserve_order"] }
+socket2 = "0.6"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "process", "signal", "sync", "time", "fs", "io-util"] }
+toml = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+uuid = { version = "1", features = ["v4"] }
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+
+[profile.release]
+# Small binaries for 32-bit boards and slow SD cards; a bench server isn't CPU-bound.
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
