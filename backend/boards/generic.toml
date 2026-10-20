@@ -1,0 +1,23 @@
+# ==================== Generic Linux ====================
+#
+# The fallback for any machine no other board file claims: an unknown ARM board, a VM, a
+# RISC-V box. Everything BenchBob does through sysfs, character devices and USB works
+# here; what's missing is a header map, so the GPIO panel lists the kernel's gpiochips and
+# lines (names, owners, flags) instead of physical pins, with levels for lines the user
+# chooses to watch. No boot-config editing: we don't know where this board keeps it.
+
+id = "generic"
+name = "Linux computer"
+vendor = ""
+tested = true
+health = "sysfs"
+sources = []
+
+[detect]
+# The fallback for any machine no other board file claims.
+priority = 1
+always = true
+
+[gpio]
+panel = "gpiochip"
+reader = "gpiochip"

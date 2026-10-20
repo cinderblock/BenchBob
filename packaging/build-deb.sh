@@ -6,6 +6,11 @@
 # The package carries the sources and a pinned Bun runtime; nothing is fetched at install
 # time. The version defaults to one derived from the newest v* tag (`git describe`). Needs
 # bash, curl, unzip, sha256sum and dpkg-deb: CI, any Debian box, or WSL.
+#
+# Opt-in, for testing the Rust server: RUST_BIN=<static benchbob binary for ARCH> adds it
+# as /usr/lib/benchbob/bin/benchbob, the board files in /usr/share/benchbob/boards and
+# benchbob-rust.service. Nothing changes until `sudo benchbob-setup rust on`; without
+# RUST_BIN the package is exactly what it was.
 set -euo pipefail
 
 BUN_VERSION=1.4.2
@@ -71,6 +76,16 @@ echo "$VERSION" > "$APP/VERSION"
 
 unzip -q -j -o "$BUN_ZIP" "$BUN_ASSET/bun" -d "$APP/bin"
 chmod 0755 "$APP/bin/bun"
+
+# ---------- Rust server (opt-in) ----------
+if [ -n "${RUST_BIN:-}" ]; then
+  [ -f "$RUST_BIN" ] || { echo "RUST_BIN=$RUST_BIN: no such file" >&2; exit 1; }
+  install -m 0755 "$RUST_BIN" "$APP/bin/benchbob"
+  install -d -m 0755 "$STAGE/usr/share/benchbob/boards" "$STAGE/etc/benchbob/boards.d"
+  install -m 0644 "$ROOT"/backend/boards/*.toml "$ROOT/backend/boards/README.md" "$STAGE/usr/share/benchbob/boards/"
+  install -D -m 0644 "$PKG/benchbob-rust.service" "$STAGE/usr/lib/systemd/system/benchbob-rust.service"
+  echo "including the Rust server: $("$APP/bin/benchbob" --version 2>/dev/null || echo "$RUST_BIN (another architecture)")" >&2
+fi
 
 install -m 0755 "$PKG/benchbob-setup" "$PKG/benchbob-update" "$APP/system/"
 install -m 0755 "$PKG/drives/nfs-drive-handler.sh" "$PKG/drives/nfs-drive-mount.sh" "$APP/drives/"

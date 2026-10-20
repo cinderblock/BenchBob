@@ -1,0 +1,133 @@
+# ==================== BeagleBoard.org ====================
+#
+# UNTESTED: nobody here has a Beagle board. The pinout is BeagleBoard.org's and the
+# kernel's; what hasn't been checked is BenchBob running on the hardware.
+#
+# The classic BeagleBone Black / Green (TI AM335x, 32-bit) never ran the Bun server, which
+# has no 32-bit ARM build. The Rust server does run there, but it has no board file yet
+# (no sourced P8/P9 map), so it comes up as the generic board. These files cover the
+# 64-bit boards:
+#
+#  - BeagleY-AI (TI AM67A / J722S): a Raspberry Pi-style 40-pin header, fully mapped.
+#    Sources, cross-checked: the kernel's gpio-line-names (each line is named after the
+#    Pi's BCM number, "GPIO14"…) and the pad comments in BeagleBoard.org's pinmux file;
+#    balls and alternate functions from pinout.beagleboard.io. That site lists pin 8 as
+#    GPIO0_14; both device trees say main_gpio1 line 14 (pad comment
+#    "(F24) MCASP0_ACLKR.GPIO1_14"), which is what's used here.
+#      https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/ti/k3-am67a-beagley-ai.dts
+#      https://github.com/beagleboard/BeagleBoard-DeviceTrees/blob/v6.12.x-Beagle/src/arm64/ti/k3-am67a-beagley-ai-pinmux.dtsi
+#      https://pinout.beagleboard.io/
+#    Chips: gpio-davinci labels each controller by device name ("600000.gpio" main_gpio0,
+#    "601000.gpio" main_gpio1, "4201000.gpio" mcu_gpio0); the gpiochipN numbers aren't
+#    documented and depend on probe order.
+#    Boot config: overlays go on the default label's `fdtoverlays` line in
+#    /boot/firmware/extlinux/extlinux.conf, .dtbo files in /boot/firmware/overlays/
+#    (https://docs.beagleboard.org/boards/beagley/ai/demos/using-pwm.html).
+#
+#  - BeagleBone AI-64 (TDA4VM): recognised, but no header map. Its device tree has no
+#    line names, many P8/P9 pins connect two SoC balls each, and BeagleBoard.org's own
+#    tables disagree with their worked example, so nothing here would be trustworthy
+#    without the hardware (https://docs.beagleboard.org/boards/beaglebone/ai-64/04-expansion.html).
+
+id = "beagley-ai"
+name = "BeagleY-AI"
+vendor = "BeagleBoard.org"
+soc = "TI AM67A"
+tested = false
+health = "sysfs"
+sources = [
+  "https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/ti/k3-am67a-beagley-ai.dts",
+  "https://github.com/beagleboard/BeagleBoard-DeviceTrees/blob/v6.12.x-Beagle/src/arm64/ti/k3-am67a-beagley-ai-pinmux.dtsi",
+  "https://pinout.beagleboard.io/",
+  "https://docs.beagleboard.org/boards/beagley/ai/demos/using-pwm.html",
+]
+notes = [
+  "UART6 (pins 7/11/36) may already be the Bluetooth UART on BeagleBoard.org's images.",
+]
+
+[detect]
+priority = 50
+compatible = ['^beagle,am67a-beagley-ai$']
+
+[gpio]
+panel = "gpiochip"
+reader = "gpiochip"
+
+# Chip keys → the gpiochip's uAPI label or sysfs device name.
+[chips]
+main0 = ["600000.gpio"]
+main1 = ["601000.gpio"]
+mcu0 = ["4201000.gpio"]
+
+[[header]]
+id = "40pin"
+name = "40-pin header"
+pins = [
+  { pin = 1, kind = "3v3" },
+  { pin = 2, kind = "5v" },
+  { pin = 3, soc = "GPIO2 (E11)", chip = "mcu0", line = 18, funcs = ["MCU_I2C0_SDA"], note = "/dev/i2c-1, on by default at 100 kHz; fixed 2.2 kΩ pull-up" },
+  { pin = 4, kind = "5v" },
+  { pin = 5, soc = "GPIO3 (B13)", chip = "mcu0", line = 17, funcs = ["MCU_I2C0_SCL"], note = "/dev/i2c-1; fixed 2.2 kΩ pull-up" },
+  { pin = 6, kind = "gnd" },
+  { pin = 7, soc = "GPIO4 (W26)", chip = "main0", line = 38, funcs = ["GPMC0_WAIT1", "VOUT0_EXTPCLKIN", "GPMC0_A21", "UART6_RXD", "AUDIO_EXT_REFCLK2", "EQEP2_I"] },
+  { pin = 8, soc = "GPIO14 (F24)", chip = "main1", line = 14, funcs = ["MCASP0_ACLKR", "SPI2_CLK", "UART1_TXD", "EHRPWM0_B", "EQEP1_I"], note = "UART TX (main_uart1)" },
+  { pin = 9, kind = "gnd" },
+  { pin = 10, soc = "GPIO15 (C27)", chip = "main1", line = 13, funcs = ["MCASP0_AFSR", "SPI2_CS0", "UART1_RXD", "EHRPWM0_A", "EQEP1_S"], note = "UART RX (main_uart1)" },
+  { pin = 11, soc = "GPIO17 (A26)", chip = "main1", line = 8, funcs = ["MCASP0_AXR2", "SPI2_D1", "UART1_RTSn", "UART6_TXD", "ECAP2_IN_APWM_OUT", "EQEP0_B"] },
+  { pin = 12, soc = "GPIO18 (D25)", chip = "main1", line = 11, funcs = ["MCASP0_ACLKX", "SPI2_CS1", "ECAP2_IN_APWM_OUT", "EQEP1_A"] },
+  { pin = 13, soc = "GPIO27 (N22)", chip = "main0", line = 33, funcs = ["GPMC0_OEn_REn", "MCASP1_AXR1"] },
+  { pin = 14, kind = "gnd" },
+  { pin = 15, soc = "GPIO22 (R27)", chip = "main0", line = 41, funcs = ["GPMC0_CSn0", "I2C4_SCL", "MCASP2_AXR14"] },
+  { pin = 16, soc = "GPIO23 (B5)", chip = "mcu0", line = 7, funcs = ["MCU_UART0_CTSn", "MCU_TIMER_IO0", "MCU_SPI1_D0"] },
+  { pin = 17, kind = "3v3" },
+  { pin = 18, soc = "GPIO24 (C8)", chip = "mcu0", line = 10, funcs = ["WKUP_UART0_TXD", "MCU_SPI1_CS2"] },
+  { pin = 19, soc = "GPIO10 (B12)", chip = "mcu0", line = 3, funcs = ["MCU_SPI0_D0"], note = "SPI0 MOSI" },
+  { pin = 20, kind = "gnd" },
+  { pin = 21, soc = "GPIO9 (C11)", chip = "mcu0", line = 4, funcs = ["MCU_SPI0_D1"], note = "SPI0 MISO" },
+  { pin = 22, soc = "GPIO25 (P21)", chip = "main0", line = 42, funcs = ["GPMC0_CSn1", "I2C4_SDA", "MCASP2_AXR15"] },
+  { pin = 23, soc = "GPIO11 (A9)", chip = "mcu0", line = 2, funcs = ["MCU_SPI0_CLK"], note = "SPI0 SCLK" },
+  { pin = 24, soc = "GPIO8 (C12)", chip = "mcu0", line = 0, funcs = ["MCU_SPI0_CS0", "WKUP_TIMER_IO1"], note = "SPI0 CE0" },
+  { pin = 25, kind = "gnd" },
+  { pin = 26, soc = "GPIO7 (B3)", chip = "mcu0", line = 9, funcs = ["WKUP_UART0_RXD", "MCU_SPI0_CS2"], note = "SPI0 CE1" },
+  { pin = 27, soc = "GPIO0 (D11)", chip = "mcu0", line = 20, funcs = ["WKUP_I2C0_SDA"], note = "HAT EEPROM bus, shared with the PMIC, core regulator, board EEPROM and RTC: leave unused" },
+  { pin = 28, soc = "GPIO1 (B9)", chip = "mcu0", line = 19, funcs = ["WKUP_I2C0_SCL"], note = "HAT EEPROM bus, shared with the PMIC: leave unused" },
+  { pin = 29, soc = "GPIO5 (B20)", chip = "main1", line = 15, funcs = ["SPI0_CS0", "EHRPWM0_A"] },
+  { pin = 30, kind = "gnd" },
+  { pin = 31, soc = "GPIO6 (D20)", chip = "main1", line = 17, funcs = ["SPI0_CLK", "CP_GEMAC_CPTS0_TS_SYNC", "EHRPWM1_A"] },
+  { pin = 32, soc = "GPIO12 (C20)", chip = "main1", line = 16, funcs = ["SPI0_CS1", "CP_GEMAC_CPTS0_TS_COMP", "EHRPWM0_B", "ECAP0_IN_APWM_OUT", "MAIN_ERRORn", "EHRPWM_TZn_IN5"], note = "PWM0" },
+  { pin = 33, soc = "GPIO13 (E19)", chip = "main1", line = 18, funcs = ["SPI0_D0", "CP_GEMAC_CPTS0_HW1TSPUSH", "EHRPWM1_B"], note = "PWM1" },
+  { pin = 34, kind = "gnd" },
+  { pin = 35, soc = "GPIO19 (C26)", chip = "main1", line = 12, funcs = ["MCASP0_AFSX", "SPI2_CS3", "AUDIO_EXT_REFCLK1", "EQEP1_B"] },
+  { pin = 36, soc = "GPIO16 (A25)", chip = "main1", line = 7, funcs = ["MCASP0_AXR3", "SPI2_D0", "UART1_CTSn", "UART6_RXD", "ECAP1_IN_APWM_OUT", "EQEP0_A"] },
+  { pin = 37, soc = "GPIO26 (P26)", chip = "main0", line = 36, funcs = ["GPMC0_BE1n", "MCASP2_AXR12"] },
+  { pin = 38, soc = "GPIO20 (F23)", chip = "main1", line = 10, funcs = ["MCASP0_AXR0", "AUDIO_EXT_REFCLK0", "EHRPWM1_B", "EQEP0_I"] },
+  { pin = 39, kind = "gnd" },
+  { pin = 40, soc = "GPIO21 (B25)", chip = "main1", line = 9, funcs = ["MCASP0_AXR1", "SPI2_CS2", "ECAP1_IN_APWM_OUT", "MAIN_ERRORn", "EHRPWM1_A", "EQEP0_S"] },
+]
+
+# Overlays BeagleBoard.org ships for the header (BeagleBoard-DeviceTrees src/arm64/overlays).
+[boot]
+files = [
+  { kind = "extlinux", path = "/boot/firmware/extlinux/extlinux.conf" },
+]
+overlay_dirs = ["/boot/firmware/overlays"]
+overlay_ref = "/overlays/"
+overlays = [
+  { name = "i2c1-400000", what = "I²C1 at 400 kHz (pins 3/5 are I²C at 100 kHz without it)", pins = [3, 5] },
+  { name = "uart-ttyama0", what = "UART on pins 8/10 as /dev/ttyAMA0", pins = [8, 10] },
+  { name = "spidev0", what = "Bit-banged SPI (spi-gpio) on 19/21/23, chip selects 24 and 26", pins = [19, 21, 23, 24, 26] },
+  { name = "pwm-epwm0-gpio14", what = "EPWM0 on pin 8", pins = [8] },
+  { name = "pwm-epwm0-gpio15", what = "EPWM0 on pin 10", pins = [10] },
+  { name = "pwm-epwm0-gpio5", what = "EPWM0 on pin 29", pins = [29] },
+  { name = "pwm-epwm0-gpio12", what = "EPWM0 on pin 32", pins = [32] },
+  { name = "pwm-epwm1-gpio6", what = "EPWM1 on pin 31", pins = [31] },
+  { name = "pwm-epwm1-gpio13", what = "EPWM1 on pin 33", pins = [33] },
+  { name = "pwm-epwm1-gpio20", what = "EPWM1 on pin 38", pins = [38] },
+  { name = "pwm-epwm1-gpio21", what = "EPWM1 on pin 40", pins = [40] },
+  { name = "pwm-ecap0-gpio12", what = "ECAP0 on pin 32", pins = [32] },
+  { name = "pwm-ecap1-gpio16", what = "ECAP1 on pin 36", pins = [36] },
+  { name = "pwm-ecap1-gpio21", what = "ECAP1 on pin 40", pins = [40] },
+  { name = "pwm-ecap2-gpio17", what = "ECAP2 on pin 11", pins = [11] },
+  { name = "pwm-ecap2-gpio18", what = "ECAP2 on pin 12", pins = [12] },
+  { name = "pps-gpio18", what = "PPS input on pin 12", pins = [12] },
+]

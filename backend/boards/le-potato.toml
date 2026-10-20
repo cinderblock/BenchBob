@@ -1,0 +1,110 @@
+# ==================== Libre Computer ====================
+#
+# UNTESTED: nobody here has one of these boards. The data below is the vendor's and the
+# kernel's; what hasn't been checked is BenchBob running on the hardware.
+#
+# AML-S905X-CC "Le Potato" (Amlogic S905X) and its V2 "Sweet Potato" (identical header:
+# the vendor's V2 pin map is a symlink to the V1 one), and ROC-RK3328-CC "Renegade".
+#
+# Sources, checked against each other pin by pin:
+#  - Vendor pin maps (libretech-wiring-tool, commit 442faf9, 2026-10-05):
+#    https://github.com/libre-computer-project/libretech-wiring-tool/blob/master/libre-computer/aml-s905x-cc/gpio.map
+#    https://github.com/libre-computer-project/libretech-wiring-tool/blob/master/libre-computer/roc-rk3328-cc/gpio.map
+#    The functions are the map's "Desc" column (SoC mux options). Its "Ref" column holds
+#    schematic net names and is misleading in places (pins 27/28 say I2C_A; they're I2C_B).
+#  - Kernel DT, whose gpio-line-names for Le Potato name every header pin and agree:
+#    https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/amlogic/meson-gxl-s905x-libretech-cc.dts
+#  - Line offsets: include/dt-bindings/gpio/meson-gxl-gpio.h (aobus: GPIOAO_0..9 = 0..9,
+#    TEST_N = 10; periphs: GPIODV_0 = 49, GPIOX_0 = 79, GPIOCLK_0 = 98). Chip labels from
+#    drivers/pinctrl/meson/pinctrl-meson-gxl.c ("aobus-banks", "periphs-banks"); the chip
+#    numbers depend on probe order, so match on the label. Rockchip: gpio-rockchip.c
+#    labels each bank "gpioN"; offset = group (A=0…D=3) × 8 + index.
+#
+# Boot config: Libre's images apply overlays with `ldto merge <name>`, which writes a whole
+# merged DTB under /boot/efi/dtb rather than a list we could edit, and Armbian's GXL
+# overlays are written for the Odroid C2 and not confirmed for these pins. So these boards
+# are read-only here; the notes list the vendor's overlay names.
+
+id = "le-potato"
+name = "Libre Computer AML-S905X-CC (Le Potato)"
+vendor = "Libre Computer"
+soc = "Amlogic S905X"
+tested = false
+health = "sysfs"
+sources = [
+  "https://github.com/libre-computer-project/libretech-wiring-tool/blob/master/libre-computer/aml-s905x-cc/gpio.map",
+  "https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/amlogic/meson-gxl-s905x-libretech-cc.dts",
+  "https://github.com/torvalds/linux/blob/master/include/dt-bindings/gpio/meson-gxl-gpio.h",
+]
+notes = [
+  "Header overlays come from Libre's wiring tool: `sudo ldto merge <name>` then reboot (i2c-ao: pins 3/5; i2c-b: 27/28; spi-cc-1cs: 19/21/23/24; uart-a: 8/10; uart-ao-b: 5/3; uart-c-clk81: 19/21; pwm-e: 32; pwm-a: 33; pwm-f: 35). BenchBob doesn't edit the merged DTB it writes.",
+]
+
+[detect]
+priority = 50
+compatible = ['^libretech,aml-s905x-cc(-v2)?$']
+
+# The V2 (Sweet Potato) has the same header; the model string says which it is.
+[[refine]]
+when = { model = ['(?i)v2'] }
+name = "{model} (Sweet Potato)"
+
+[[refine]]
+name = "{model} (Le Potato)"
+
+[gpio]
+panel = "gpiochip"
+reader = "gpiochip"
+
+# Chip keys → the gpiochip's uAPI label or sysfs device name.
+[chips]
+aobus = ["aobus-banks"]
+periphs = ["periphs-banks"]
+
+[[header]]
+id = "7j1"
+name = "40-pin header (7J1)"
+pins = [
+  { pin = 1, kind = "3v3" },
+  { pin = 2, kind = "5v" },
+  { pin = 3, soc = "GPIOAO_5", chip = "aobus", line = 5, funcs = ["UART_RX_AO_B", "I2C_SDA_AO", "I2C_SLAVE_SDA_AO"] },
+  { pin = 4, kind = "5v" },
+  { pin = 5, soc = "GPIOAO_4", chip = "aobus", line = 4, funcs = ["UART_TX_AO_B", "I2C_SCK_AO", "I2C_SLAVE_SCK_AO"] },
+  { pin = 6, kind = "gnd" },
+  { pin = 7, soc = "GPIOCLK_0", chip = "periphs", line = 98, funcs = ["CLK24", "CLK12"] },
+  { pin = 8, soc = "GPIOX_12", chip = "periphs", line = 91, funcs = ["UART_TX_A"] },
+  { pin = 9, kind = "gnd" },
+  { pin = 10, soc = "GPIOX_13", chip = "periphs", line = 92, funcs = ["UART_RX_A"] },
+  { pin = 11, soc = "GPIOAO_8", chip = "aobus", line = 8, funcs = ["AO_CEC", "EE_CEC", "I2SOUT_CH23", "PWM_AO_A"], note = "shared with HDMI CEC through switch 9J3" },
+  { pin = 12, soc = "GPIOAO_6", chip = "aobus", line = 6, funcs = ["I2S_IN_01", "SPDIF_OUT", "PWM_AO_B"] },
+  { pin = 13, soc = "GPIOAO_9", chip = "aobus", line = 9, funcs = ["REMOTE_OUTPUT", "SPDIF_OUT", "I2SOUT_CH45", "PWM_AO_B"] },
+  { pin = 14, kind = "gnd" },
+  # The DT names line 10 "7J1 Header Pin15", but the GXL AO bank stops at GPIOAO_9, so
+  # the mainline driver refuses it as a GPIO (vendor: "TEST_N**").
+  { pin = 15, soc = "GPIO_TEST_N", chip = "aobus", line = 10, funcs = ["wd_gpio", "I2SOUT_CH67"], note = "TEST_N: not usable as a GPIO on mainline kernels" },
+  { pin = 16, soc = "GPIOX_14", chip = "periphs", line = 93, funcs = ["UART_CTS_A"] },
+  { pin = 17, kind = "3v3" },
+  { pin = 18, soc = "GPIOX_15", chip = "periphs", line = 94, funcs = ["UART_RTS_A"] },
+  { pin = 19, soc = "GPIOX_8", chip = "periphs", line = 87, funcs = ["PCM_OUT_A", "UART_TX_C", "SPI_MOSI"] },
+  { pin = 20, kind = "gnd" },
+  { pin = 21, soc = "GPIOX_9", chip = "periphs", line = 88, funcs = ["PCM_IN_A", "UART_RX_C", "SPI_MISO"] },
+  { pin = 22, soc = "GPIOX_0", chip = "periphs", line = 79, funcs = ["SDIO_D0"] },
+  { pin = 23, soc = "GPIOX_11", chip = "periphs", line = 90, funcs = ["PCM_CLK_A", "UART_RTS_C", "I2C_SCK_D", "SPI_SCLK"] },
+  { pin = 24, soc = "GPIOX_10", chip = "periphs", line = 89, funcs = ["PCM_FS_A", "UART_CTS_C", "I2C_SDA_D", "SPI_SS0"] },
+  { pin = 25, kind = "gnd" },
+  { pin = 26, soc = "GPIOX_1", chip = "periphs", line = 80, funcs = ["SDIO_D1"] },
+  { pin = 27, soc = "GPIODV_26", chip = "periphs", line = 75, funcs = ["UART_CTS_B", "I2C_SDA_B"] },
+  { pin = 28, soc = "GPIODV_27", chip = "periphs", line = 76, funcs = ["UART_RTS_B", "I2C_SCK_B"] },
+  { pin = 29, soc = "GPIOX_17", chip = "periphs", line = 96 },
+  { pin = 30, kind = "gnd" },
+  { pin = 31, soc = "GPIOX_18", chip = "periphs", line = 97 },
+  { pin = 32, soc = "GPIOX_16", chip = "periphs", line = 95, funcs = ["PWM_E"] },
+  { pin = 33, soc = "GPIOX_6", chip = "periphs", line = 85, funcs = ["PWM_A"] },
+  { pin = 34, kind = "gnd" },
+  { pin = 35, soc = "GPIOX_7", chip = "periphs", line = 86, funcs = ["SDIO_IRQ", "PWM_F"] },
+  { pin = 36, soc = "GPIOX_2", chip = "periphs", line = 81, funcs = ["SDIO_D2"] },
+  { pin = 37, soc = "GPIOX_5", chip = "periphs", line = 84, funcs = ["SDIO_CMD"] },
+  { pin = 38, soc = "GPIOX_3", chip = "periphs", line = 82, funcs = ["SDIO_D3"] },
+  { pin = 39, kind = "gnd" },
+  { pin = 40, soc = "GPIOX_4", chip = "periphs", line = 83, funcs = ["SDIO_CLK"] },
+]

@@ -23,6 +23,82 @@ jobs:
           bun-version: 1.4.2
       - run: bun test peripherals/ ./update.test.ts
 
+  # ---- Rust backend (backend/): not shipped by default yet (packaging/build-deb.sh
+  # includes it only when given a binary). Tests and lint on x86-64 and arm64, then a
+  # static musl binary for every target. ----
+
+  backend-test:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - run: cargo fmt --check
+      - run: cargo test --locked --workspace
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  backend-build:
+    needs: backend-test
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, arch: amd64 }
+          - { target: aarch64-unknown-linux-musl, arch: arm64 }
+          # ARMv7 hard-float (BeagleBone Black, Pi 2), and ARMv6 hard-float (Pi Zero W,
+          # Pi 1; also runs on ARMv7), which is the one an armhf package ships.
+          - { target: armv7-unknown-linux-musleabihf, arch: armv7 }
+          - { target: arm-unknown-linux-musleabihf, arch: armhf }
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+          key: ${{ matrix.target }}
+      # No C dependencies: rust-lld links against the target's self-contained musl
+      # (backend/.cargo/config.toml), so no cross toolchain is installed.
+      - run: cargo build --locked --release --target ${{ matrix.target }} -p benchbob
+      - name: Static and small
+        run: |
+          bin=target/${{ matrix.target }}/release/benchbob
+          file "$bin"
+          # x86-64 musl links static-pie; the others plain static.
+          file "$bin" | grep -Eq 'statically linked|static-pie linked'
+          ls -l "$bin"
+      - name: Smoke test (x86-64)
+        if: matrix.arch == 'amd64'
+        run: |
+          bin=target/${{ matrix.target }}/release/benchbob
+          "$bin" --version
+          mkdir -p /tmp/bb-state
+          PORT=8099 BENCHBOB_STATE_DIR=/tmp/bb-state BENCHBOB_ROOT=$GITHUB_WORKSPACE "$bin" & pid=$!
+          for i in $(seq 30); do curl -fsS http://localhost:8099/api > api.json && break; sleep 1; done
+          jq -e '.name == "BenchBob API"' api.json
+          curl -fsS http://localhost:8099/api/status | jq -e '.board.id and .system.cores > 0'
+          curl -fsS http://localhost:8099/ | grep -q '<h1 id="title">BenchBob</h1>'
+          curl -fsS -X OPTIONS -H 'Origin: http://example.com' -H 'Access-Control-Request-Method: POST' -D - -o /dev/null http://localhost:8099/api/status | grep -qi '^access-control-allow-origin: \*'
+          kill $pid
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchbob-rust-${{ matrix.arch }}
+          path: backend/target/${{ matrix.target }}/release/benchbob
+
   # ---- Microcontroller node firmware (firmware/). A firmware-v* tag publishes it. ----
 
   firmware-test:
@@ -143,6 +219,61 @@ jobs:
         with:
           name: deb-${{ matrix.arch }}
           path: ${{ steps.build.outputs.deb }}
+
+  # The opt-in Rust packaging (RUST_BIN), installed and switched into Rust mode and back.
+  # Its .deb is a test artifact only: releases ship the plain package from `package`.
+  package-rust:
+    needs: [test, backend-build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: benchbob-rust-amd64
+          path: rust
+      - name: Build
+        id: build
+        run: |
+          chmod +x rust/benchbob
+          echo "deb=$(RUST_BIN=rust/benchbob packaging/build-deb.sh amd64)" >> "$GITHUB_OUTPUT"
+      - name: Install (Bun on :80, as always)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "${{ steps.build.outputs.deb }}"
+          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && break; sleep 2; done
+          jq -e '.backend == null' api.json
+          test "$(sudo benchbob-setup rust status)" = off
+          ls /usr/share/benchbob/boards/rpi.toml
+      - name: Rust mode on
+        run: |
+          sudo benchbob-setup rust on
+          # Up once the Rust server answers and the Bun one behind it does too.
+          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && jq -e '.backend and (.endpoints | has("POST /api/eject"))' api.json > /dev/null && break; sleep 2; done
+          jq -e '.backend.server == "benchbob (Rust)" and .backend.legacy == "http://127.0.0.1:8081"' api.json
+          jq -e '.board.id == "x86" and (.endpoints | has("POST /api/eject"))' api.json
+          curl -fsS http://localhost/api/status | jq -e '.version != "dev" and (.peripherals.list | map(.id) | index("gpio") != null)'
+          curl -fsS -D - -o /dev/null http://localhost/api/gpio | grep -qi '^x-benchbob-backend: native'
+          curl -fsS -D - -o /dev/null http://localhost/api/quicklist | grep -qi '^x-benchbob-backend: legacy'
+          curl -fsS http://localhost/ | grep -q '<h1 id="title">BenchBob</h1>'
+          curl -fsS http://localhost/api/boards | jq -e '.dirs[0] == "/usr/share/benchbob/boards" and (.errors | length) == 0'
+          systemctl is-active benchbob benchbob-rust
+      - name: Rust mode off
+        run: |
+          sudo benchbob-setup rust off
+          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && jq -e '.backend == null' api.json > /dev/null && break; sleep 2; done
+          jq -e '.backend == null' api.json
+          if systemctl is-active --quiet benchbob-rust; then echo "benchbob-rust still running" >&2; exit 1; fi
+      - name: Service logs
+        if: always()
+        run: sudo journalctl -u benchbob -u benchbob-rust --no-pager -n 200
+      - name: Remove and purge
+        run: |
+          sudo benchbob-setup rust on
+          sudo apt-get purge -y benchbob
+          if systemctl is-active --quiet benchbob-rust; then echo "benchbob-rust still running" >&2; exit 1; fi
+          test ! -e /etc/systemd/system/benchbob.service.d/50-rust-mode.conf
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
