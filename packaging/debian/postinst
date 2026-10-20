@@ -20,6 +20,9 @@ if [ "$1" = "configure" ]; then
 
   /usr/lib/benchbob/system/benchbob-setup configure
 
+  # A card flashed with "Install BenchBob" bootstrapped from this; our conffile replaces it.
+  rm -f /etc/apt/sources.list.d/benchbob-bootstrap.sources
+
   # Transpiled copies of the previous version's sources: never needed again.
   rm -rf /var/cache/benchbob/* /var/lib/benchbob/.bun
 

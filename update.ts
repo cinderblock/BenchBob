@@ -1,10 +1,12 @@
-// Release updates: notice a newer BenchBob on GitHub, and install it through apt.
+// Release updates: notice a newer BenchBob on GitHub, and install it through apt. Also
+// what a flashed card needs to install BenchBob itself.
 //
 // The check asks GitHub's API for the latest release every 6 hours (and on demand); a
 // checkout ("dev") never checks. Installing hands off to benchbob-update, a root script
 // started with systemd-run as its own unit: the upgrade's postinst restarts this service,
 // which would kill an apt run that lived in our cgroup halfway through dpkg.
 
+import { readFileSync } from "node:fs";
 import { statePath, VERSION } from "./paths.ts";
 
 const REPO = "cinderblock/BenchBob";
@@ -123,6 +125,70 @@ export async function route(req: Request, p: string): Promise<Response | null> {
     return json({ ok: true, message: "Updating: BenchBob restarts when it's done" });
   }
   return null;
+}
+
+// ---------- BenchBob on a card we flash ----------
+//
+// "Install BenchBob" in the flash settings: the new system gets our apt source and key,
+// and installs the package on its first boot with a network. cloud-init images (Pi OS
+// Trixie) do that with write_files + packages; firstrun.sh images (Bookworm) run before
+// the network is up, so they get a oneshot unit that waits for it.
+
+export const APT_URI = "https://cinderblock.github.io/BenchBob/apt";
+const KEYRING = "/usr/share/keyrings/benchbob-archive-keyring.asc";
+const APT_SOURCES = `Types: deb\nURIs: ${APT_URI}\nSuites: stable\nComponents: main\nSigned-By: ${KEYRING}\n`;
+// Not benchbob.sources: that's the package's conffile, and a file already there makes dpkg
+// stop and ask which to keep, with nobody to answer on a first boot. postinst deletes
+// this one once the package's own source is in place.
+const BOOTSTRAP_SOURCES = "/etc/apt/sources.list.d/benchbob-bootstrap.sources";
+
+/** Our signing key: installed by the package, or in packaging/ when run from a checkout. */
+function archiveKey(): string {
+  for (const p of [KEYRING, `${import.meta.dir}/packaging/benchbob-archive-keyring.asc`]) {
+    try {
+      return readFileSync(p, "utf8");
+    } catch {}
+  }
+  throw new Error("BenchBob's archive key isn't installed, so a flashed card can't be set up to install BenchBob");
+}
+
+/** cloud-config lines: write_files for the apt source and key. Add "benchbob" to packages. */
+export function cloudInitWriteFiles(): string[] {
+  const block = (text: string) => text.trimEnd().split("\n").map((l) => `    ${l}`);
+  return [
+    "write_files:",
+    `- path: ${KEYRING}`, "  permissions: '0644'", "  content: |", ...block(archiveKey()),
+    `- path: ${BOOTSTRAP_SOURCES}`, "  permissions: '0644'", "  content: |", ...block(APT_SOURCES),
+    "",
+  ];
+}
+
+/** firstrun.sh fragment: the source, the key, and a unit that installs once online. */
+export function firstrunInstall(): string {
+  const unit = `[Unit]
+Description=Install BenchBob (first boot)
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/usr/lib/benchbob/VERSION
+
+[Service]
+Type=oneshot
+# Check-Date off: the clock may not have synced yet, and apt would call the repo "not valid yet".
+ExecStart=/bin/sh -c 'apt-get -o Acquire::Check-Date=false update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold benchbob'
+ExecStartPost=/bin/systemctl disable benchbob-firstboot.service
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
+`;
+  const file = (path: string, text: string, tag: string) => `cat > '${path}' << '${tag}'\n${text.trimEnd()}\n${tag}\n`;
+  return `\n# BenchBob: our apt source and key, installed from it once the network is up\n`
+    + `mkdir -p /usr/share/keyrings /etc/apt/sources.list.d\n`
+    + file(KEYRING, archiveKey(), "BBKEYEOF")
+    + file(BOOTSTRAP_SOURCES, APT_SOURCES, "BBSRCEOF")
+    + file("/etc/systemd/system/benchbob-firstboot.service", unit, "BBUNITEOF")
+    + `systemctl enable benchbob-firstboot.service\n`;
 }
 
 export const DOCS = {

@@ -1153,11 +1153,13 @@ async function applyCloudInit(s: any): Promise<string> {
 async function mkCloudInitUserData(s: any): Promise<string> {
   const L: string[] = ["manage_resolv_conf: false", ""];
   const hostname = String(s.hostname || "").trim();
-  if (hostname) {
-    L.push(`hostname: ${yq(hostname)}`, "manage_etc_hosts: true");
-    // Parity with Imager: avahi for <hostname>.local, and don't let a first-boot clock
-    // that hasn't synced yet make apt reject the repo signatures.
-    L.push("packages:", "- avahi-daemon", "", "apt:", "  preserve_sources_list: true", "  conf: |",
+  if (hostname) L.push(`hostname: ${yq(hostname)}`, "manage_etc_hosts: true");
+  // Parity with Imager: avahi for <hostname>.local. And for any packages, don't let a
+  // first-boot clock that hasn't synced yet make apt reject the repo signatures.
+  const packages = [...(hostname ? ["avahi-daemon"] : []), ...(s.installBenchBob ? ["benchbob"] : [])];
+  if (s.installBenchBob) L.push(...update.cloudInitWriteFiles());
+  if (packages.length) {
+    L.push("packages:", ...packages.map((p) => `- ${p}`), "", "apt:", "  preserve_sources_list: true", "  conf: |",
       "    Acquire {", '      Check-Date "false";', "    };", "");
   }
   if (s.timezone) L.push(`timezone: ${yq(String(s.timezone).trim())}`);
@@ -1281,6 +1283,8 @@ function mkFirstrun(s: any): string {
 
   // Keyboard
   if (s.keyboardLayout) sc += `\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom set_keymap '${shellEsc(s.keyboardLayout)}' '${shellEsc(s.keyboardLayout)}'\nfi\n`;
+
+  if (s.installBenchBob) sc += update.firstrunInstall();
 
   // Cleanup
   sc += `\nrm -f /boot/firmware/firstrun.sh\nsed -i 's| systemd.run.*||g' /boot/firmware/cmdline.txt\nexit 0\n`;

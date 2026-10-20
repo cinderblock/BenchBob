@@ -11,7 +11,8 @@ agent.
 - **Drives**: USB disks are auto-mounted and shared read-only over NFS, NBD and SMB. The
   dashboard can browse and download files, identify what's installed (Windows, Linux,
   macOS, Pi OS, EFI loaders), erase, deep-scan, flash Raspberry Pi OS images with
-  preconfigured settings, and write bootloader-update SD cards.
+  preconfigured settings (optionally one that installs BenchBob on its first boot, so a
+  fresh card becomes another BenchBob), and write bootloader-update SD cards.
 - **Compute Modules / USB boot**: rpiboot mass-storage mode, EEPROM checks and rewrites.
 - **Peripherals**: serial, CAN, I²C, 1-Wire, GPIO, Wi-Fi, BLE, cameras, debug probes,
   RTL-SDR, GPS, UPS, USB power and sharing, and wired-network diagnostics (below).
