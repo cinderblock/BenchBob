@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BenchBob node: config.uf2</title>
+<style>
+  :root { color-scheme: light dark; --accent: #2f7fd8; --muted: #888; --err: #d33; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
+  p.sub { color: var(--muted); margin-top: 0; }
+  label { display: block; margin: 0.9rem 0 0.2rem; font-weight: 600; }
+  label small { font-weight: normal; color: var(--muted); }
+  input[type=text], input[type=password] { width: 100%; box-sizing: border-box; padding: 0.45rem 0.6rem; font: inherit; border: 1px solid #8886; border-radius: 6px; background: transparent; }
+  .row { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem; color: var(--muted); }
+  button { margin-top: 1.2rem; padding: 0.55rem 1.1rem; font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #error { color: var(--err); min-height: 1.5em; margin-top: 0.6rem; }
+  ol li { margin: 0.3rem 0; }
+  code { font-size: 0.92em; }
+  .note { border-left: 3px solid var(--accent); padding: 0.2rem 0.8rem; margin: 1.2rem 0; }
+</style>
+</head>
+<body>
+<h1>BenchBob node: Wi-Fi config for a Pico 2 W</h1>
+<p class="sub">Makes a <code>config.uf2</code> that writes only the node's config region. Nothing leaves this page.</p>
+
+<form id="form" autocomplete="off">
+  <label for="ssid">Wi-Fi network (SSID)</label>
+  <input id="ssid" type="text" required maxlength="32" spellcheck="false">
+  <label for="password">Password <small>(empty for an open network)</small></label>
+  <input id="password" type="password" maxlength="64" spellcheck="false">
+  <div class="row"><input id="show" type="checkbox"><label for="show" style="margin:0;font-weight:normal">Show password</label></div>
+  <label for="hostname">Hostname <small>(optional; default <code>benchbob-</code> + the last 3 MAC bytes)</small></label>
+  <input id="hostname" type="text" maxlength="63" spellcheck="false" placeholder="e.g. bench-pico-1">
+  <button id="go" type="submit">Download config.uf2</button>
+  <div id="error" role="alert"></div>
+</form>
+
+<div class="note">The file holds the Wi-Fi password in plain text. Delete it once the node is set up.</div>
+
+<h2>Then</h2>
+<ol>
+  <li>Flash the firmware first: <code>benchbob-node-pico2w.uf2</code> from the
+    <a href="https://github.com/cinderblock/BenchBob/releases">releases</a> (skip if it's already on the board).</li>
+  <li>Hold <b>BOOTSEL</b> and plug the Pico 2 W in. A drive called <code>RP2350</code> appears.</li>
+  <li>Copy <code>config.uf2</code> onto it. The board restarts and joins the network.</li>
+  <li>Open <code>http://&lt;hostname&gt;.local/api/status</code>. The LED is on when it's connected, blinks fast while it connects, and slowly if it has no Wi-Fi settings.</li>
+</ol>
+<p class="sub">Reflashing the firmware later keeps these settings. To change them, copy a new config.uf2, or use Improv Wi-Fi over USB at <a href="https://www.improv-wifi.com/">improv-wifi.com</a>.</p>
+
+<!-- The encoder: an inline copy of firmware/tools/nodeconfig.ts (tools.test.ts checks they agree). -->
+<script id="nodeconfig">
+const NodeConfig = (() => {
+  const BASE = 0x103fe000, SLOT = 4096, REGION = 8192;
+  const enc = new TextEncoder();
+  function crc32(...parts) {
+    let crc = 0xffffffff;
+    for (const p of parts) for (const b of p) { crc ^= b; for (let k = 0; k < 8; k++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1; }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+  function check(c) {
+    const ssid = enc.encode(c.ssid), pw = enc.encode(c.password || "");
+    if (ssid.length < 1 || ssid.length > 32) throw new Error("SSID must be 1-32 bytes");
+    if (pw.length > 64) throw new Error("Password must be at most 64 bytes");
+    if (pw.length > 0 && pw.length < 8) throw new Error("WPA passwords are 8-63 characters (or 64 hex digits); leave it empty for an open network");
+    if (c.hostname && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(c.hostname)) throw new Error("Hostname: letters, digits and hyphens, 1-63 characters, not starting or ending with a hyphen");
+  }
+  function record(c, seq) {
+    check(c);
+    const fields = [[1, enc.encode(c.ssid)]];
+    if (c.password) fields.push([2, enc.encode(c.password)]);
+    if (c.hostname) fields.push([3, enc.encode(c.hostname)]);
+    const len = fields.reduce((n, [, v]) => n + 2 + v.length, 0);
+    const out = new Uint8Array(16 + len), dv = new DataView(out.buffer);
+    out.set(enc.encode("BBNC"), 0); out[4] = 1; out[5] = 0;
+    dv.setUint16(6, len, true); dv.setUint32(8, seq >>> 0, true);
+    let i = 16;
+    for (const [tag, v] of fields) { out[i] = tag; out[i + 1] = v.length; out.set(v, i + 2); i += 2 + v.length; }
+    dv.setUint32(12, crc32(out.subarray(0, 12), out.subarray(16)), true);
+    return out;
+  }
+  function configUf2(c) {
+    const img = new Uint8Array(REGION).fill(0xff);
+    img.set(record(c, 1), 0);
+    const n = REGION / 256, out = new Uint8Array(n * 512);
+    for (let i = 0; i < n; i++) {
+      const o = i * 512, dv = new DataView(out.buffer, o, 512);
+      dv.setUint32(0, 0x0a324655, true); dv.setUint32(4, 0x9e5d5157, true);
+      dv.setUint32(8, 0x2000, true); dv.setUint32(12, BASE + i * 256, true);
+      dv.setUint32(16, 256, true); dv.setUint32(20, i, true); dv.setUint32(24, n, true);
+      dv.setUint32(28, 0xe48bff57, true); // absolute family
+      out.set(img.subarray(i * 256, i * 256 + 256), o + 32);
+      dv.setUint32(508, 0x0ab16f30, true);
+    }
+    return out;
+  }
+  return { configUf2, crc32, record };
+})();
+</script>
+<script>
+const $ = (id) => document.getElementById(id);
+$("show").addEventListener("change", (e) => ($("password").type = e.target.checked ? "text" : "password"));
+$("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  $("error").textContent = "";
+  try {
+    const uf2 = NodeConfig.configUf2({ ssid: $("ssid").value, password: $("password").value, hostname: $("hostname").value.trim() });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([uf2], { type: "application/octet-stream" }));
+    a.download = "config.uf2";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (err) {
+    $("error").textContent = err.message;
+  }
+});
+</script>
+</body>
+</html>

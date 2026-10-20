@@ -118,4 +118,17 @@ mod tests {
         let l = config::load(&flash[..SLOT_SIZE], &flash[SLOT_SIZE..]).unwrap();
         assert_eq!(l.config, c);
     }
+
+    /// The fixture written by firmware/tools/config-uf2.ts (and matched by config.html):
+    /// the Rust encoder must produce the same bytes, and the firmware must parse it.
+    #[test]
+    fn matches_the_tools_fixture() {
+        let fixture = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../tools/testdata/example-config.uf2"));
+        let c = Config::new("Bench Lab", "hunter2hunter2", "bench-node-1").unwrap();
+        let mut img = [0u8; REGION_SIZE];
+        config::region_image(&c, &mut img);
+        let mut uf2 = vec![0u8; blocks_for(REGION_SIZE) * BLOCK_SIZE];
+        encode_image(0x103F_E000, &img, FAMILY_ABSOLUTE, &mut uf2);
+        assert_eq!(&uf2[..], &fixture[..]);
+    }
 }
