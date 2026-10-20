@@ -3,14 +3,15 @@
 #
 #   packaging/build-deb.sh arm64|amd64 [version]
 #
-# The package carries the sources and a pinned Bun runtime; nothing is fetched at install
-# time. The version defaults to one derived from the newest v* tag (`git describe`). Needs
-# bash, curl, unzip, sha256sum and dpkg-deb: CI, any Debian box, or WSL.
+# The package carries the sources, the built web UI and a pinned Bun runtime; nothing is
+# fetched at install time. The version defaults to one derived from the newest v* tag (`git
+# describe`). Needs bash, curl, unzip, sha256sum and dpkg-deb: CI, any Debian box, or WSL;
+# plus Bun to build web/, unless WEB_DIST=<dir> passes in a build made elsewhere.
 #
 # Opt-in, for testing the Rust server: RUST_BIN=<static benchbob binary for ARCH> adds it
 # as /usr/lib/benchbob/bin/benchbob, the board files in /usr/share/benchbob/boards and
 # benchbob-rust.service. Nothing changes until `sudo benchbob-setup rust on`; without
-# RUST_BIN the package is exactly what it was.
+# RUST_BIN the package has no Rust server in it.
 set -euo pipefail
 
 BUN_VERSION=1.4.2
@@ -86,6 +87,23 @@ if [ -n "${RUST_BIN:-}" ]; then
   install -D -m 0644 "$PKG/benchbob-rust.service" "$STAGE/usr/lib/systemd/system/benchbob-rust.service"
   echo "including the Rust server: $("$APP/bin/benchbob" --version 2>/dev/null || echo "$RUST_BIN (another architecture)")" >&2
 fi
+
+# ---------- Web UI ----------
+# The dashboard served at / is web/'s Vite build. CI builds it once and passes it in with
+# WEB_DIST=<dir>; otherwise it's built here with the Bun on PATH or, when this host can run
+# it, the Bun being packaged. Build output goes to stderr: stdout is the .deb's path.
+if [ -n "${WEB_DIST:-}" ]; then
+  [ -f "$WEB_DIST/index.html" ] || { echo "WEB_DIST=$WEB_DIST has no index.html" >&2; exit 1; }
+else
+  BUN=$(command -v bun || true)
+  if [ -z "$BUN" ] && "$APP/bin/bun" --version > /dev/null 2>&1; then BUN=$APP/bin/bun; fi
+  [ -n "$BUN" ] || { echo "Bun is needed to build web/ (or pass a prebuilt one as WEB_DIST=<dir>)" >&2; exit 1; }
+  (cd "$ROOT/web" && "$BUN" install --frozen-lockfile && "$BUN" run build:full) >&2
+  WEB_DIST=$ROOT/web/dist
+fi
+mkdir -p "$APP/web/dist"
+cp -R "$WEB_DIST"/. "$APP/web/dist/"
+find "$APP/web" -type d -exec chmod 0755 {} + && find "$APP/web" -type f -exec chmod 0644 {} +
 
 install -m 0755 "$PKG/benchbob-setup" "$PKG/benchbob-update" "$APP/system/"
 install -m 0755 "$PKG/drives/nfs-drive-handler.sh" "$PKG/drives/nfs-drive-mount.sh" "$APP/drives/"

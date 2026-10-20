@@ -1,0 +1,25 @@
+.wf-blk{margin-top:14px}.wf-blk>h4{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.wf-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.wf-chart{display:block;min-width:560px;width:100%;height:auto;background:#0a0c11;border:1px solid var(--border);border-radius:6px;margin-top:6px}
+.wf-chart text{font-family:system-ui,sans-serif}
+.wf-leg{display:flex;flex-wrap:wrap;gap:3px 10px;margin-top:4px;font-size:.72rem}
+.wf-leg>span{cursor:pointer;white-space:nowrap}.wf-leg>span.dim{opacity:.4}.wf-leg>span.pin{text-decoration:underline}
+.wf-chans{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}
+.wf-ch{font-size:.68rem;font-family:'SF Mono',ui-monospace,monospace;padding:1px 5px;border-radius:4px;background:var(--surface3);color:var(--text)}
+.wf-ch.off{color:var(--dim);text-decoration:line-through;opacity:.6}
+.wf-ch.dfs{background:rgba(245,166,35,.15);color:var(--warning)}
+.wf-tbl th{cursor:pointer;white-space:nowrap}.wf-tbl th.on{color:var(--accent)}
+.wf-tbl td{white-space:nowrap}.wf-tbl tr.wf-r{cursor:pointer}.wf-tbl tr.wf-r:hover td,.wf-tbl tr.wf-r.hl td{background:var(--surface2)}
+.wf-tbl tr.wf-g td{background:var(--surface2);font-weight:600}
+.wf-tbl .wf-d td{white-space:normal;background:#10131a;font-size:.75rem;color:var(--dim)}
+.wf-tbl .wf-d b{color:var(--text);font-weight:500}
+.wf-dim{color:var(--dim)}.wf-mono{font-family:'SF Mono',ui-monospace,monospace}
+.wf-tl{font-size:.75rem;font-family:'SF Mono',ui-monospace,monospace;display:grid;grid-template-columns:auto auto 1fr;gap:1px 8px;margin-top:6px}
+.wf-tl .ok{color:var(--success)}.wf-tl .bad{color:var(--danger)}.wf-tl .t{color:var(--dim);text-align:right}
+.wf-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px 12px;margin-top:6px}
+.wf-form label{display:flex;flex-direction:column;gap:2px;font-size:.72rem;color:var(--dim)}
+.wf-form label.chk{flex-direction:row;align-items:center;gap:6px}
+.wf-form input,.wf-form select{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 6px;font:inherit;font-size:.8rem;min-width:0}
+.wf-res{border-top:1px solid var(--border);padding:6px 0;font-size:.8rem}
+.wf-res .hd{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:baseline;cursor:pointer}
+@media(max-width:600px){.wf-hide-sm{display:none}}

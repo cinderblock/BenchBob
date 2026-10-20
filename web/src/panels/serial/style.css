@@ -1,0 +1,24 @@
+/* Serial panel (ported from ui/serial.js). */
+.ser-card.gone{opacity:.55}
+.ser-card h4 .pr-pill{margin-left:2px}
+.ser-meta{font-size:.75rem;color:var(--dim);display:flex;flex-wrap:wrap;gap:4px 12px;overflow-wrap:anywhere}
+.ser-screen{background:#07080b;border:1px solid var(--border);border-radius:4px;font-family:'SF Mono',ui-monospace,monospace;font-size:.75rem;line-height:1.35;padding:6px 8px;height:min(50vh,420px);overflow:auto;white-space:pre-wrap;word-break:break-all;outline:none;margin-top:8px}
+.ser-screen.raw{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.ser-screen .ts{color:var(--dim)}
+.ser-screen .tx{color:#93a8ff}
+.ser-screen .cc{color:var(--dim)}
+.ser-screen .hx-off{color:var(--dim)}
+.ser-in{flex-wrap:nowrap!important}
+.ser-in input.ser-line{flex:1;min-width:0;font-family:'SF Mono',ui-monospace,monospace}
+.ser-lamp{display:inline-flex;align-items:center;gap:3px;font-size:.7rem;color:var(--dim)}
+.ser-lamp i{width:8px;height:8px;border-radius:50%;background:var(--surface3);display:inline-block}
+.ser-lamp.on i{background:var(--success)}
+.ser-tog.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.ser-more{margin-top:8px}
+.ser-more summary{cursor:pointer;font-size:.8rem;color:var(--dim);padding:4px 0}
+.ser-cmds{display:flex;flex-direction:column;gap:3px;margin:4px 0 8px}
+.ser-cmds .pr-endpoint{display:block;overflow-x:auto;white-space:nowrap}
+.ser-files .pr-row{margin:4px 0}
+.ser-files input[type=file]{max-width:100%}
+.ser-sep{width:1px;align-self:stretch;background:var(--border)}
+@media(max-width:600px){.ser-sep{display:none}.ser-screen{font-size:.7rem}}

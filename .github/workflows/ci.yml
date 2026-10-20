@@ -99,6 +99,31 @@ jobs:
           name: benchbob-rust-${{ matrix.arch }}
           path: backend/target/${{ matrix.target }}/release/benchbob
 
+  # The dashboard (web/): typecheck, component tests, and both builds (full and the
+  # microcontroller-node one) with their size budget. The package jobs ship this build.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist-mcu
+          path: web/dist-mcu
+
   # ---- Microcontroller node firmware (firmware/). A firmware-v* tag publishes it. ----
 
   firmware-test:
@@ -178,7 +203,7 @@ jobs:
             dist/benchbob-node-pico2w.uf2 dist/benchbob-node-esp32c6.bin dist/SHA256SUMS
 
   package:
-    needs: test
+    needs: [test, web]
     strategy:
       matrix:
         include:
@@ -191,8 +216,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # git describe needs the tags
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web-dist
       - name: Build
         id: build
+        env:
+          WEB_DIST: web-dist
         run: echo "deb=$(packaging/build-deb.sh ${{ matrix.arch }})" >> "$GITHUB_OUTPUT"
       - name: Install
         run: |
@@ -203,7 +234,15 @@ jobs:
           for i in $(seq 30); do curl -fsS http://localhost/api > api.json && break; sleep 2; done
           jq -e '.name == "BenchBob API"' api.json
           curl -fsS http://localhost/api/status | jq -e '.version != "dev"'
-          curl -fsS http://localhost/ | grep -q '<h1 id="title">BenchBob</h1>'
+          # The web UI at /, stamped with the build version, and its assets; the old page at /legacy.
+          curl -fsS http://localhost/ > index.html
+          grep -q 'name="benchbob-build"' index.html
+          if grep -q '__BUILD_VERSION__' index.html; then echo "index.html not stamped" >&2; exit 1; fi
+          asset=$(grep -o 'assets/[^"]*\.js' index.html | head -1)
+          curl -fsS "http://localhost/$asset" | head -c 100 > /dev/null
+          curl -fsS http://localhost/legacy | grep -q '<h1 id="title">BenchBob</h1>'
+          # CORS: a UI served elsewhere can use this bob.
+          curl -fsS -D - -o /dev/null http://localhost/api/status | grep -qi '^access-control-allow-origin: \*'
           systemctl is-active benchbob
           sudo -u benchbob sudo -n true
           test -d /var/lib/benchbob
@@ -223,7 +262,7 @@ jobs:
   # The opt-in Rust packaging (RUST_BIN), installed and switched into Rust mode and back.
   # Its .deb is a test artifact only: releases ship the plain package from `package`.
   package-rust:
-    needs: [test, backend-build]
+    needs: [test, backend-build, web]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -233,8 +272,14 @@ jobs:
         with:
           name: benchbob-rust-amd64
           path: rust
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web-dist
       - name: Build
         id: build
+        env:
+          WEB_DIST: web-dist
         run: |
           chmod +x rust/benchbob
           echo "deb=$(RUST_BIN=rust/benchbob packaging/build-deb.sh amd64)" >> "$GITHUB_OUTPUT"
@@ -256,7 +301,12 @@ jobs:
           curl -fsS http://localhost/api/status | jq -e '.version != "dev" and (.peripherals.list | map(.id) | index("gpio") != null)'
           curl -fsS -D - -o /dev/null http://localhost/api/gpio | grep -qi '^x-benchbob-backend: native'
           curl -fsS -D - -o /dev/null http://localhost/api/quicklist | grep -qi '^x-benchbob-backend: legacy'
-          curl -fsS http://localhost/ | grep -q '<h1 id="title">BenchBob</h1>'
+          # The Rust server serves the web UI stamped like Bun does, and the old page at /legacy.
+          curl -fsS http://localhost/ > index.html
+          grep -q 'name="benchbob-build"' index.html
+          if grep -q '__BUILD_VERSION__' index.html; then echo "index.html not stamped" >&2; exit 1; fi
+          curl -fsS "http://localhost/$(grep -o 'assets/[^"]*\.js' index.html | head -1)" | head -c 100 > /dev/null
+          curl -fsS http://localhost/legacy | grep -q '<h1 id="title">BenchBob</h1>'
           curl -fsS http://localhost/api/boards | jq -e '.dirs[0] == "/usr/share/benchbob/boards" and (.errors | length) == 0'
           systemctl is-active benchbob benchbob-rust
       - name: Rust mode off

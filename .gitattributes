@@ -14,3 +14,5 @@ firmware/**/*.bin binary
 firmware/**/*.uf2 binary
 # The Rust backend (sources, board files, fixtures) is LF everywhere, like firmware/.
 backend/** text eol=lf
+# The web UI (web/) is LF everywhere, like the rest of the code the box runs.
+web/** text eol=lf
