@@ -716,7 +716,8 @@ function render() {
   Q('#title').textContent = s.hostname || 'BenchBob';
   document.title = s.hostname || 'BenchBob';
   Q('#uptime').textContent = fmtUp(s.uptime);
-  Q('#hdr-board').textContent = s.system.model + (s.system.ramMB ? ` · ${fmtRam(s.system.ramMB)} RAM` : '');
+  Q('#hdr-board').textContent = s.system.model + (s.system.ramMB ? ` · ${fmtRam(s.system.ramMB)} RAM` : '') + (s.board && !s.board.tested ? ' · untested board' : '');
+  Q('#hdr-board').title = s.board ? `Board file: ${s.board.id}${s.board.tested ? '' : ' (nobody has run BenchBob on this board yet; its pin map comes from vendor documentation)'}` : '';
   Q('#hdr-storage').innerHTML = fmtRootStorage(s.rootStorage);
   Q('#hdr-ip').textContent = s.network.find(n => n.ip)?.ip || '';
 
