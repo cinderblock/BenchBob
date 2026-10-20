@@ -26,9 +26,10 @@ if [ "$1" = "configure" ]; then
   # Transpiled copies of the previous version's sources: never needed again.
   rm -rf /var/cache/benchbob/* /var/lib/benchbob/.bun
 
+  # Enabling works offline too (an SD image built in a chroot); starting needs systemd.
+  systemctl enable benchbob.service > /dev/null 2>&1 || true
   if [ -d /run/systemd/system ]; then
     systemctl daemon-reload
-    systemctl enable benchbob.service > /dev/null 2>&1
     systemctl restart benchbob.service
   fi
 

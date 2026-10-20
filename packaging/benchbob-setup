@@ -11,7 +11,12 @@ SERVICE_USER=benchbob
 
 blue() { echo -e "\033[1;34m$*\033[0m"; }
 have() { command -v "$1" &>/dev/null; }
-unit_exists() { [ -n "$(systemctl list-unit-files --no-legend "$1" 2>/dev/null)" ]; }
+# list-unit-files matches whole names: "lldpd" finds nothing, "lldpd.service" does.
+unit_exists() {
+  local u=$1
+  [[ $u == *.* ]] || u=$u.service
+  [ -n "$(systemctl list-unit-files --no-legend "$u" 2>/dev/null)" ]
+}
 systemd_running() { [ -d /run/systemd/system ]; }
 
 if [ "$EUID" -ne 0 ]; then
@@ -96,23 +101,22 @@ SMB
   fi
 
   # Daemons BenchBob starts itself, on demand, with private configs: their own units
-  # would otherwise start at boot and hold the devices or ports.
-  if systemd_running; then
-    for unit in lldpd iperf3 gpsd gpsd.socket nut-server nut-monitor nut-driver-enumerator nut-driver.target nut.target; do
-      if unit_exists "$unit"; then
-        systemctl disable --now "$unit" &>/dev/null || true
-        systemctl mask "$unit" &>/dev/null || true
-      fi
-    done
-  fi
+  # would otherwise start at boot and hold the devices or ports. enable/disable/mask work
+  # without a running systemd (building an SD image in a chroot); --now only with one.
+  local now=()
+  systemd_running && now=(--now)
+  for unit in lldpd iperf3 gpsd gpsd.socket nut-server nut-monitor nut-driver-enumerator nut-driver.target nut.target; do
+    if unit_exists "$unit"; then
+      systemctl disable "${now[@]}" "$unit" &>/dev/null || true
+      systemctl mask "$unit" &>/dev/null || true
+    fi
+  done
 
   modprobe i2c-dev 2>/dev/null || true
 
-  if systemd_running; then
-    for unit in nfs-kernel-server nbd-server smbd nmbd; do
-      unit_exists "$unit.service" && systemctl enable --now "$unit" &>/dev/null || true
-    done
-  fi
+  for unit in nfs-kernel-server nbd-server smbd nmbd; do
+    unit_exists "$unit.service" && systemctl enable "${now[@]}" "$unit" &>/dev/null || true
+  done
   have exportfs && exportfs -ra 2>/dev/null || true
   udevadm control --reload-rules 2>/dev/null || true
 }
