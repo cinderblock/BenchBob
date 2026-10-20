@@ -1,0 +1,29 @@
+.usb-tree{font-size:.8rem;display:flex;flex-direction:column;gap:2px}
+.usb-ctl{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:10px 0 2px}
+.usb-ctl:first-child{margin-top:0}
+.usb-dev{border-left:2px solid var(--border);padding:3px 0 3px 8px;min-width:0}
+.usb-dev.root{border-left-color:var(--surface3)}
+.usb-l1{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.usb-l1 b{font-weight:600;overflow-wrap:anywhere}
+.usb-l2{font-size:.72rem;color:var(--dim);margin-top:1px;overflow-wrap:anywhere}
+.usb-l2 .nd{color:var(--danger)}
+.usb-pn{font-family:'SF Mono',ui-monospace,monospace;font-size:.7rem;color:var(--dim)}
+.usb-ports{display:flex;flex-wrap:wrap;gap:4px;margin:3px 0 1px}
+.usb-chip{font:inherit;font-size:.68rem;padding:1px 7px;border-radius:9px;border:1px solid var(--border);background:var(--surface2);color:var(--dim);cursor:pointer}
+.usb-chip.on{color:var(--success);border-color:rgba(76,175,125,.4)}
+.usb-chip.off{color:var(--dim);border-style:dashed}
+.usb-chip.oc{color:var(--danger);border-color:var(--danger)}
+.usb-chip.int{cursor:default;opacity:.7}
+.usb-chip.sel{outline:1px solid var(--accent)}
+.usb-chip:disabled{cursor:default}
+.usb-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:.75rem}
+.usb-bar input{width:3.2em;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 4px;font:inherit}
+.usb-more{margin:4px 0;padding:6px 8px;background:var(--surface2);border-radius:6px;font-size:.75rem;display:flex;flex-direction:column;gap:4px}
+.usb-link{background:none;border:none;color:var(--accent);cursor:pointer;font:inherit;padding:0;text-decoration:underline}
+.usb-ev{display:flex;gap:6px;align-items:baseline;padding:1px 0}
+.usb-ev .t{color:var(--dim);flex:none}
+.usb-ev.error{color:var(--danger)}
+.usb-ev.warn{color:var(--warning)}
+.usb-filt{display:inline-flex;gap:4px;margin-left:auto}
+.usb-cmd{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.usb-ev .pr-pill{flex-shrink:0;white-space:nowrap}
