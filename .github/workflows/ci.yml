@@ -108,6 +108,26 @@ jobs:
           sudo packaging/build-image.sh "$deb" "$out"
           sha256sum "$out" > "$out.sha256"
           echo "out=$out" >> "$GITHUB_OUTPUT"
+      # Boot the image's own systemd in a container (private network, no Pi kernel) and
+      # wait for BenchBob to answer: the closest to a real first boot a runner can get.
+      - name: Boot test
+        run: |
+          sudo apt-get install -y -qq systemd-container
+          xz -dc "${{ steps.build.outputs.out }}" > boot.img
+          sudo systemd-nspawn --image=boot.img --private-network --boot --machine=bbimg > boot.log 2>&1 &
+          ok=
+          for i in $(seq 90); do
+            if sudo systemctl -M bbimg is-active --quiet benchbob 2>/dev/null &&
+              sudo systemd-run -M bbimg --wait --pipe --quiet curl -fsS http://localhost/api/status > status.json 2>/dev/null; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          sudo systemctl -M bbimg --no-pager status benchbob | head -20 || true
+          sudo machinectl poweroff bbimg || true
+          sleep 5
+          [ -n "$ok" ] || { tail -60 boot.log; exit 1; }
+          jq -c '{version, board: .board.id, model: .system.model}' status.json
       - if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
