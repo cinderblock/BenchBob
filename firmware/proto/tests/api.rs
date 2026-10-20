@@ -35,7 +35,7 @@ impl Node for Mock {
     fn info(&self) -> &'static BoardInfo {
         &INFO
     }
-    fn status(&self) -> Status<'_> {
+    fn status(&mut self) -> Status<'_> {
         Status { hostname: "benchbob-mock", uptime_ms: 12_345, mac: [2, 0, 0, 0xa, 0xb, 0xc], wifi_state: WifiState::Connected, ssid: "lab", rssi: Some(-52), ip: Some([10, 0, 0, 9]), heap: None }
     }
     fn gpio_read(&mut self, gpio: u8) -> PinState {

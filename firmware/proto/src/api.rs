@@ -118,7 +118,8 @@ pub struct Status<'a> {
 /// [`BoardInfo`] that the firmware doesn't reserve.
 pub trait Node {
     fn info(&self) -> &'static BoardInfo;
-    fn status(&self) -> Status<'_>;
+    /// Takes `&mut self` so a board can refresh its snapshot of shared state first.
+    fn status(&mut self) -> Status<'_>;
     fn gpio_read(&mut self, gpio: u8) -> PinState;
     fn gpio_write(&mut self, gpio: u8, mode: Option<(Mode, bool)>, pull: Option<Pull>);
     /// Probe one address: a one-byte read (`read`) or a quick write. Ok(false) = no ACK.
@@ -418,7 +419,7 @@ impl Api {
         Ok(Reply::json(200))
     }
 
-    fn docs<N: Node>(&self, node: &N, req: &Request<'_>, out: &mut Buf<'_>) -> R {
+    fn docs<N: Node>(&self, node: &mut N, req: &Request<'_>, out: &mut Buf<'_>) -> R {
         let info = node.info();
         let st = node.status();
         let mut j = Json::new(out);
@@ -723,7 +724,7 @@ fn parse_body(body: &[u8]) -> Result<Option<Value<'_>>, ApiErr> {
     Ok(Some(v))
 }
 
-fn status_view<N: Node>(node: &N, out: &mut Buf<'_>) -> R {
+fn status_view<N: Node>(node: &mut N, out: &mut Buf<'_>) -> R {
     let info = node.info();
     let s = node.status();
     let mut j = Json::new(out);
