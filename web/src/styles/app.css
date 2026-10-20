@@ -1,0 +1,46 @@
+/* Additions for the component UI. No hover-only tooltips: anything the old page put in a
+   title= is either visible text or behind a tap (the ⓘ toggles and expandable rows here). */
+
+/* Tap-to-expand help: a small ⓘ button that shows a line of text below it. */
+.hint-btn{background:none;border:1px solid var(--border);color:var(--dim);border-radius:50%;width:20px;height:20px;padding:0;font-size:.7rem;line-height:1;cursor:pointer;font-family:inherit;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;vertical-align:middle}
+.hint-btn:hover,.hint-btn.on{color:var(--text);border-color:var(--accent)}
+.hint{font-size:.74rem;color:var(--dim);margin-top:6px;line-height:1.45}
+.hint b{color:var(--text);font-weight:600}
+
+/* Header: the board line expands to say which board file was picked. */
+.hdr-board{background:none;border:none;padding:0;font:inherit;font-size:.82rem;color:var(--dim);cursor:pointer;text-align:left}
+.hdr-board:hover{color:var(--text)}
+.hdr-boardinfo{flex-basis:100%;font-size:.75rem;color:var(--dim)}
+
+/* Network rows: tap an interface for its details (replaces the hover card). */
+.net-name-btn{background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left;border-bottom:1px dashed var(--border)}
+.net-detail td{white-space:normal!important;background:var(--surface2)}
+.net-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;font-size:.74rem;padding:4px 0}
+.net-kv>span:nth-child(odd){color:var(--dim);font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;padding-top:2px}
+.net-kv>button{background:none;border:none;color:var(--text);font:inherit;text-align:left;padding:0;cursor:pointer;overflow-wrap:anywhere}
+.net-kv>button:hover{color:var(--accent)}
+
+/* Connection state for a bob this page doesn't serve. */
+.bob-origin{font-size:.75rem;color:var(--dim)}
+
+/* Probe strip: tapped sample shown below the strip. */
+.probe-strip i{cursor:pointer}
+.probe-strip i.on{outline:1px solid var(--text)}
+
+/* File browser names wrap instead of hiding behind a tooltip. */
+.fb-tbl td.fb-name{white-space:normal;overflow-wrap:anywhere}
+
+/* config.txt / overlay diffs (GPIO interfaces, shared with the I²C, Serial, 1-Wire panels). */
+.gp-diff{white-space:pre;overflow:auto;max-height:50vh}
+.gp-diff .a{color:var(--success)}.gp-diff .d{color:var(--danger)}.gp-diff .h{color:var(--accent)}
+
+/* Small screens: toasts span the width, modals use more of it. */
+@media(max-width:480px){
+  header{padding:10px 14px}
+  main{padding:14px 10px}
+  .modal{width:96%;padding:18px 14px}
+  .toasts{left:10px;right:10px;bottom:10px}
+  .toast{min-width:0}
+  .drive-hdr{flex-direction:column}
+  .settings-grid{grid-template-columns:1fr}
+}

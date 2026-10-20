@@ -12,3 +12,5 @@ peripherals/**/*-fixtures/** text eol=lf
 firmware/** text eol=lf
 firmware/**/*.bin binary
 firmware/**/*.uf2 binary
+# The web UI (web/) is LF everywhere, like the rest of the code the box runs.
+web/** text eol=lf
