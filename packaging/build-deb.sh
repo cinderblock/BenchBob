@@ -101,7 +101,7 @@ printf '%s\n' /etc/exports.d/benchbob.exports /etc/default/benchbob /etc/apt/sou
 # what's missing. rpiboot and rpi-eeprom only exist in Raspberry Pi OS's archive; apt
 # skips Recommends it can't find.
 DEPENDS="sudo, systemd, udev, util-linux, fdisk, parted, dosfstools, iproute2, kmod, procps, passwd, file, xz-utils, gzip, unzip, usbutils, openssl, curl, ca-certificates, nfs-kernel-server, nbd-server, samba"
-RECOMMENDS="apfsprogs, ntfs-3g, exfatprogs, udisks2, rpiboot, rpi-eeprom, iw, wpasupplicant, udhcpc, i2c-tools, gpiod, can-utils, usbip, usbredirect, usbredirserver, uhubctl, ustreamer, v4l-utils, lldpd, iperf3, ethtool, iputils-ping, bluez, rtl-sdr, rtl-433, gpsd, gpsd-clients, nut-server, nut-client, openocd, dfu-util, picotool, gdb-multiarch, esptool, avrdude, python3-serial, ieee-data, dkms, git"
+RECOMMENDS="apfsprogs, ntfs-3g, exfatprogs, udisks2, rpiboot, rpi-eeprom, iw, wpasupplicant, udhcpc, i2c-tools, gpiod, can-utils, usbip, usbredirect, usbredirserver, uhubctl, ustreamer, v4l-utils, lldpd, iperf3, ethtool, iputils-ping, bluez, rtl-sdr, rtl-433, gpsd, nut-server, nut-client, openocd, dfu-util, picotool, gdb-multiarch, esptool, avrdude, python3-serial, ieee-data, dkms, git"
 
 SIZE=$(du -sk --exclude=DEBIAN "$STAGE" | cut -f1)
 cat > "$STAGE/DEBIAN/control" << EOF
