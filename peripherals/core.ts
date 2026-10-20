@@ -171,6 +171,11 @@ export function usbName(p: Props): { vendor: string; model: string } {
 
 const SETTINGS_PATH = statePath("peripherals.json");
 let settingsData: { disabled: Record<string, boolean>; drivers: Record<string, Record<string, any>> } = { disabled: {}, drivers: {} };
+
+// Drivers another process runs: the Rust server, when it owns port 80 and proxies the
+// rest here (packaging/benchbob-rust.service). They aren't loaded, and their entries in
+// peripherals.json are left as that process wrote them. Unset: every driver, as always.
+const NATIVE = new Set((process.env.BENCHBOB_NATIVE_DRIVERS || "").split(",").map((s) => s.trim()).filter(Boolean));
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function loadSettings() {
@@ -184,7 +189,19 @@ function saveSettings() {
   if (saveTimer) return;
   saveTimer = setTimeout(async () => {
     saveTimer = null;
-    await Bun.write(SETTINGS_PATH, JSON.stringify(settingsData, null, 2));
+    let out = settingsData;
+    if (NATIVE.size) {
+      // Keep the other process's entries as they are on disk now.
+      const disk: any = await Bun.file(SETTINGS_PATH).json().catch(() => ({}));
+      out = { disabled: { ...settingsData.disabled }, drivers: { ...settingsData.drivers } };
+      for (const id of NATIVE) {
+        if (disk.disabled?.[id] !== undefined) out.disabled[id] = disk.disabled[id];
+        else delete out.disabled[id];
+        if (disk.drivers?.[id] !== undefined) out.drivers[id] = disk.drivers[id];
+        else delete out.drivers[id];
+      }
+    }
+    await Bun.write(SETTINGS_PATH, JSON.stringify(out, null, 2));
   }, 200);
 }
 
@@ -367,7 +384,7 @@ export async function start(onChanged: () => void) {
     try {
       const mod = await import(`${dir}/${f}`);
       const driver: Driver = mod.default;
-      if (!driver?.id) continue;
+      if (!driver?.id || NATIVE.has(driver.id)) continue;
       if (loaded.has(driver.id)) throw new Error(`duplicate driver id ${driver.id}`);
       const children = new Set<Subprocess>();
       loaded.set(driver.id, { driver, ctx: makeCtx(driver.id, children), started: false, children });
