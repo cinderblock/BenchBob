@@ -4,3 +4,8 @@
 *.rules text eol=lf
 *.service text eol=lf
 packaging/** text eol=lf
+# Firmware sources and tools are LF everywhere; the release images and test fixtures are
+# binary.
+firmware/** text eol=lf
+firmware/**/*.bin binary
+firmware/**/*.uf2 binary

@@ -1,0 +1,11 @@
+[package]
+name = "benchbob-proto"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "BenchBob node protocol: API routing, MCP, JSON, Improv Wi-Fi framing, config record and UF2"
+publish = false
+
+# no_std and dependency-free, so `cargo test` runs it on the host as-is and both boards
+# share exactly the same, tested, request handling.
+[dependencies]
