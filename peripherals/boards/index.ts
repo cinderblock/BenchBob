@@ -13,6 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import beagle from "./beagle.ts";
 import generic from "./generic.ts";
+import libre from "./libre.ts";
 import orangepi from "./orangepi.ts";
 import radxa from "./radxa.ts";
 import rpi from "./rpi.ts";
@@ -21,7 +22,7 @@ import x86 from "./x86.ts";
 
 export type { Board, BoardDef, DetectInput, Header, HeaderPin } from "./types.ts";
 
-export const BOARDS: BoardDef[] = [rpi, ...orangepi, ...radxa, ...beagle, x86, generic];
+export const BOARDS: BoardDef[] = [rpi, ...orangepi, ...radxa, ...beagle, ...libre, x86, generic];
 
 /** The best-matching board for this input (generic if nothing else claims it). */
 export function detect(i: DetectInput): BoardDef {
