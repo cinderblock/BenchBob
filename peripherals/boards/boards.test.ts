@@ -26,6 +26,8 @@ const FIXTURES: [string, DetectInput, string][] = [
   ["orangepi-zero3", arm(["xunlong,orangepi-zero3", "allwinner,sun50i-h618"], "OrangePi Zero3"), "OrangePi Zero3"],
   ["orangepi-zero3", arm(["xunlong,orangepi-zero3", "allwinner,sun50i-h616"], "OrangePi Zero3"), "OrangePi Zero3"],
   ["orangepi-zero2w", arm(["xunlong,orangepi-zero2w", "allwinner,sun50i-h618"], "OrangePi Zero 2W"), "OrangePi Zero 2W"],
+  ["rock-5b", arm(["radxa,rock-5b", "rockchip,rk3588"], "Radxa ROCK 5B"), "Radxa ROCK 5B"],
+  ["rock-5b-plus", arm(["radxa,rock-5b-plus", "rockchip,rk3588"], "Radxa ROCK 5B+"), "Radxa ROCK 5B+"],
   ["x86", pc({ sysVendor: "ASUSTeK COMPUTER INC.", productName: "MINIPC PN51-E1", boardVendor: "ASUSTeK COMPUTER INC.", boardName: "PN51-E1" }), "ASUSTeK COMPUTER INC. MINIPC PN51-E1"],
   ["x86", pc({ sysVendor: "Intel(R) Client Systems", productName: "NUC8i5BEH" }), "Intel(R) Client Systems NUC8i5BEH"],
   ["x86", pc({ sysVendor: "To be filled by O.E.M.", productName: "To be filled by O.E.M.", boardVendor: "AZW", boardName: "SEi" }), "AZW SEi"],
