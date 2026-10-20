@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BenchBob</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1rem; color: #e6e8ee; background: #0f1115; }
+  a { color: #7cb7ff; }
+  pre { background: #181b22; border: 1px solid #2a2f3a; border-radius: 6px; padding: .8rem 1rem; overflow-x: auto; }
+  code { font-family: ui-monospace, "SF Mono", monospace; font-size: .9em; }
+  .warn { border-left: 3px solid #f5a623; padding: .2rem .9rem; color: #ffd591; }
+</style>
+</head>
+<body>
+<h1>BenchBob</h1>
+<p>A bench server with a web dashboard, for a Raspberry Pi or any other 64-bit
+Debian-family Linux box. Plug things into it and use them from anywhere on the LAN,
+from a browser, a script or an AI agent. Source, docs and releases:
+<a href="https://github.com/cinderblock/BenchBob">github.com/cinderblock/BenchBob</a>.</p>
+
+<p class="warn"><strong>No login.</strong> Anyone who can reach BenchBob can erase and flash
+drives, change the boot config, reboot, and drive GPIO and USB power. Run it only on a
+network you trust.</p>
+
+<h2>Install</h2>
+<pre><code>curl -fLO https://github.com/cinderblock/BenchBob/releases/latest/download/benchbob_$(dpkg --print-architecture).deb
+sudo apt install ./benchbob_*.deb</code></pre>
+<p>The package adds this apt repository, so later releases arrive with
+<code>sudo apt upgrade</code> or the dashboard's Update button.</p>
+
+<h2>Just the apt repository</h2>
+<pre><code>sudo curl -fsSLo /usr/share/keyrings/benchbob-archive-keyring.asc https://cinderblock.github.io/BenchBob/apt/benchbob-archive-keyring.asc
+printf 'Types: deb\nURIs: https://cinderblock.github.io/BenchBob/apt\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/benchbob-archive-keyring.asc\n' | sudo tee /etc/apt/sources.list.d/benchbob.sources
+sudo apt update &amp;&amp; sudo apt install benchbob</code></pre>
+<p>Signing key fingerprint: <code>6991 23FF 03D6 852B E732 BDA3 E963 5D71 0E30 8D93</code></p>
+</body>
+</html>

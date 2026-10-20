@@ -91,7 +91,8 @@ claude mcp add --transport http benchbob http://benchbob.local/mcp
 - `peripherals/lib/`: parsers, FFI layers (termios, SocketCAN, I²C, gpiomem), tests
 - `ui/<id>.js`: each panel's dashboard script, inlined into `index.html` at serve time
 - `paths.ts`: where settings live (`/var/lib/benchbob` when installed), the version
-- `packaging/`: the `.deb` build, systemd unit, udev rule, drive handler, `benchbob-setup`
+- `update.ts`: the release check and the dashboard's Update button
+- `packaging/`: the `.deb` build, the apt repository build, systemd unit, udev rule, drive handler, `benchbob-setup`
 
 Serial, CAN, I²C and GPIO talk to the kernel through `bun:ffi`. There are no npm
 dependencies: Bun runs the TypeScript directly.
@@ -116,6 +117,19 @@ port. For APFS drives, build the module once with `sudo benchbob-setup apfs`.
 Installing over a DeskyPi (`install.sh`) setup moves its settings over and retires
 `deskypi-web.service`.
 
+### Updates
+
+The package adds BenchBob's apt repository (`/etc/apt/sources.list.d/benchbob.sources`,
+signed with key `6991 23FF 03D6 852B E732  BDA3 E963 5D71 0E30 8D93`), so new releases come
+with `sudo apt upgrade`. The dashboard also checks GitHub for a newer release every 6 hours
+and offers an **Update** button; `PUT /api/update/settings {"check": false}` turns the
+check off. Without the apt source (if you delete it), the button installs the release
+straight from GitHub. The repository alone, without the package, is described at
+<https://cinderblock.github.io/BenchBob/>.
+
+Releases are cut by pushing a `v*` tag: CI builds and install-tests both packages,
+publishes the GitHub Release, and rebuilds the apt repository from the newest releases.
+
 ### Privileges
 
 The service runs as the `benchbob` user, in the device groups (dialout, gpio, i2c, video,
@@ -127,7 +141,7 @@ to keep BenchBob on a trusted network.
 ## Develop
 
 ```sh
-bun test peripherals/        # unit tests (also run on Windows)
+bun test peripherals/ ./update.test.ts  # unit tests (also run on Windows)
 PORT=8090 bun run server.ts  # a side instance; BENCHBOB_PORT_OFFSET shifts peripheral ports
 ./install.sh                 # on the box: build the .deb from this checkout and install it
 packaging/build-deb.sh arm64 # just build it (CI, any Debian box, WSL)

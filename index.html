@@ -35,6 +35,8 @@ main{padding:20px 24px;max-width:1100px;margin:0 auto;display:flex;flex-directio
 .power-banner.past{background:rgba(245,166,35,.1);border-color:var(--warning);color:#ffd591}
 .power-banner strong{color:var(--text)}
 .power-banner.hidden{display:none}
+.power-banner.update{background:rgba(88,166,255,.08);border-color:var(--accent);color:var(--text);align-items:center}
+.power-banner.update .ub-btns{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
 .section.hidden{display:none}
 .power-banner .pb-icon{font-size:1.1rem;line-height:1.3}
 .power-banner .pb-sub{color:var(--dim);font-size:.78rem;margin-top:2px}
@@ -424,6 +426,7 @@ details[open] summary{margin-bottom:8px}
 
 <main>
   <div id="power-banner" class="power-banner hidden"></div>
+  <div id="update-banner" class="power-banner update hidden"></div>
 
   <!-- ====== SYSTEM STATUS ====== -->
   <div class="section">
@@ -733,6 +736,7 @@ function render() {
   const memUsed = s.system.memTotal - s.system.memAvailable;
   Q('#mem-detail').textContent = `${fmtSz(memUsed*1024)} / ${fmtSz(s.system.memTotal*1024)}`;
   renderPower(s.power);
+  renderUpdate(s.update);
 
   // Network (sorted by metric on server)
   for (const n of s.network) {
@@ -809,6 +813,39 @@ function renderPower(p) {
     ? `<strong>Host power problem now:</strong> ${esc(p.now.join(', '))}. The supply to this Pi is sagging, so USB drives and flashes may fail or corrupt.`
     : `<strong>Host power problems since boot:</strong> ${esc(p.sinceBoot.join(', '))}. Check the power supply and cable. Connected USB drives draw from the same supply.`;
   el.innerHTML = `<span class="pb-icon">⚡</span><div>${head}<div class="pb-sub">${esc(sub.join(' · '))}</div></div>`;
+}
+
+// A newer release on GitHub. Dismissing hides it until the next release.
+function renderUpdate(u) {
+  const el = Q('#update-banner');
+  const show = u && u.available && localStorage.getItem('bb-update-dismissed') !== u.latest;
+  el.classList.toggle('hidden', !show);
+  if (!show) return;
+  const key = JSON.stringify([u.latest, u.current]);
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.innerHTML = `<span class="pb-icon">⬆</span><div><strong>BenchBob ${esc(u.latest)} is available.</strong> This is ${esc(u.current)}.`
+    + `${u.url ? ` <a href="${esc(u.url)}" target="_blank" rel="noopener">Release notes</a>` : ''}</div>`
+    + `<div class="ub-btns"><button class="btn btn-sm" onclick="updateDismiss()">Later</button><button class="btn btn-sm btn-primary" onclick="updateInstall()">Update…</button></div>`;
+}
+
+function updateDismiss() {
+  if (S?.update?.latest) localStorage.setItem('bb-update-dismissed', S.update.latest);
+  renderUpdate(S?.update);
+}
+
+function updateInstall() {
+  const u = S?.update || {};
+  showModal(`<h3>Update BenchBob to ${esc(u.latest || '')}</h3>
+    <p>apt installs the new release, then BenchBob restarts. The dashboard, bridges and
+    captures drop for a few seconds; this page reloads itself when it's back. USB drives and
+    shares stay as they are.</p>
+    <div class="modal-btns"><button class="btn" onclick="hideModal()">Cancel</button><button class="btn btn-primary" onclick="updateGo()">Update now</button></div>`);
+}
+
+async function updateGo() {
+  hideModal();
+  try { const r = await papi('POST', '/api/update/install', { confirm: true }); toast(r.message, 'info'); } catch {}
 }
 
 function toggleRoot() {

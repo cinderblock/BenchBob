@@ -1,0 +1,37 @@
+#!/bin/bash
+# Upgrade BenchBob to the latest release. The dashboard starts this as its own systemd
+# unit (benchbob-update.service, via systemd-run), so it survives the service restart the
+# upgrade causes. Also fine to run by hand: sudo /usr/lib/benchbob/system/benchbob-update
+set -uo pipefail
+
+LOG=/var/log/benchbob-update.log
+REPO=cinderblock/BenchBob
+exec >> "$LOG" 2>&1
+echo "=== $(date -Is) update from $(cat /usr/lib/benchbob/VERSION 2>/dev/null || echo unknown)"
+export DEBIAN_FRONTEND=noninteractive
+# Keep existing config files; no "(Reading database ... 5%" progress lines in the log.
+APT_OPTS=(-y -o Dpkg::Options::=--force-confold -o Dpkg::Use-Pty=0)
+
+if [ -f /etc/apt/sources.list.d/benchbob.sources ]; then
+  # Refresh only our source, keeping the other lists (List-Cleanup=0), so a broken
+  # third-party repo elsewhere can't block this. Everything, if that fails.
+  apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/benchbob.sources \
+    -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 || apt-get update
+  if apt-get install "${APT_OPTS[@]}" --only-upgrade benchbob; then
+    echo "=== $(date -Is) done: $(cat /usr/lib/benchbob/VERSION)"
+    exit 0
+  fi
+  echo "--- apt upgrade failed; trying the GitHub release instead"
+fi
+
+# No apt source (it was removed), or apt failed: install the release's package directly.
+arch=$(dpkg --print-architecture)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+if curl -fsSL -o "$tmp/benchbob_$arch.deb" "https://github.com/$REPO/releases/latest/download/benchbob_$arch.deb" &&
+  apt-get install "${APT_OPTS[@]}" "$tmp/benchbob_$arch.deb"; then
+  echo "=== $(date -Is) done: $(cat /usr/lib/benchbob/VERSION)"
+else
+  echo "=== $(date -Is) FAILED"
+  exit 1
+fi

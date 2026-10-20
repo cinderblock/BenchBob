@@ -20,7 +20,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - run: bun test peripherals/
+      - run: bun test peripherals/ ./update.test.ts
 
   package:
     needs: test
@@ -83,3 +83,41 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" --generate-notes ./*.deb SHA256SUMS
+
+  # The apt repository on GitHub Pages, rebuilt from the newest app releases each time.
+  # Also runnable by hand (workflow_dispatch) to republish without a new release.
+  pages:
+    if: always() && needs.package.result == 'success' && (needs.release.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.release.result == 'skipped'))
+    needs: [package, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y -qq dpkg-dev apt-utils
+      - name: Packages of the newest releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir debs
+          # App releases only (v*, not firmware-v*), newest three.
+          for t in $(gh release list -R "${{ github.repository }}" --exclude-drafts --exclude-pre-releases --limit 20 --json tagName -q '[.[].tagName | select(startswith("v"))][:3][]'); do
+            gh release download "$t" -R "${{ github.repository }}" -D debs -p 'benchbob_[0-9]*.deb'
+          done
+          ls -la debs
+      - name: Build the repository
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          packaging/build-apt-repo.sh debs site/apt
+          cp packaging/site/index.html site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

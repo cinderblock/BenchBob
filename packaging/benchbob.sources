@@ -1,0 +1,7 @@
+# BenchBob releases, so `apt upgrade` (and the dashboard's Update button) find new ones.
+# Delete this file to stop; the dashboard then updates from GitHub releases directly.
+Types: deb
+URIs: https://cinderblock.github.io/BenchBob/apt
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/benchbob-archive-keyring.asc

@@ -64,15 +64,15 @@ APP=$STAGE/usr/lib/benchbob
 mkdir -p "$APP/bin" "$APP/system" "$APP/drives" "$STAGE/DEBIAN"
 
 # The app: everything server.ts loads, minus tests and captured fixtures.
-install -m 0644 "$ROOT"/server.ts "$ROOT"/osinfo.ts "$ROOT"/paths.ts "$ROOT"/regf.ts "$ROOT"/rpiboot.ts "$ROOT"/index.html "$APP/"
-(cd "$ROOT" && find peripherals ui -type f \( -name '*.ts' -o -name '*.js' \) ! -name '*.test.ts' ! -path '*-fixtures/*') |
+install -m 0644 "$ROOT"/index.html "$APP/"
+(cd "$ROOT" && find . -maxdepth 1 -name '*.ts' ! -name '*.test.ts' -printf '%P\n' && find peripherals ui -type f \( -name '*.ts' -o -name '*.js' \) ! -name '*.test.ts' ! -path '*-fixtures/*') |
   while read -r f; do install -D -m 0644 "$ROOT/$f" "$APP/$f"; done
 echo "$VERSION" > "$APP/VERSION"
 
 unzip -q -j -o "$BUN_ZIP" "$BUN_ASSET/bun" -d "$APP/bin"
 chmod 0755 "$APP/bin/bun"
 
-install -m 0755 "$PKG/benchbob-setup" "$APP/system/benchbob-setup"
+install -m 0755 "$PKG/benchbob-setup" "$PKG/benchbob-update" "$APP/system/"
 install -m 0755 "$PKG/drives/nfs-drive-handler.sh" "$PKG/drives/nfs-drive-mount.sh" "$APP/drives/"
 install -D -m 0644 "$PKG/drives/90-benchbob-drives.rules" "$STAGE/usr/lib/udev/rules.d/90-benchbob-drives.rules"
 install -D -m 0644 "$PKG/benchbob.service" "$STAGE/usr/lib/systemd/system/benchbob.service"
@@ -81,6 +81,9 @@ install -D -m 0644 "$PKG/modprobe-rtl-sdr.conf" "$STAGE/usr/lib/modprobe.d/bench
 install -D -m 0440 "$PKG/benchbob.sudoers" "$STAGE/etc/sudoers.d/benchbob"
 install -D -m 0644 "$PKG/benchbob.exports" "$STAGE/etc/exports.d/benchbob.exports"
 install -D -m 0644 "$PKG/default" "$STAGE/etc/default/benchbob"
+# Our apt repository, so `apt upgrade` and the dashboard's Update button see new releases.
+install -D -m 0644 "$PKG/benchbob.sources" "$STAGE/etc/apt/sources.list.d/benchbob.sources"
+install -D -m 0644 "$PKG/benchbob-archive-keyring.asc" "$STAGE/usr/share/keyrings/benchbob-archive-keyring.asc"
 mkdir -p "$STAGE/usr/sbin"
 ln -s ../lib/benchbob/system/benchbob-setup "$STAGE/usr/sbin/benchbob-setup"
 install -D -m 0644 "$ROOT/LICENSE" "$STAGE/usr/share/doc/benchbob/copyright"
@@ -90,13 +93,13 @@ install -m 0644 "$ROOT/README.md" "$STAGE/usr/share/doc/benchbob/README.md"
 for s in postinst prerm postrm; do install -m 0755 "$PKG/debian/$s" "$STAGE/DEBIAN/$s"; done
 # The sudoers rule is deliberately not a conffile: it must go when the package is
 # removed, not linger until a purge.
-printf '%s\n' /etc/exports.d/benchbob.exports /etc/default/benchbob > "$STAGE/DEBIAN/conffiles"
+printf '%s\n' /etc/exports.d/benchbob.exports /etc/default/benchbob /etc/apt/sources.list.d/benchbob.sources > "$STAGE/DEBIAN/conffiles"
 
 # Depends: what the server and the drive sharing can't work without. Recommends (installed
 # by default with apt): the tools behind individual panels, which check for them and say
 # what's missing. rpiboot and rpi-eeprom only exist in Raspberry Pi OS's archive; apt
 # skips Recommends it can't find.
-DEPENDS="sudo, systemd, udev, util-linux, fdisk, parted, dosfstools, iproute2, kmod, procps, passwd, file, xz-utils, gzip, unzip, usbutils, openssl, ca-certificates, nfs-kernel-server, nbd-server, samba"
+DEPENDS="sudo, systemd, udev, util-linux, fdisk, parted, dosfstools, iproute2, kmod, procps, passwd, file, xz-utils, gzip, unzip, usbutils, openssl, curl, ca-certificates, nfs-kernel-server, nbd-server, samba"
 RECOMMENDS="apfsprogs, ntfs-3g, exfatprogs, udisks2, rpiboot, rpi-eeprom, iw, wpasupplicant, udhcpc, i2c-tools, gpiod, can-utils, usbip, usbredirect, usbredirserver, uhubctl, ustreamer, v4l-utils, lldpd, iperf3, ethtool, iputils-ping, bluez, rtl-sdr, rtl-433, gpsd, gpsd-clients, nut-server, nut-client, openocd, dfu-util, picotool, gdb-multiarch, esptool, avrdude, python3-serial, ieee-data, dkms, git"
 
 SIZE=$(du -sk --exclude=DEBIAN "$STAGE" | cut -f1)

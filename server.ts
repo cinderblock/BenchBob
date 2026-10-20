@@ -5,6 +5,7 @@ import { analyseDisk, type DiskInfo } from "./osinfo.ts";
 import * as rpi from "./rpiboot.ts";
 import * as periph from "./peripherals/core.ts";
 import { statePath, VERSION } from "./paths.ts";
+import * as update from "./update.ts";
 
 const PORT = parseInt(process.env.PORT || "") || 80;
 const DEFAULTS_PATH = statePath("defaults.json");
@@ -403,6 +404,7 @@ async function getStatus() {
     uptime: parseFloat(uptimeStr.split(" ")[0]) || 0,
     timestamp: Date.now(),
     version: VERSION,
+    update: update.summary(),
     buildVersion: (await getBuild()).version,
     // Alias kept so dashboards still open from the previous deploy — which compare
     // `uiVersion` — see the change and reload themselves once.
@@ -2030,7 +2032,7 @@ const UI_PATH = import.meta.dir + "/index.html";
 // whenever flash settings or stars are saved, and would cause a spurious reload each time.
 // Peripheral drivers and their dashboard scripts are globbed, so a new driver joins the hash
 // (and its ui/*.js is inlined into the page) without editing this list.
-const CORE_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "paths.ts", "regf.ts", "rpiboot.ts"].map((f) => `${import.meta.dir}/${f}`)];
+const CORE_FILES = [UI_PATH, ...["server.ts", "osinfo.ts", "paths.ts", "regf.ts", "rpiboot.ts", "update.ts"].map((f) => `${import.meta.dir}/${f}`)];
 
 let buildCache: { stamp: string; version: string; html: string } | null = null;
 
@@ -2059,6 +2061,7 @@ async function getBuild(): Promise<{ version: string; html: string }> {
 // A bug in one panel (a promise nobody awaited) must not take the whole server down.
 process.on("unhandledRejection", (e) => console.error("Unhandled rejection:", e));
 
+await update.start();
 await periph.start(() => {
   if (sseClients.size === 0) return;
   try { broadcast(periph.status(), "periph"); } catch {}
@@ -2100,8 +2103,12 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
     }
     if (p === "/api" || p === "/api/") {
       // Examples name the host the caller reached us by, so they paste and run as-is.
-      const docs = JSON.stringify({ ...API_DOCS, endpoints: { ...API_DOCS.endpoints, ...periph.docs() } });
+      const docs = JSON.stringify({ ...API_DOCS, endpoints: { ...API_DOCS.endpoints, ...update.DOCS, ...periph.docs() } });
       return new Response(docs.replaceAll("http://benchbob.local", url.origin), { headers: { "Content-Type": "application/json" } });
+    }
+    if (p.startsWith("/api/update")) {
+      const r = await update.route(req, p);
+      if (r) return r;
     }
     if (p === "/api/status") return Response.json(await getStatus());
 
