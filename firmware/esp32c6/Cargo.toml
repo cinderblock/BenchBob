@@ -1,0 +1,49 @@
+[package]
+name = "benchbob-node-esp32c6"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "BenchBob node firmware for the ESP32-C6"
+publish = false
+
+[[bin]]
+name = "benchbob-node-esp32c6"
+test = false
+bench = false
+
+# The esp-rs crates of the 2026-04-16 release, the newest set that agrees on one stable
+# esp-hal (1.1.x): esp-radio 0.18 needs esp-hal ~1.1, while esp-rtos 0.4 needs ~1.2 and
+# the esp-radio built for 1.2 is still a 1.0.0 beta.
+[dependencies]
+benchbob-proto = { path = "../proto" }
+benchbob-node = { path = "../node", features = ["log"] }
+
+esp-hal = { version = "~1.1.2", features = ["esp32c6", "log-04", "unstable"] }
+esp-rtos = { version = "0.3.0", features = ["esp32c6", "esp-radio", "embassy", "log-04"] }
+esp-radio = { version = "0.18.0", features = ["esp32c6", "wifi", "log-04", "unstable"] }
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32c6"] }
+esp-storage = { version = "0.9.0", features = ["esp32c6"] }
+esp-alloc = "0.10.0"
+esp-backtrace = { version = "0.19.0", features = ["esp32c6", "panic-handler", "println"] }
+esp-println = { version = "0.17.0", features = ["esp32c6", "log-04", "uart"], default-features = false }
+
+embassy-executor = "0.10.0"
+embassy-time = "0.5.1"
+embassy-net = { version = "0.9.1", features = ["tcp", "udp", "dhcpv4", "dhcpv4-hostname", "medium-ethernet", "multicast", "proto-ipv4"] }
+embassy-sync = "0.8.0"
+embassy-futures = "0.1.2"
+embedded-io-async = "0.7.0"
+embedded-storage = "0.3.1"
+static_cell = "2.1.1"
+heapless = "0.9"
+log = "0.4"
+
+[profile.release]
+debug = 2 # symbols stay in the ELF; the flashed image doesn't carry them
+lto = "fat"
+opt-level = "s"
+codegen-units = 1
+incremental = false
+
+[profile.dev]
+opt-level = "s" # Wi-Fi is too slow unoptimised

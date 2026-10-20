@@ -5,7 +5,8 @@ name: CI
 on:
   push:
     branches: [master]
-    tags: ["v*"]
+    # "v*" is anchored at the start of the tag name, so it doesn't match firmware-v*.
+    tags: ["v*", "firmware-v*"]
   pull_request:
   workflow_dispatch:
 
@@ -21,6 +22,84 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun test peripherals/ ./update.test.ts
+
+  # ---- Microcontroller node firmware (firmware/). A firmware-v* tag publishes it. ----
+
+  firmware-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: firmware/proto
+      - name: benchbob-proto (host)
+        run: cargo test --locked
+        working-directory: firmware/proto
+      - name: UF2 and config tools
+        run: bun test firmware/tools/
+
+  firmware-build:
+    needs: firmware-test
+    strategy:
+      matrix:
+        include:
+          - board: pico2w
+            target: thumbv8m.main-none-eabihf
+            file: benchbob-node-pico2w.uf2
+          - board: esp32c6
+            target: riscv32imac-unknown-none-elf
+            file: benchbob-node-esp32c6.bin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: firmware/${{ matrix.board }}
+      - if: matrix.board == 'esp32c6'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: espflash@4.6.0
+      - run: firmware/build.sh ${{ matrix.board }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.board }}
+          path: firmware/dist/${{ matrix.file }}
+
+  firmware-release:
+    if: startsWith(github.ref, 'refs/tags/firmware-v')
+    needs: firmware-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches the firmware version
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' firmware/proto/Cargo.toml | head -1)
+          test "${{ github.ref_name }}" = "firmware-v$v" || { echo "tag ${{ github.ref_name }} != firmware-v$v" >&2; exit 1; }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          merge-multiple: true
+          path: dist
+      - run: cd dist && sha256sum benchbob-node-pico2w.uf2 benchbob-node-esp32c6.bin > SHA256SUMS
+      # --latest=false: the app's README links releases/latest/download/ for the .debs.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" --repo "${{ github.repository }}" \
+            --title "Node firmware ${GITHUB_REF_NAME#firmware-}" --generate-notes --latest=false \
+            dist/benchbob-node-pico2w.uf2 dist/benchbob-node-esp32c6.bin dist/SHA256SUMS
 
   package:
     needs: test

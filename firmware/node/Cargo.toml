@@ -1,0 +1,22 @@
+[package]
+name = "benchbob-node"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Embassy glue shared by the BenchBob node boards: HTTP server, mDNS, Improv provisioning, config store"
+publish = false
+
+[dependencies]
+benchbob-proto = { path = "../proto" }
+embassy-net = { version = "0.9.1", features = ["tcp", "udp", "multicast", "proto-ipv4", "medium-ethernet"] }
+embassy-sync = "0.8.0"
+embassy-time = "0.5.1"
+embassy-futures = "0.1.2"
+embedded-io-async = "0.7.0"
+embedded-storage = "0.3.1"
+defmt = { version = "1.0.1", optional = true }
+log = { version = "0.4", optional = true }
+
+[features]
+defmt = ["dep:defmt", "embassy-net/defmt"]
+log = ["dep:log"]

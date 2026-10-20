@@ -1,0 +1,13 @@
+# BenchBob node, ESP32-C6, 4 MiB flash (8 MiB parts work too; the rest stays unused).
+#
+# The config record (Wi-Fi, hostname) lives in "bbconfig", after the app, so neither
+# reflashing the app nor writing the merged release image (built with --skip-padding,
+# so it ends with the app) touches it. The firmware finds it by label.
+#
+# The table itself goes at 0x8000, where the bootloader reads it. Always pass
+# `--partition-table-offset 0x8000` to espflash with this file: without it, espflash
+# assumes "first partition - 0x1000" (0xF000) and the board won't boot.
+#
+# Name,     Type, SubType,   Offset,   Size
+factory,    app,  factory,   0x10000,  0x3E0000
+bbconfig,   data, undefined, 0x3FE000, 0x2000

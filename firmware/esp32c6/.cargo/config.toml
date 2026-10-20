@@ -1,0 +1,12 @@
+[build]
+target = "riscv32imac-unknown-none-elf"
+
+[target.riscv32imac-unknown-none-elf]
+runner = "espflash flash --monitor --chip esp32c6 --partition-table partitions.csv --partition-table-offset 0x8000 --flash-size 4mb"
+rustflags = [
+  "-C", "link-arg=-Tlinkall.x",
+  "-C", "force-frame-pointers",
+]
+
+[env]
+ESP_LOG = "info"

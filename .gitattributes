@@ -7,3 +7,8 @@ packaging/** text eol=lf
 # Test fixtures are captures from a Linux box and the tests compare them byte for byte:
 # CRLF in a Windows checkout made 19 tests fail there.
 peripherals/**/*-fixtures/** text eol=lf
+# Firmware sources and tools are LF everywhere; the release images and test fixtures are
+# binary.
+firmware/** text eol=lf
+firmware/**/*.bin binary
+firmware/**/*.uf2 binary

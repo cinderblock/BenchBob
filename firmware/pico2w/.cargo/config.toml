@@ -1,0 +1,10 @@
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[target.thumbv8m.main-none-eabihf]
+# With a debug probe: logs over RTT (defmt). Without one, build the UF2 instead
+# (see firmware/README.md).
+runner = "probe-rs run --chip RP235x"
+
+[env]
+DEFMT_LOG = "info"
