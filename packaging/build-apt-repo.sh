@@ -16,6 +16,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
 rm -rf "$OUT"
 mkdir -p "$OUT/pool/main"
+OUT=$(cd "$OUT" && pwd) # absolute: the rest runs from inside it
 cp "$DEBS"/benchbob_[0-9]*.deb "$OUT/pool/main/"
 cd "$OUT"
 
