@@ -1,0 +1,13 @@
+[package]
+name = "benchbob-i2c-chips"
+description = "I²C chip identification and decoding (no_std + alloc): shared by BenchBob's server and, later, its firmware nodes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# No std, no serde: the firmware (no_std, Embassy) can use this crate as it is. The server
+# turns the plain structs into JSON itself.
+[dependencies]
+libm.workspace = true
