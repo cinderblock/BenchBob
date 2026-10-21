@@ -8,6 +8,7 @@ import { useBob, useSnapshot } from "../../bob/context";
 import { cap, fmtSz } from "../../lib/format";
 import { readLocalStr, writeLocal } from "../../lib/storage";
 import type { BobStore } from "../../lib/store";
+import { ActionLine, StatusLine, errText, useAction, type Action, type ActionStatus } from "../../ui/status";
 import {
   HOSTNAME_RE,
   POPULAR_DISTROS,
@@ -41,6 +42,8 @@ class FlashData {
   boards: CatalogBoard[] = [];
   defaults: Defaults = {};
   lists: Record<ListName, ImageList> = { favorites: [], quick: [] };
+  /** The last load or list-save failure, shown in the flash dialogs. */
+  status: ActionStatus | null = null;
   private loaded = false;
   private subs = new Set<() => void>();
   private ver = 0;
@@ -54,47 +57,59 @@ class FlashData {
     this.ver++;
     for (const f of this.subs) f();
   }
+  setStatus(s: ActionStatus | null) {
+    this.status = s;
+    this.changed();
+  }
+  private fail(what: string, e: unknown) {
+    this.status = { state: "error", msg: `${what}: ${errText(e)}`, t: Date.now() };
+  }
   async ensure() {
-    const c = this.b.conn;
+    const b = this.b;
+    // Whatever fails is retried the next time a flash dialog opens.
+    const errs: string[] = [];
+    const fail = (what: string) => (e: unknown) => errs.push(`${what} (${errText(e)})`);
     await Promise.all([
       !this.images.length &&
-        c
-          .json<{ images?: CatalogImage[]; devices?: CatalogBoard[] }>("GET", "/api/catalog")
+        b
+          .api<{ images?: CatalogImage[]; devices?: CatalogBoard[] }>("GET", "/api/catalog")
           .then((r) => {
             this.images = r.images || [];
             this.boards = (r.devices || []).filter((d) => d.tags.length);
           })
-          .catch(() => {}),
-      !Object.keys(this.defaults).length && this.loadDefaults(),
+          .catch(fail("the image catalog")),
+      !Object.keys(this.defaults).length &&
+        b
+          .api<Defaults>("GET", "/api/defaults")
+          .then((d) => (this.defaults = d))
+          .catch(fail("the saved defaults")),
       !this.loaded &&
         Promise.all(
           (Object.keys(LIST_API) as ListName[]).map((n) =>
-            c
-              .json<ImageList>("GET", LIST_API[n])
+            b
+              .api<ImageList>("GET", LIST_API[n])
               .then((l) => (this.lists[n] = Array.isArray(l) ? l : []))
-              .catch(() => {}),
+              .then(() => true, (e) => (fail(n === "quick" ? "the Quick Pi list" : "the favorites")(e), false)),
           ),
-        ).then(() => (this.loaded = true)),
+        ).then((ok) => (this.loaded = ok.every(Boolean))),
     ]);
+    this.status = errs.length ? { state: "error", msg: `Couldn't load ${errs.join(", ")}`, t: Date.now() } : null;
     this.changed();
-  }
-  async loadDefaults() {
-    try {
-      this.defaults = await this.b.conn.json<Defaults>("GET", "/api/defaults");
-    } catch {
-      this.defaults = {};
-    }
   }
   byKey = (key: string | null | undefined) => this.images.find((i) => i.key === key);
   inList = (n: ListName, key: string) => this.lists[n].some((f) => f.key === key);
   async toggle(n: ListName, key: string) {
     const im = this.byKey(key);
-    this.lists[n] = this.inList(n, key) ? this.lists[n].filter((f) => f.key !== key) : [...this.lists[n], { key, label: im ? imgLabel(im) : key }];
+    const before = this.lists[n];
+    this.lists[n] = this.inList(n, key) ? before.filter((f) => f.key !== key) : [...before, { key, label: im ? imgLabel(im) : key }];
     this.changed();
     try {
-      await this.b.conn.json("POST", LIST_API[n], this.lists[n]);
-    } catch {
-      this.b.toast("Saving the list failed", "error");
+      await this.b.api("POST", LIST_API[n], this.lists[n]);
+    } catch (e) {
+      // Put the list back as the server still has it.
+      this.lists[n] = before;
+      this.fail(`Saving the ${n === "quick" ? "Quick Pi list" : "favorites"} failed`, e);
+      this.changed();
     }
   }
   /** The Quick Pi list's images that are in the catalog, and the one to flash: the last picked, else the first. */
@@ -123,13 +138,21 @@ function useFlashData() {
   return d;
 }
 
-async function startFlash(b: BobApi, req: ReturnType<typeof flashRequest>) {
+// The dialog stays open until the server takes the job, so a refusal shows in it (`a`);
+// once taken, the flash shows as the drive's progress bar.
+async function startFlash(b: BobApi, a: Action, req: ReturnType<typeof flashRequest>) {
   writeLocal(b.key("flashLast"), req.imageKey);
-  try {
-    await b.conn.json("POST", "/api/flash", req);
-  } catch (e: any) {
-    b.toast(e?.message || "Flash failed", "error");
-  }
+  if (await a.run(() => b.api("POST", "/api/flash", req), { busy: "Starting the flash…" })) b.closeModal();
+}
+
+/** The flash data's load or list-save failure, if any. */
+function DataStatus() {
+  const fd = useFlashData();
+  return fd.status ? (
+    <div>
+      <StatusLine s={fd.status} onClear={() => fd.setStatus(null)} />
+    </div>
+  ) : null;
 }
 
 export async function flashDrive(b: BobApi, dev: string, hostname?: string) {
@@ -207,10 +230,10 @@ function QuickPi({ dev }: { dev: string }) {
   const blocker = quickBlocker(s, im, fd.lists.quick.length);
   const ok = !blocker && HOSTNAME_RE.test(host.trim());
   const skipped = (fd.defaults.wifiNetworks || []).filter((w) => w.ssid && !w.password).map((w) => w.ssid);
+  const start = useAction();
   const go = () => {
-    if (!ok || !im) return;
-    b.closeModal();
-    startFlash(b, flashRequest(im, dev, quickSettings(fd.defaults, host.trim())));
+    if (!ok || !im || start.busy) return;
+    startFlash(b, start, flashRequest(im, dev, quickSettings(fd.defaults, host.trim())));
   };
   return (
     <>
@@ -223,6 +246,7 @@ function QuickPi({ dev }: { dev: string }) {
       <div className="qp-imgs" id="qp-imgs">
         <QuickChips />
       </div>
+      <DataStatus />
       <div className="qp-sum">
         <span>Image</span>
         <span>{im ? `${im.name} · ${fmtSz(im.downloadSize)} download · released ${im.releaseDate || "?"}` : "—"}</span>
@@ -242,6 +266,7 @@ function QuickPi({ dev }: { dev: string }) {
         </span>
       </div>
       {blocker && <div className="fp-warn">{blocker}</div>}
+      <ActionLine a={start} />
       <div className="modal-btns">
         <button
           className="btn"
@@ -256,7 +281,7 @@ function QuickPi({ dev }: { dev: string }) {
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
-        <button className="btn btn-primary" disabled={!ok} onClick={go}>
+        <button className="btn btn-primary" disabled={!ok || start.busy} onClick={go}>
           Flash
         </button>
       </div>
@@ -307,6 +332,8 @@ function FlashPicker({ dev, hostname }: { dev: string; hostname?: string }) {
   const [tz, setTz] = useState(d.timezone || "UTC");
   const [kb, setKb] = useState(d.keyboardLayout || "us");
   const [qpHost, setQpHost] = useState("");
+  const saveAct = useAction();
+  const start = useAction();
 
   const readSettings = (): FlashSettings => ({
     hostname: host || "raspberrypi",
@@ -329,13 +356,9 @@ function FlashPicker({ dev, hostname }: { dev: string; hostname?: string }) {
     // The login password isn't kept, but Wi-Fi passwords are: without them a saved network
     // is useless (Quick Pi leaves it out), and defaults.json only lives on this Pi.
     delete s.password;
-    try {
-      await b.conn.json("POST", "/api/defaults", s);
+    if (await saveAct.run(() => b.api("POST", "/api/defaults", s), { busy: "Saving…", ok: "Defaults saved" })) {
       fd.defaults = s;
       fd.changed();
-      b.toast("Defaults saved", "success");
-    } catch {
-      b.toast("Save failed", "error");
     }
   };
 
@@ -345,14 +368,12 @@ function FlashPicker({ dev, hostname }: { dev: string; hostname?: string }) {
   const quickBlock = quickBlocker(quickSettings(d, ""), qim, fd.lists.quick.length);
   const quickOk = !quickBlock && HOSTNAME_RE.test(qpHost.trim());
   const goQuick = () => {
-    if (!quickOk || !qim) return;
-    b.closeModal();
-    startFlash(b, flashRequest(qim, dev, quickSettings(d, qpHost.trim())));
+    if (!quickOk || !qim || start.busy) return;
+    startFlash(b, start, flashRequest(qim, dev, quickSettings(d, qpHost.trim())));
   };
   const go = () => {
-    if (!im || !hostOk) return;
-    b.closeModal();
-    startFlash(b, flashRequest(im, dev, readSettings()));
+    if (!im || !hostOk || start.busy) return;
+    startFlash(b, start, flashRequest(im, dev, readSettings()));
   };
   const pickFav = (key: string) => {
     const x = fd.byKey(key);
@@ -383,7 +404,7 @@ function FlashPicker({ dev, hostname }: { dev: string; hostname?: string }) {
           <QuickChips />
         </span>
         <HostInput id="qpb-host" value={qpHost} set={setQpHost} onEnter={goQuick} />
-        <button className="btn btn-primary btn-sm" disabled={!quickOk} onClick={goQuick}>
+        <button className="btn btn-primary btn-sm" disabled={!quickOk || start.busy} onClick={goQuick}>
           Flash
         </button>
         <span className="pr-note" style={{ flexBasis: "100%" }}>
@@ -414,6 +435,7 @@ function FlashPicker({ dev, hostname }: { dev: string; hostname?: string }) {
       ) : (
         <div className="fp-favs empty">☆ Star an image to pin it here.</div>
       )}
+      <DataStatus />
       <div className="fp-bar">
         <div className="fp-tabs">
           {[
@@ -546,17 +568,19 @@ function FlashPicker({ dev, hostname }: { dev: string; hostname?: string }) {
             <input type="text" id="sf-kb" value={kb} onInput={(e) => setKb(e.currentTarget.value)} />
           </div>
           <div className="fg full" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-sm" type="button" onClick={saveDefaults}>
+            <ActionLine a={saveAct} />
+            <button className="btn btn-sm" type="button" disabled={saveAct.busy} onClick={saveDefaults}>
               Save as Default
             </button>
           </div>
         </div>
       </details>
+      <ActionLine a={start} />
       <div className="modal-btns">
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
-        <button className="btn btn-primary" disabled={!im || !hostOk} onClick={go}>
+        <button className="btn btn-primary" disabled={!im || !hostOk || start.busy} onClick={go}>
           Flash
         </button>
       </div>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useBob, useSnapshot } from "../bob/context";
 import { readLocalStr, writeLocal } from "../lib/storage";
 import type { Power } from "../lib/types";
+import { ActionLine, useAction } from "../ui/status";
 
 // Under-voltage on this Pi browns out every USB drive (and any Compute Module) hanging off
 // its ports, so it gets a banner rather than a footnote.
@@ -37,9 +38,11 @@ export function PowerBanner({ p }: { p: Power | null | undefined }) {
 
 // A newer release on GitHub. Dismissing hides it until the next release.
 export function UpdateBanner() {
-  const { openModal, closeModal, api, toast, key } = useBob();
+  const { openModal, closeModal, api, key } = useBob();
   const u = useSnapshot().status?.update;
   const [dismissed, setDismissed] = useState(() => readLocalStr(key("bb-update-dismissed")));
+  // The install request's progress and the server's answer, shown in the banner.
+  const act = useAction();
   if (!u?.available || dismissed === u.latest) return null;
   const install = () =>
     openModal(
@@ -52,12 +55,9 @@ export function UpdateBanner() {
           </button>
           <button
             className="btn btn-primary"
-            onClick={async () => {
+            onClick={() => {
               closeModal();
-              try {
-                const r = await api<{ message: string }>("POST", "/api/update/install", { confirm: true });
-                toast(r.message, "info");
-              } catch {}
+              act.run(() => api<{ message: string }>("POST", "/api/update/install", { confirm: true }), { busy: "Starting the update…", ok: (r) => r.message || "Update started" });
             }}
           >
             Update now
@@ -78,6 +78,11 @@ export function UpdateBanner() {
             </a>
           </>
         )}
+        {act.status && (
+          <div className="pb-sub">
+            <ActionLine a={act} />
+          </div>
+        )}
       </div>
       <div className="ub-btns">
         <button
@@ -89,7 +94,7 @@ export function UpdateBanner() {
         >
           Later
         </button>
-        <button className="btn btn-sm btn-primary" onClick={install}>
+        <button className="btn btn-sm btn-primary" disabled={act.busy} onClick={install}>
           Update…
         </button>
       </div>

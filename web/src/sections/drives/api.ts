@@ -2,6 +2,7 @@
 
 import type { BobConnection } from "../../lib/connection";
 import type { Drive } from "../../lib/types";
+import { errText } from "../../ui/status";
 
 export interface EspLoader {
   name: string;
@@ -77,7 +78,7 @@ export interface ProbeResult {
 
 /** Per-bob cache of /api/osinfo, fetched once per drive per set of mounts. */
 export class OsInfoCache {
-  private m = new Map<string, { key: string; data: OsInfo | null }>();
+  private m = new Map<string, { key: string; data: OsInfo | null; error?: string }>();
   private subs = new Set<() => void>();
   private ver = 0;
   constructor(private conn: BobConnection) {}
@@ -89,22 +90,33 @@ export class OsInfoCache {
   get(dev: string) {
     return this.m.get(dev)?.data || null;
   }
+  /** Why the lookup for `dev` failed, if it did (shown on the drive card). */
+  error(dev: string) {
+    return this.m.get(dev)?.error || null;
+  }
   ensure(d: Drive) {
     if (!d.children?.length) return;
     const key = d.children.map((p) => `${p.name}=${p.fstype || ""}@${p.mountpoint || ""}`).join(",");
     if (this.m.get(d.name)?.key === key) return;
     // A new key can mean a different drive under the same name: never show the old data.
-    const entry = { key, data: null as OsInfo | null };
+    const entry: { key: string; data: OsInfo | null; error?: string } = { key, data: null };
     this.m.set(d.name, entry);
+    const done = () => {
+      this.ver++;
+      for (const f of this.subs) f();
+    };
     this.conn
       .json<OsInfo>("GET", "/api/osinfo?device=" + encodeURIComponent(d.name))
       .then((r) => {
         if (this.m.get(d.name) !== entry) return;
         entry.data = r;
-        this.ver++;
-        for (const f of this.subs) f();
+        done();
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (this.m.get(d.name) !== entry) return;
+        entry.error = errText(e);
+        done();
+      });
   }
   part(dev: string, part: string) {
     return this.get(dev)?.partitions.find((p) => p.name === part) || null;

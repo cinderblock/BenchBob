@@ -2,13 +2,14 @@
 // badges, the file browser), running and queued operations, and the actions. The flash
 // picker and the bootloader editors are separate chunks, loaded on first use.
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useBob, useSnapshot, type BobApi } from "../../bob/context";
 import { fmtRate, fmtSz } from "../../lib/format";
 import type { SectionProps } from "../../registry";
 import type { Drive } from "../../lib/types";
 import { Bars } from "../../ui/spark";
 import { Hint } from "../../ui/common";
+import { ActionLine, useAction, type Action } from "../../ui/status";
 import { filesRel, OsInfoCache, partOsLabel, type ProbeResult } from "./api";
 import { EraseDialog, ProbeDialog, ScanResultDialog } from "./Dialogs";
 import { FileBrowser } from "./FileBrowser";
@@ -66,6 +67,10 @@ function DriveCard({ d, os, drvMax, nbd, filesRoot }: { d: Drive; os: OsInfoCach
   const model = d.model || d.name;
   const info = os.get(d.name);
   const isErasing = activeOp?.type === "erase";
+  // What the last action on this drive is doing, did, or why it failed.
+  const act = useAction();
+  const [backupNote, setBackupNote] = useState(false);
+  const off = act.busy;
 
   return (
     <div className="drive-card" data-drive={d.name}>
@@ -79,6 +84,11 @@ function DriveCard({ d, os, drvMax, nbd, filesRoot }: { d: Drive; os: OsInfoCach
             {d.usbVersion ? " · " + d.usbVersion : ""}
           </span>
           {info && <DriveOs info={info} />}
+          {os.error(d.name) && (
+            <div className="drive-os">
+              <div className="sub">OS detection failed: {os.error(d.name)}</div>
+            </div>
+          )}
         </div>
         <div className="drive-bw" style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -149,19 +159,22 @@ function DriveCard({ d, os, drvMax, nbd, filesRoot }: { d: Drive; os: OsInfoCach
 
       <div className="drive-actions">
         {hasParts && !busy && (
-          <button className="btn btn-primary" onClick={() => b.toast("Backup coming soon", "info")}>
-            Backup
-          </button>
+          <>
+            <button className="btn btn-primary" onClick={() => setBackupNote((v) => !v)}>
+              Backup
+            </button>
+            {backupNote && <span className="pr-note">Backup isn't built yet.</span>}
+          </>
         )}
         {!hasParts && !busy && (
           <>
-            <button className="btn btn-primary" onClick={() => flash(b, d.name)}>
+            <button className="btn btn-primary" disabled={off} onClick={() => flash(b, act, d.name)}>
               Flash
             </button>
-            <button className="btn" onClick={() => quickPi(b, d.name)}>
+            <button className="btn" disabled={off} onClick={() => quickPi(b, act, d.name)}>
               ⚡ Quick Pi
             </button>
-            <button className="btn" onClick={() => scan(b, d.name)}>
+            <button className="btn" disabled={off} onClick={() => scan(b, act, d.name)}>
               Scan
             </button>
           </>
@@ -169,10 +182,10 @@ function DriveCard({ d, os, drvMax, nbd, filesRoot }: { d: Drive; os: OsInfoCach
         {/* Optimistic: allow queueing a flash during an erase. */}
         {isErasing && !queued.length && (
           <>
-            <button className="btn btn-primary" onClick={() => flash(b, d.name)}>
+            <button className="btn btn-primary" disabled={off} onClick={() => flash(b, act, d.name)}>
               Flash (queue)
             </button>
-            <button className="btn" onClick={() => quickPi(b, d.name)}>
+            <button className="btn" disabled={off} onClick={() => quickPi(b, act, d.name)}>
               ⚡ Quick Pi (queue)
             </button>
           </>
@@ -180,23 +193,24 @@ function DriveCard({ d, os, drvMax, nbd, filesRoot }: { d: Drive; os: OsInfoCach
         {/* Raw-sector inspection: useful whether or not a filesystem claims to be empty. */}
         {!busy && (
           <>
-            <button className="btn" onClick={() => probe(b, d.name)}>
+            <button className="btn" disabled={off} onClick={() => probe(b, act, d.name)}>
               Probe
             </button>
-            <button className="btn" onClick={() => deepScan(b, d.name, model, d.size)}>
+            <button className="btn" disabled={off} onClick={() => deepScan(b, act, d.name, model, d.size)}>
               Deep Scan
             </button>
-            <button className="btn btn-warn" onClick={() => erase(b, d.name, model, d.size)}>
+            <button className="btn btn-warn" disabled={off} onClick={() => erase(b, act, d.name, model, d.size)}>
               Erase
             </button>
-            <button className="btn" onClick={() => blCard(b, d)}>
+            <button className="btn" disabled={off} onClick={() => blCard(b, act, d)}>
               Bootloader card…
             </button>
           </>
         )}
-        <button className="btn" disabled={busy} onClick={() => eject(b, d.name, model)}>
+        <button className="btn" disabled={busy || off} onClick={() => eject(b, act, d.name, model)}>
           Eject
         </button>
+        <ActionLine a={act} />
         <Hint label="What do these do?">
           {!hasParts && (
             <>
@@ -238,31 +252,23 @@ function DriveOs({ info }: { info: NonNullable<ReturnType<OsInfoCache["get"]>> }
 }
 
 // ---------- actions ----------
+// Each reports on the drive card's status line (`a`), beside the buttons.
 
-async function flash(b: BobApi, dev: string) {
-  (await import("../flash/Flash")).flashDrive(b, dev);
+async function flash(b: BobApi, a: Action, dev: string) {
+  await a.run(async () => (await import("../flash/Flash")).flashDrive(b, dev), { busy: "Loading the image catalog…" });
 }
-async function quickPi(b: BobApi, dev: string) {
-  (await import("../flash/Flash")).quickPiDrive(b, dev);
-}
-
-async function post(b: BobApi, url: string, body: unknown, okKind?: "success" | "info", fail = "Request failed") {
-  try {
-    const r = await b.conn.json<{ message?: string }>("POST", url, body);
-    if (okKind && r.message) b.toast(r.message, okKind);
-    return r;
-  } catch (e: any) {
-    b.toast(e?.message || fail, "error");
-    return null;
-  }
+async function quickPi(b: BobApi, a: Action, dev: string) {
+  await a.run(async () => (await import("../flash/Flash")).quickPiDrive(b, dev), { busy: "Loading the image catalog…" });
 }
 
-async function eject(b: BobApi, dev: string, model: string) {
+type Reply = { message?: string };
+
+async function eject(b: BobApi, a: Action, dev: string, model: string) {
   if (!(await b.confirm("Eject Device", "Unmount and power off this device?", `${model}\n/dev/${dev}`))) return;
-  await post(b, "/api/eject", { device: dev }, "success", "Eject failed");
+  await a.run(() => b.api<Reply>("POST", "/api/eject", { device: dev }), { busy: "Ejecting…", ok: (r) => r.message || "Ejected" });
 }
 
-function erase(b: BobApi, dev: string, model: string, size: number) {
+function erase(b: BobApi, a: Action, dev: string, model: string, size: number) {
   b.openModal(
     <EraseDialog
       dev={dev}
@@ -270,38 +276,37 @@ function erase(b: BobApi, dev: string, model: string, size: number) {
       size={size}
       onDone={async (mode) => {
         b.closeModal();
-        if (mode) await post(b, "/api/erase", { device: dev, mode }, undefined, "Erase failed");
+        // Once started, the erase shows as its operation's progress bar.
+        if (mode) await a.run(() => b.api("POST", "/api/erase", { device: dev, mode }), { busy: "Starting the erase…" });
       }}
     />,
   );
 }
 
-async function scan(b: BobApi, dev: string) {
-  b.toast("Scanning...", "info");
-  await post(b, "/api/scan", { device: dev }, "success", "Scan failed");
+async function scan(b: BobApi, a: Action, dev: string) {
+  await a.run(() => b.api<Reply>("POST", "/api/scan", { device: dev }), { busy: "Scanning…", ok: (r) => r.message || "Scan done" });
 }
 
-async function probe(b: BobApi, dev: string) {
-  b.toast("Sampling raw sectors...", "info");
-  const r = (await post(b, "/api/probe", { device: dev }, undefined, "Probe failed")) as ProbeResult | null;
+async function probe(b: BobApi, a: Action, dev: string) {
+  const r = await a.run(() => b.api<ProbeResult>("POST", "/api/probe", { device: dev }), { busy: "Sampling raw sectors…" });
   if (!r) return;
   b.openModal(
     <ProbeDialog
       r={r}
       onDeepScan={() => {
         b.closeModal();
-        deepScan(b, r.device, r.device, r.sizeBytes);
+        deepScan(b, a, r.device, r.device, r.sizeBytes);
       }}
     />,
   );
 }
 
-async function deepScan(b: BobApi, dev: string, model: string, size: number) {
+async function deepScan(b: BobApi, a: Action, dev: string, model: string, size: number) {
   if (!(await b.confirm("Deep Scan", "Read the entire device looking for file signatures? Read-only, but it takes roughly as long as a full read.", `${model}\n/dev/${dev} · ${fmtSz(size)}`))) return;
-  await post(b, "/api/deepscan", { device: dev }, "info", "Deep scan failed");
+  await a.run(() => b.api<Reply>("POST", "/api/deepscan", { device: dev }), { busy: "Starting the deep scan…", ok: (r) => r.message });
 }
 
-async function blCard(b: BobApi, d: Drive) {
-  const { BlCardDialog } = await import("../bootloader/Dialogs");
-  b.openModal(<BlCardDialog dev={d.name} model={d.model || d.name} size={d.size} hasParts={!!d.hasPartitions} />, { cls: "wide" });
+async function blCard(b: BobApi, a: Action, d: Drive) {
+  const m = await a.run(() => import("../bootloader/Dialogs"), { busy: "Loading…" });
+  if (m) b.openModal(<m.BlCardDialog dev={d.name} model={d.model || d.name} size={d.size} hasParts={!!d.hasPartitions} />, { cls: "wide" });
 }

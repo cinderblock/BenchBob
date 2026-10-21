@@ -5,6 +5,7 @@
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useBob } from "../../bob/context";
 import { fmtSz } from "../../lib/format";
+import { ActionLine, errText, useAction } from "../../ui/status";
 import type { Listing, OsInfo, OsInfoCache, OsPartition } from "./api";
 
 const FB_ICONS: Record<string, string> = { dir: "📁", file: "📄", broken: "⚠️", outside: "🚫", other: "⚙️" };
@@ -19,6 +20,7 @@ export function FileBrowser({ start, os }: { start: string; os: OsInfoCache }) {
   const [path, setPath] = useState(start);
   const [q, setQ] = useState("");
   const [infoOpen, setInfoOpen] = useState(true);
+  const nav = useAction();
   const seq = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
@@ -29,15 +31,17 @@ export function FileBrowser({ start, os }: { start: string; os: OsInfoCache }) {
     const my = ++seq.current;
     setPath(p);
     try {
-      const r = await b.conn.json<Listing>("GET", "/api/files?path=" + encodeURIComponent(p));
+      const r = await b.api<Listing>("GET", "/api/files?path=" + encodeURIComponent(p));
       if (my !== seq.current) return;
+      nav.clear();
       setFb(r);
       setQ("");
       if (listRef.current) listRef.current.scrollTop = 0;
-    } catch (e: any) {
+    } catch (e) {
       if (my !== seq.current) return;
-      b.toast(e?.message || "Could not open folder", "error");
-      if (!fb) b.closeModal();
+      // The listing on screen stays (the crumbs go back to it); the failure shows above it.
+      if (fb) setPath(fb.path);
+      nav.fail(`Couldn't open ${p ? "/" + p : "the drives list"}: ${errText(e)}`);
     }
   };
   useEffect(() => {
@@ -68,11 +72,12 @@ export function FileBrowser({ start, os }: { start: string; os: OsInfoCache }) {
           </Fragment>
         ))}
       </div>
+      <ActionLine a={nav} />
       {info && <OsDetails t={info} open={infoOpen} setOpen={setInfoOpen} />}
       <input ref={filterRef} className="fb-filter" placeholder="Filter this folder…" autoComplete="off" spellCheck={false} value={q} onInput={(e) => setQ(e.currentTarget.value)} />
       <div className={`fb-list${info ? " short" : ""}`} ref={listRef}>
         {!fb ? (
-          <div className="fb-msg">Loading…</div>
+          <div className="fb-msg">{nav.status?.state === "error" ? "Nothing to show." : "Loading…"}</div>
         ) : (
           <>
             <table className="fb-tbl">

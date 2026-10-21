@@ -1,6 +1,6 @@
 // System status: CPU & memory sparklines, the network table and the root device.
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useBob, useSnapshot } from "../../bob/context";
 import { fmtRate, fmtSz, pctColor, wifiColor } from "../../lib/format";
 import type { SectionProps } from "../../registry";
@@ -164,7 +164,10 @@ export default function System({ status: s }: SectionProps) {
 
 /** An interface's details, each value tap-to-copy (what the old hover card showed). */
 function NetDetail({ n }: { n: NetIface }) {
-  const { toast } = useBob();
+  // Which value was just tapped, and whether copying it worked; shown on that value briefly.
+  const [copied, setCopied] = useState<{ i: number; ok: boolean } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
   const rows: [string, unknown][] = [
     ["IPv4", n.ip ? `${n.ip}/${n.prefix || "?"}` : null],
     ["Gateway", n.gateway],
@@ -178,11 +181,17 @@ function NetDetail({ n }: { n: NetIface }) {
     ["Signal", n.wifi ? `${n.wifi.signal} dBm` : null],
     ["Bitrate", n.wifi?.bitrate],
   ];
-  const copy = (v: string) =>
-    navigator.clipboard?.writeText(v).then(
-      () => toast(`Copied ${v}`, "success"),
-      () => {},
-    );
+  const copy = async (i: number, v: string) => {
+    let ok = false;
+    try {
+      // Missing outside secure contexts (a bob reached over plain http by IP or name).
+      await navigator.clipboard.writeText(v);
+      ok = true;
+    } catch {}
+    setCopied({ i, ok });
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(null), ok ? 1500 : 4000);
+  };
   return (
     <>
       <div className="net-kv">
@@ -191,8 +200,9 @@ function NetDetail({ n }: { n: NetIface }) {
           .map(([k, v], i) => (
             <Fragment key={i}>
               <span>{k}</span>
-              <button type="button" onClick={() => copy(String(v))}>
+              <button type="button" onClick={() => copy(i, String(v))}>
                 {String(v)}
+                {copied?.i === i && <span className={`act-stat ${copied.ok ? "ok" : "error"}`}> {copied.ok ? "✓ Copied" : "✗ The browser won't copy here"}</span>}
               </button>
             </Fragment>
           ))}

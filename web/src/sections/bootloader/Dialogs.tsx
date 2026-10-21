@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useBob, type BobApi } from "../../bob/context";
 import { fmtSz } from "../../lib/format";
 import { readLocalStr, writeLocal } from "../../lib/storage";
+import { ActionLine, errText, useAction, type Action } from "../../ui/status";
 import { BlEditor, editorReady, imageStart, useBlEditor, type EepromImage, type Start } from "./Editor";
 
 export interface RpibootOptions {
@@ -17,25 +18,14 @@ export interface RpibootOptions {
   installed?: { label: string; bootConf?: string | null; buildDate?: string; lastWrite?: { imageLabel: string; at: number; bootConf: string } } | null;
 }
 
-async function post(b: BobApi, url: string, body: unknown): Promise<boolean> {
-  try {
-    await b.conn.json("POST", url, body);
-    return true;
-  } catch (e: any) {
-    b.toast(e?.message || "Request failed", "error");
-    return false;
-  }
-}
-
-/** Bootloader settings & update for a CM in USB boot mode. */
-export async function openRpibootWrite(b: BobApi, path: string) {
-  let o: RpibootOptions;
-  try {
-    o = await b.conn.json("GET", "/api/rpiboot/eeprom/options?path=" + encodeURIComponent(path));
-  } catch (e: any) {
-    return b.toast(e?.message || "Request failed", "error");
-  }
-  if (!o.images.length) return b.toast("No bootloader images found (is rpi-eeprom installed?)", "error");
+/**
+ * Bootloader settings & update for a CM in USB boot mode. Loading the options reports on
+ * `a`, the status line beside the button that opened it.
+ */
+export async function openRpibootWrite(b: BobApi, a: Action, path: string) {
+  const o = await a.run(() => b.api<RpibootOptions>("GET", "/api/rpiboot/eeprom/options?path=" + encodeURIComponent(path)), { busy: "Reading the bootloader options…" });
+  if (!o) return;
+  if (!o.images.length) return a.fail("No bootloader images found (is rpi-eeprom installed?)");
   b.openModal(<RpibootWrite path={path} o={o} />, { cls: "wide" });
 }
 
@@ -86,9 +76,11 @@ function RpibootWrite({ path, o }: { path: string; o: RpibootOptions }) {
       return [...s, ...imageStart(img)];
     },
   });
+  // The dialog stays open until the server takes the write, so a refusal shows here; after
+  // that the write shows as the module's progress bar.
+  const act = useAction();
   const go = async (imageId: string, bootConf: string) => {
-    b.closeModal();
-    await post(b, "/api/rpiboot/eeprom/write", { path, imageId, bootConf });
+    if (await act.run(() => b.api("POST", "/api/rpiboot/eeprom/write", { path, imageId, bootConf }), { busy: "Starting the write…" })) b.closeModal();
   };
   return (
     <>
@@ -98,14 +90,16 @@ function RpibootWrite({ path, o }: { path: string; o: RpibootOptions }) {
       </p>
       <Installed o={o} />
       <BlEditor ed={ed} />
+      <ActionLine a={act} />
       <div className="modal-btns">
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
         <button
           className="btn"
+          disabled={act.busy}
           onClick={() => {
-            if (!o.images.some((i) => i.id === "rpiboot")) return b.toast("rpiboot's stock image is missing", "error");
+            if (!o.images.some((i) => i.id === "rpiboot")) return act.fail("rpiboot's stock image is missing");
             go("rpiboot", o.bootConf);
           }}
         >
@@ -113,9 +107,10 @@ function RpibootWrite({ path, o }: { path: string; o: RpibootOptions }) {
         </button>
         <button
           className="btn btn-warn"
+          disabled={act.busy}
           onClick={() => {
             const r = editorReady(ed);
-            if ("error" in r) return b.toast(r.error, "error");
+            if ("error" in r) return act.fail(r.error);
             go(ed.imageId, r.conf);
           }}
         >
@@ -142,10 +137,9 @@ export function BlCardDialog({ dev, model, size, hasParts }: { dev: string; mode
   useEffect(() => {
     let live = true;
     setOpts(null);
-    b.conn
-      .json<{ images: EepromImage[] }>("GET", "/api/blcard/options?chip=" + chip)
+    b.api<{ images: EepromImage[] }>("GET", "/api/blcard/options?chip=" + chip)
       .then((o) => live && setOpts(o.images.length ? { chip, images: o.images } : { chip, error: "No bootloader releases found (is rpi-eeprom installed?)" }))
-      .catch((e) => live && setOpts({ chip, error: e?.message || "Request failed" }));
+      .catch((e) => live && setOpts({ chip, error: errText(e) }));
     return () => {
       live = false;
     };
@@ -188,7 +182,7 @@ export function BlCardDialog({ dev, model, size, hasParts }: { dev: string; mode
             <button className="btn" onClick={b.closeModal}>
               Cancel
             </button>
-            <button className={`btn ${hasParts ? "btn-danger" : "btn-warn"}`} onClick={() => b.toast("Still loading the releases", "error")}>
+            <button className={`btn ${hasParts ? "btn-danger" : "btn-warn"}`} disabled>
               Erase &amp; write card
             </button>
           </div>
@@ -209,17 +203,15 @@ function CardEditor({ chip, images, dev, hasParts }: { chip: string; images: Eep
     prefer: ["last", "image"],
     starts: (img) => [...(last ? ([["last", "Last card", last, "the last card written here"]] as Start[]) : []), ...imageStart(img)],
   });
+  // Stays open until the server takes the job; then it shows as the drive's progress bar.
+  const act = useAction();
   const write = async () => {
     if (hasParts && confirmText !== "ERASE") return;
     const r = editorReady(ed);
-    if ("error" in r) return b.toast(r.error, "error");
+    if ("error" in r) return act.fail(r.error);
+    if (!(await act.run(() => b.api("POST", "/api/blcard", { device: dev, chip, imageId: ed.imageId, bootConf: r.conf }), { busy: "Starting…" }))) return;
+    writeLocal("blcard-conf-" + chip, r.conf);
     b.closeModal();
-    try {
-      await b.conn.json("POST", "/api/blcard", { device: dev, chip, imageId: ed.imageId, bootConf: r.conf });
-      writeLocal("blcard-conf-" + chip, r.conf);
-    } catch (e: any) {
-      b.toast(e?.message || "Request failed", "error");
-    }
   };
   return (
     <>
@@ -232,11 +224,12 @@ function CardEditor({ chip, images, dev, hasParts }: { chip: string; images: Eep
           <input type="text" id="ec" autoComplete="off" value={confirmText} onInput={(e) => setConfirmText(e.currentTarget.value)} />
         </div>
       )}
+      <ActionLine a={act} />
       <div className="modal-btns">
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
-        <button className={`btn ${hasParts ? "btn-danger" : "btn-warn"}`} disabled={hasParts && confirmText !== "ERASE"} onClick={write}>
+        <button className={`btn ${hasParts ? "btn-danger" : "btn-warn"}`} disabled={(hasParts && confirmText !== "ERASE") || act.busy} onClick={write}>
           Erase &amp; write card
         </button>
       </div>
