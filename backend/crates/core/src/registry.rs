@@ -118,7 +118,7 @@ impl Registry {
 
     async fn start_driver(&self, l: &Arc<Loaded>) {
         let mut started = l.started.lock().await;
-        if *started || self.hub.settings.is_disabled(l.driver.id()) {
+        if *started || (l.driver.listed() && self.hub.settings.is_disabled(l.driver.id())) {
             return;
         }
         *started = true;
@@ -142,7 +142,7 @@ impl Registry {
 
     /// Enable or disable a driver (`POST /api/periph/driver`).
     pub async fn set_disabled(&self, id: &str, disabled: bool) -> Result<(), HttpError> {
-        let l = self.get(id).ok_or_else(|| HttpError::new(404, format!("No driver \"{id}\"")))?.clone();
+        let l = self.get(id).filter(|l| l.driver.listed()).ok_or_else(|| HttpError::new(404, format!("No driver \"{id}\"")))?.clone();
         self.hub.settings.set_disabled(id, disabled);
         if disabled {
             self.stop_driver(&l, StopReason::Disable).await;
@@ -165,6 +165,7 @@ impl Registry {
         let mut items: Vec<ListItem> = self
             .loaded
             .iter()
+            .filter(|l| l.driver.listed())
             .map(|l| {
                 let d = &l.driver;
                 let st = if l.started() {

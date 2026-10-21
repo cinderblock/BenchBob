@@ -1,0 +1,7 @@
+{
+  "rates": { "mmcblk0": [8308.011141078685, 215948.08668876265], "sda": [1024, 0.5] },
+  "answers": [
+    { "match": "readlink -f /sys/block/sda", "out": "/sys/devices/platform/scb/fd500000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0/usb2/2-1/2-1:1.0/host0/target0:0:0/0:0:0:0/block/sda\n" }
+  ],
+  "files": { "/sys/devices/platform/scb/fd500000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0/usb2/2-1/speed": "5000\n" }
+}

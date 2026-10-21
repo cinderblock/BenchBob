@@ -1,0 +1,38 @@
+{
+   "blockdevices": [
+      {
+         "name": "loop0", "path": "/dev/loop0", "size": 2147483648, "type": "loop", "mountpoint": null, "model": null, "serial": null,
+         "tran": null, "fstype": "swap", "label": "origin:rpi-swap", "uuid": null, "rm": false, "ro": false, "rev": null
+      },{
+         "name": "mmcblk0", "path": "/dev/mmcblk0", "size": 15978201088, "type": "disk", "mountpoint": null, "model": null, "serial": "0x000002b3",
+         "tran": "mmc", "fstype": null, "label": null, "uuid": null, "rm": false, "ro": false, "rev": null,
+         "children": [
+            {
+               "name": "mmcblk0p1", "path": "/dev/mmcblk0p1", "size": 536870912, "type": "part", "mountpoint": "/boot/firmware", "model": null,
+               "serial": null, "tran": "mmc", "fstype": "vfat", "label": "bootfs", "uuid": "0D58-6978", "rm": false, "ro": false, "rev": null
+            },{
+               "name": "mmcblk0p2", "path": "/dev/mmcblk0p2", "size": 15432941568, "type": "part", "mountpoint": "/", "model": null,
+               "serial": null, "tran": "mmc", "fstype": "ext4", "label": "rootfs", "uuid": "e634e0a4-a958-46cb-abad-862d2102573f", "rm": false, "ro": false, "rev": null
+            }
+         ]
+      },{
+         "name": "sda", "path": "/dev/sda", "size": 62742792192, "type": "disk", "mountpoint": null, "model": "Flash Drive FIT", "serial": "0374823090001234",
+         "tran": "usb", "fstype": null, "label": null, "uuid": null, "rm": "1", "ro": "0", "rev": "1100",
+         "children": [
+            {
+               "name": "sda1", "path": "/dev/sda1", "size": 536870912, "type": "part", "mountpoint": "/srv/nfs/drives/bootfs", "model": null,
+               "serial": null, "tran": "usb", "fstype": "vfat", "label": "bootfs", "uuid": "4E2A-1F5C", "rm": 1, "ro": 0, "rev": null
+            },{
+               "name": "sda2", "path": "/dev/sda2", "size": 62204870656, "type": "part", "mountpoint": "/srv/nfs/drives/rootfs", "model": null,
+               "serial": null, "tran": "usb", "fstype": "ext4", "label": "rootfs", "uuid": "b9f0d1aa-0e1c-4f43-9a1e-2f7c1d2c9e11", "rm": true, "ro": false, "rev": null
+            }
+         ]
+      },{
+         "name": "sdb", "path": "/dev/sdb", "size": 0, "type": "disk", "mountpoint": null, "model": "SD Card Reader", "serial": "000000000123",
+         "tran": "usb", "fstype": null, "label": null, "uuid": null, "rm": true, "ro": false, "rev": "1.00"
+      },{
+         "name": "zram0", "path": "/dev/zram0", "size": 2147483648, "type": "disk", "mountpoint": "[SWAP]", "model": null, "serial": null,
+         "tran": null, "fstype": "swap", "label": "zram0", "uuid": "c3fa4f5c-cc42-4e29-80b3-5572d3055577", "rm": false, "ro": false, "rev": null
+      }
+   ]
+}

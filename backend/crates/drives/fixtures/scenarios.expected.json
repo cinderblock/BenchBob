@@ -1,0 +1,6782 @@
+{
+  "erase-quick": {
+    "log": [
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "-l",
+          "/srv/nfs/drives/bootfs"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "-l",
+          "/srv/nfs/drives/my disk"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "mountpoint",
+          "-q",
+          "/srv/nfs/drives/bootfs"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "mountpoint",
+          "-q",
+          "/srv/nfs/drives/my disk"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "mountpoint",
+          "-q",
+          "/srv/nfs/drives/stale"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "rmdir",
+          "/srv/nfs/drives/stale"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "rm",
+          "-f",
+          "/etc/nbd-server/conf.d/sdb1.conf"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "rm",
+          "-f",
+          "/etc/nbd-server/conf.d/sdb2.conf"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "wipefs",
+          "-a",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 0,
+          "message": "Wiping signatures..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "dd",
+          "if=/dev/zero",
+          "of=/dev/sdb",
+          "bs=1M",
+          "count=10",
+          "conv=fsync"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 30,
+          "message": "Zeroing partition table..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blockdev",
+          "--getsz",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 60,
+          "message": "Zeroing partition table..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "dd",
+          "if=/dev/zero",
+          "of=/dev/sdb",
+          "bs=512",
+          "seek=62500864",
+          "count=20480",
+          "conv=fsync"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 60,
+          "message": "Zeroing GPT backup..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Quick erase complete"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "erase",
+      "device": "sdb",
+      "status": "done",
+      "progress": 100,
+      "message": "Quick erase complete"
+    }
+  },
+  "erase-quick-small": {
+    "log": [
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "wipefs",
+          "-a",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 0,
+          "message": "Wiping signatures..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "dd",
+          "if=/dev/zero",
+          "of=/dev/sdb",
+          "bs=1M",
+          "count=10",
+          "conv=fsync"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 30,
+          "message": "Zeroing partition table..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blockdev",
+          "--getsz",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 60,
+          "message": "Zeroing partition table..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Quick erase complete"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "erase",
+      "device": "sdb",
+      "status": "done",
+      "progress": 100,
+      "message": "Quick erase complete"
+    }
+  },
+  "erase-full": {
+    "log": [
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdc"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blockdev",
+          "--getsize64",
+          "/dev/sdc"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "dd",
+          "if=/dev/zero",
+          "of=/dev/sdc",
+          "bs=4M",
+          "conv=fsync",
+          "status=progress"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 0,
+          "message": "Writing zeros to 1.0 GB..."
+        }
+      },
+      {
+        "read": 0,
+        "fd": 2,
+        "op": {
+          "status": "erasing",
+          "progress": 0,
+          "message": "Writing zeros to 1.0 GB..."
+        }
+      },
+      {
+        "read": 1,
+        "fd": 2,
+        "op": {
+          "status": "erasing",
+          "progress": 10,
+          "message": "Erasing: 100.0 MB / 1.0 GB (10%)"
+        }
+      },
+      {
+        "read": 2,
+        "fd": 2,
+        "op": {
+          "status": "erasing",
+          "progress": 50,
+          "message": "Erasing: 512.0 MB / 1.0 GB (50%)"
+        }
+      },
+      {
+        "read": 3,
+        "fd": 2,
+        "op": {
+          "status": "erasing",
+          "progress": 50,
+          "message": "Erasing: 512.0 MB / 1.0 GB (50%)"
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdc"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Full erase complete"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "erase",
+      "device": "sdc",
+      "status": "done",
+      "progress": 100,
+      "message": "Full erase complete"
+    }
+  },
+  "erase-discard-unsupported": {
+    "log": [
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blkdiscard",
+          "-f",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 0,
+          "message": "Discarding (TRIM)..."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "erase",
+      "device": "sdb",
+      "status": "error",
+      "progress": 0,
+      "message": "Device does not support TRIM/discard (only SSDs do). Use Quick or Full erase instead."
+    }
+  },
+  "erase-discard-other-error": {
+    "log": [
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blkdiscard",
+          "-f",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 0,
+          "message": "Discarding (TRIM)..."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "erase",
+      "device": "sdb",
+      "status": "error",
+      "progress": 0,
+      "message": "Discard failed: blkdiscard: cannot open /dev/sdb: No such file or directory"
+    }
+  },
+  "erase-discard": {
+    "log": [
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/nvme0n1"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blkdiscard",
+          "-f",
+          "/dev/nvme0n1"
+        ],
+        "op": {
+          "status": "erasing",
+          "progress": 0,
+          "message": "Discarding (TRIM)..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/nvme0n1"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Discard complete"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "erase",
+      "device": "nvme0n1",
+      "status": "done",
+      "progress": 100,
+      "message": "Discard complete"
+    }
+  },
+  "erase-unknown-mode": {
+    "log": [
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Unmounting..."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "erase",
+      "device": "sdb",
+      "status": "erasing",
+      "progress": 0,
+      "message": "Unmounting..."
+    }
+  },
+  "flash-cloudinit": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2026-09-01/2026-09-01-raspios-trixie-arm64-lite.img.xz",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/2026-09-01-raspios-trixie-arm64-lite.img.xz"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sda"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "xzcat \"/var/tmp/benchbob-flash/2026-09-01-raspios-trixie-arm64-lite.img.xz\" | sudo dd of=/dev/sda bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "read": 0,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "read": 1,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 58,
+          "message": "Flashing: 1.0 GB / 2.5 GB"
+        }
+      },
+      {
+        "read": 2,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 85,
+          "message": "Flashing: 2.5 GB / 2.5 GB"
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sda"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Flashing: 2.5 GB / 2.5 GB"
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Flashing: 2.5 GB / 2.5 GB"
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "/dev/sda1",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "openssl",
+          "passwd",
+          "-6",
+          "-stdin"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "s3cret\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/meta-data"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "instance-id: benchbob-1792490400000\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/user-data"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "#cloud-config\nmanage_resolv_conf: false\n\nhostname: \"bench-01\"\nmanage_etc_hosts: true\nwrite_files:\n- path: /usr/share/keyrings/benchbob-archive-keyring.asc\n  permissions: '0644'\n  content: |\n    -----BEGIN PGP PUBLIC KEY BLOCK-----\n    \n    mDMEatbqHRYJKwYBBAHaRw8BAQdA3JLZ+2WxZVycHk7FEsffmteEFoxm4eoHYkQi\n    F74Tabu0M0JlbmNoQm9iIEFyY2hpdmUgU2lnbmluZyBLZXkgPGNhbWVyb25AdGFj\n    a2xpbmQuY29tPoiTBBMWCgA7FiEEaZEj/wPWhSvnMr2j6WNdcQ4wjZMFAmrW6h0C\n    GwMFCwkIBwICIgIGFQoJCAsCBBYCAwECHgcCF4AACgkQ6WNdcQ4wjZM4bwD+P8HK\n    E1Tjois8QZ6Fk6mExOdbV89K1MR+FfbfhauOZ0YA/jVj28Ft0SXaNhtQKWk8T9ZV\n    1x+Tdp43Nxp5MjYCJ7UD\n    =771v\n    -----END PGP PUBLIC KEY BLOCK-----\n- path: /etc/apt/sources.list.d/benchbob-bootstrap.sources\n  permissions: '0644'\n  content: |\n    Types: deb\n    URIs: https://cinderblock.github.io/BenchBob/apt\n    Suites: stable\n    Components: main\n    Signed-By: /usr/share/keyrings/benchbob-archive-keyring.asc\n\npackages:\n- avahi-daemon\n- benchbob\n\napt:\n  preserve_sources_list: true\n  conf: |\n    Acquire {\n      Check-Date \"false\";\n    };\n\ntimezone: \"America/Los_Angeles\"\nkeyboard:\n  model: pc105\n  layout: \"us\"\n\nuser:\n  name: \"cam\"\n  shell: /bin/bash\n  lock_passwd: false\n  passwd: \"$6$fixedsalt$hashhashhash\"\n  ssh_authorized_keys:\n    - \"ssh-ed25519 AAAAC3Nza key1@laptop\"\n    - \"ssh-rsa AAAAB3Nza key2\"\n  sudo: ALL=(ALL) NOPASSWD:ALL\n\nssh_pwauth: true\n\nruncmd:\n  - [ systemctl, enable, --now, ssh ]\n  - [ sh, -c, \"echo 'cam ALL=(ALL) NOPASSWD:ALL' >'/etc/sudoers.d/010_cam-nopasswd' && chmod 0440 '/etc/sudoers.d/010_cam-nopasswd'\" ]\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/network-config"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true\n      dhcp6: true\n      optional: true\n  wifis:\n    wlan0:\n      dhcp4: true\n      regulatory-domain: \"US\"\n      access-points:\n        \"Open Cafe\":\n          auth:\n            key-management: none\n        \"Home \\\"Net\\\"\":\n          password: \"pa:ss#1\"\n      optional: true\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cat",
+          "/tmp/benchbob-boot/cmdline.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/cmdline.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "console=serial0,115200 console=tty1 root=PARTUUID=1234-02 rootfstype=ext4 fsck.repair=yes rootwait quiet init=/usr/lib/raspberrypi-sys-mods/firstboot ds=nocloud;i=benchbob-1792490400000 cfg80211.ieee80211_regdom=US\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/2026-09-01-raspios-trixie-arm64-lite.img.xz"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Flash complete! Settings applied via cloud-init (user-data, meta-data, network-config, cmdline.txt)."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sda",
+      "status": "done",
+      "progress": 100,
+      "message": "Flash complete! Settings applied via cloud-init (user-data, meta-data, network-config, cmdline.txt)."
+    }
+  },
+  "flash-firstrun": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://downloads.raspberrypi.com/raspios_oldstable_arm64/images/x/2025-05-13-raspios-bookworm-arm64.img.gz",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/2025-05-13-raspios-bookworm-arm64.img.gz"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/nvme0n1"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "gzip -dc \"/var/tmp/benchbob-flash/2025-05-13-raspios-bookworm-arm64.img.gz\" | sudo dd of=/dev/nvme0n1 bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "read": 0,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "read": 1,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/nvme0n1"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "/dev/nvme0n1p1",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/ssh"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": ""
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/userconf.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "pi:*\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/firstrun.sh"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "#!/bin/bash\nset +e\nCURRENT_HOSTNAME=$(cat /etc/hostname | tr -d \" \\t\\n\\r\")\n\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom set_hostname 'o'\\''brien'\nelse\n  echo 'o'\\''brien' >/etc/hostname\n  sed -i \"s/127.0.1.1.*$CURRENT_HOSTNAME/127.0.1.1\\to'\\''brien/g\" /etc/hosts\nfi\n\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom enable_ssh\nelse\n  systemctl enable ssh\nfi\n\nsed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config\n\nFIRSTUSERHOME=$(getent passwd 'pi' | cut -d: -f6)\nif [ -z \"$FIRSTUSERHOME\" ]; then FIRSTUSERHOME=\"/home/pi\"; fi\nmkdir -p \"$FIRSTUSERHOME/.ssh\"\nchmod 700 \"$FIRSTUSERHOME/.ssh\"\ncat >> \"$FIRSTUSERHOME/.ssh/authorized_keys\" <<'SSHEOF'\nssh-ed25519 AAAA one\nSSHEOF\nchmod 600 \"$FIRSTUSERHOME/.ssh/authorized_keys\"\nchown -R 'pi:pi' \"$FIRSTUSERHOME/.ssh\"\n\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom set_wlan 'Legacy'\\''s' 'pw'\\''1' 'IE'\nelse\n  cat > '/etc/NetworkManager/system-connections/wifi-0.nmconnection' <<'NMEOF'\n[connection]\nid=Legacy's\ntype=wifi\nautoconnect-priority=0\n[wifi]\nmode=infrastructure\nssid=Legacy's\n[wifi-security]\nauth-alg=open\nkey-mgmt=wpa-psk\npsk=pw'1\n[ipv4]\nmethod=auto\n[ipv6]\nmethod=auto\nNMEOF\n  chmod 600 '/etc/NetworkManager/system-connections/wifi-0.nmconnection'\nfi\n\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom set_timezone 'Europe/Dublin'\nelse\n  rm -f /etc/localtime\n  echo 'Europe/Dublin' >/etc/timezone\n  dpkg-reconfigure -f noninteractive tzdata\nfi\n\nif [ -f /usr/lib/raspberrypi-sys-mods/imager_custom ]; then\n  /usr/lib/raspberrypi-sys-mods/imager_custom set_keymap 'gb' 'gb'\nfi\n\n# BenchBob: our apt source and key, installed from it once the network is up\nmkdir -p /usr/share/keyrings /etc/apt/sources.list.d\ncat > '/usr/share/keyrings/benchbob-archive-keyring.asc' << 'BBKEYEOF'\n-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmDMEatbqHRYJKwYBBAHaRw8BAQdA3JLZ+2WxZVycHk7FEsffmteEFoxm4eoHYkQi\nF74Tabu0M0JlbmNoQm9iIEFyY2hpdmUgU2lnbmluZyBLZXkgPGNhbWVyb25AdGFj\na2xpbmQuY29tPoiTBBMWCgA7FiEEaZEj/wPWhSvnMr2j6WNdcQ4wjZMFAmrW6h0C\nGwMFCwkIBwICIgIGFQoJCAsCBBYCAwECHgcCF4AACgkQ6WNdcQ4wjZM4bwD+P8HK\nE1Tjois8QZ6Fk6mExOdbV89K1MR+FfbfhauOZ0YA/jVj28Ft0SXaNhtQKWk8T9ZV\n1x+Tdp43Nxp5MjYCJ7UD\n=771v\n-----END PGP PUBLIC KEY BLOCK-----\nBBKEYEOF\ncat > '/etc/apt/sources.list.d/benchbob-bootstrap.sources' << 'BBSRCEOF'\nTypes: deb\nURIs: https://cinderblock.github.io/BenchBob/apt\nSuites: stable\nComponents: main\nSigned-By: /usr/share/keyrings/benchbob-archive-keyring.asc\nBBSRCEOF\ncat > '/etc/systemd/system/benchbob-firstboot.service' << 'BBUNITEOF'\n[Unit]\nDescription=Install BenchBob (first boot)\nWants=network-online.target\nAfter=network-online.target\nConditionPathExists=!/usr/lib/benchbob/VERSION\n\n[Service]\nType=oneshot\n# Check-Date off: the clock may not have synced yet, and apt would call the repo \"not valid yet\".\nExecStart=/bin/sh -c 'apt-get -o Acquire::Check-Date=false update && DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold benchbob'\nExecStartPost=/bin/systemctl disable benchbob-firstboot.service\nRestart=on-failure\nRestartSec=60\n\n[Install]\nWantedBy=multi-user.target\nBBUNITEOF\nsystemctl enable benchbob-firstboot.service\n\nrm -f /boot/firmware/firstrun.sh\nsed -i 's| systemd.run.*||g' /boot/firmware/cmdline.txt\nexit 0\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cat",
+          "/tmp/benchbob-boot/cmdline.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cat",
+          "/tmp/benchbob-boot/cmdline.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/cmdline.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "console=tty1 root=PARTUUID=abcd-02 rootwait systemd.run=/boot/firmware/firstrun.sh systemd.run_success_action=reboot systemd.unit=kernel-command-line.target\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/2025-05-13-raspios-bookworm-arm64.img.gz"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Flash complete! Settings applied via firstrun.sh."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "nvme0n1",
+      "status": "done",
+      "progress": 100,
+      "message": "Flash complete! Settings applied via firstrun.sh.",
+      "imageName": "Pi OS (Legacy)"
+    }
+  },
+  "flash-detect-cloudinit-no-wifi": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/images/custom.img",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/custom.img"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "sudo dd if=\"/var/tmp/benchbob-flash/custom.img\" of=/dev/sdb bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "read": 0,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "read": 1,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 63,
+          "message": "Flashing: 500 B / 1000 B"
+        }
+      },
+      {
+        "read": 2,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 85,
+          "message": "Flashing: 1000 B / 1000 B"
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Flashing: 1000 B / 1000 B"
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Flashing: 1000 B / 1000 B"
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "/dev/sdb1",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "exists": "/tmp/benchbob-boot/meta-data",
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "exists": "/tmp/benchbob-boot/user-data",
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/meta-data"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "instance-id: benchbob-1792490400000\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/user-data"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "#cloud-config\nmanage_resolv_conf: false\n\ntimezone: \"UTC\"\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cat",
+          "/tmp/benchbob-boot/cmdline.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/cmdline.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "console=tty1 ds=nocloud;i=benchbob-1792490400000\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/custom.img"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Flash complete! Settings applied via cloud-init (user-data, meta-data, cmdline.txt)."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "done",
+      "progress": 100,
+      "message": "Flash complete! Settings applied via cloud-init (user-data, meta-data, cmdline.txt)."
+    }
+  },
+  "flash-detect-none": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/os.zip",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/os.zip"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "unzip -p \"/var/tmp/benchbob-flash/os.zip\" \"*.img\" | sudo dd of=/dev/sdb bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "/dev/sdb1",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "exists": "/tmp/benchbob-boot/meta-data",
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "exists": "/tmp/benchbob-boot/user-data",
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "exists": "/tmp/benchbob-boot/cmdline.txt",
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/os.zip"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Flash complete! This image does not support customization; settings were not applied."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "done",
+      "progress": 100,
+      "message": "Flash complete! This image does not support customization; settings were not applied."
+    }
+  },
+  "flash-mount-fails": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/os.img.xz",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/os.img.xz"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "xzcat \"/var/tmp/benchbob-flash/os.img.xz\" | sudo dd of=/dev/sdb bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "/dev/sdb1",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/os.img.xz"
+        ],
+        "op": {
+          "status": "error",
+          "progress": 85,
+          "message": "Image written, but settings were NOT applied: could not mount boot partition /dev/sdb1: mount: /tmp/benchbob-boot: wrong fs type, bad option, bad superblock on /dev/sdb1."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "error",
+      "progress": 85,
+      "message": "Image written, but settings were NOT applied: could not mount boot partition /dev/sdb1: mount: /tmp/benchbob-boot: wrong fs type, bad option, bad superblock on /dev/sdb1."
+    }
+  },
+  "flash-preseed": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/os.img.xz",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/os.img.xz"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "xzcat \"/var/tmp/benchbob-flash/os.img.xz\" | sudo dd of=/dev/sdb bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "/dev/sdb1",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/os.img.xz"
+        ],
+        "op": {
+          "status": "error",
+          "progress": 85,
+          "message": "Image written, but settings were NOT applied: this image expects rpi-preseed customization, which BenchBob does not support yet"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "error",
+      "progress": 85,
+      "message": "Image written, but settings were NOT applied: this image expects rpi-preseed customization, which BenchBob does not support yet"
+    }
+  },
+  "flash-write-fails": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/os.img.xz",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/os.img.xz"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "xzcat \"/var/tmp/benchbob-flash/os.img.xz\" | sudo dd of=/dev/sdb bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "read": 0,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "read": 1,
+        "fd": 2,
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "error",
+      "progress": 40,
+      "message": "Flash failed"
+    }
+  },
+  "flash-no-settings": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/a/b/os.img",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/os.img"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "sudo dd if=\"/var/tmp/benchbob-flash/os.img\" of=/dev/sdb bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/os.img"
+        ],
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Flash complete!"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "done",
+      "progress": 100,
+      "message": "Flash complete!"
+    }
+  },
+  "flash-firstrun-tee-fails": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/os.img.xz",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/os.img.xz"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "xzcat \"/var/tmp/benchbob-flash/os.img.xz\" | sudo dd of=/dev/sdb bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "/dev/sdb1",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/ssh"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": ""
+      },
+      {
+        "cmd": [
+          "openssl",
+          "passwd",
+          "-6",
+          "-stdin"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "pw\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "tee",
+          "/tmp/benchbob-boot/userconf.txt"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "bob:$6$s$h\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/os.img.xz"
+        ],
+        "op": {
+          "status": "error",
+          "progress": 85,
+          "message": "Image written, but settings were NOT applied: writing userconf.txt: tee: /tmp/benchbob-boot/userconf.txt: Read-only file system"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "error",
+      "progress": 85,
+      "message": "Image written, but settings were NOT applied: writing userconf.txt: tee: /tmp/benchbob-boot/userconf.txt: Read-only file system"
+    }
+  },
+  "flash-hash-fails": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/os.img.xz",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        },
+        "to": "/var/tmp/benchbob-flash/os.img.xz"
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 40,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "bash",
+          "-o",
+          "pipefail",
+          "-c",
+          "xzcat \"/var/tmp/benchbob-flash/os.img.xz\" | sudo dd of=/dev/sdb bs=4M conv=fsync status=progress"
+        ],
+        "op": {
+          "status": "flashing",
+          "progress": 40,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "sleep": 2000,
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Writing image..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "/dev/sdb1",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "openssl",
+          "passwd",
+          "-6",
+          "-stdin"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        },
+        "stdin": "pw\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-boot"
+        ],
+        "op": {
+          "status": "configuring",
+          "progress": 85,
+          "message": "Applying settings..."
+        }
+      },
+      {
+        "cmd": [
+          "rm",
+          "-f",
+          "/var/tmp/benchbob-flash/os.img.xz"
+        ],
+        "op": {
+          "status": "error",
+          "progress": 85,
+          "message": "Image written, but settings were NOT applied: could not hash the password"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "error",
+      "progress": 85,
+      "message": "Image written, but settings were NOT applied: could not hash the password"
+    }
+  },
+  "blcard-2711": {
+    "log": [
+      {
+        "buildCardFiles": [
+          "2711",
+          "default",
+          "[all]\r\nBOOT_ORDER=0xf41\r\n"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Building bootloader files..."
+        }
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "wipefs",
+          "-a",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sfdisk",
+          "--wipe",
+          "always",
+          "--wipe-partitions",
+          "always",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        },
+        "stdin": "label: dos\nstart=2048, size=524288, type=c\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "udevadm",
+          "settle"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkfs.vfat",
+          "-F",
+          "32",
+          "-s",
+          "1",
+          "-n",
+          "BOOTLOADER",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 35,
+          "message": "Formatting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-nro",
+          "MOUNTPOINT",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/media/auto/BOOTLOADER"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "-t",
+          "vfat",
+          "/dev/sdb1",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/recovery.bin",
+          "/tmp/benchbob-blcard/recovery.bin"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/pieeprom.bin",
+          "/tmp/benchbob-blcard/pieeprom.bin"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/pieeprom.sig",
+          "/tmp/benchbob-blcard/pieeprom.sig"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/vl805.bin",
+          "/tmp/benchbob-blcard/vl805.bin"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/vl805.sig",
+          "/tmp/benchbob-blcard/vl805.sig"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/README.txt",
+          "/tmp/benchbob-blcard/README.txt"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-nro",
+          "MOUNTPOINT",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/media/auto/BOOTLOADER"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blockdev",
+          "--flushbufs",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "-o",
+          "ro",
+          "-t",
+          "vfat",
+          "/dev/sdb1",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sha256sum",
+          "/tmp/benchbob-blcard/recovery.bin",
+          "/tmp/benchbob-blcard/pieeprom.bin",
+          "/tmp/benchbob-blcard/pieeprom.sig",
+          "/tmp/benchbob-blcard/vl805.bin",
+          "/tmp/benchbob-blcard/vl805.sig",
+          "/tmp/benchbob-blcard/README.txt"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "rm": "/tmp/benchbob-rpiboot/card",
+        "op": {
+          "status": "done",
+          "progress": 100,
+          "message": "Bootloader card ready and verified: 2025-05-08 (rpi-eeprom \"default\" channel) for the Raspberry Pi 4 / 400. Insert it, power on, and wait for the green LED to blink rapidly (or a green HDMI screen)."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "blcard",
+      "device": "sdb",
+      "status": "done",
+      "progress": 100,
+      "message": "Bootloader card ready and verified: 2025-05-08 (rpi-eeprom \"default\" channel) for the Raspberry Pi 4 / 400. Insert it, power on, and wait for the green LED to blink rapidly (or a green HDMI screen)."
+    }
+  },
+  "blcard-verify-fails": {
+    "log": [
+      {
+        "buildCardFiles": [
+          "2712",
+          "latest",
+          "[all]\nBOOT_ORDER=0xf461\n"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Building bootloader files..."
+        }
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "wipefs",
+          "-a",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sfdisk",
+          "--wipe",
+          "always",
+          "--wipe-partitions",
+          "always",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        },
+        "stdin": "label: dos\nstart=2048, size=524288, type=c\n"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "udevadm",
+          "settle"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "test",
+          "-b",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "sleep": 100,
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkfs.vfat",
+          "-F",
+          "32",
+          "-s",
+          "1",
+          "-n",
+          "BOOTLOADER",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 35,
+          "message": "Formatting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mkdir",
+          "-p",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-nro",
+          "MOUNTPOINT",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "-t",
+          "vfat",
+          "/dev/sdb1",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/recovery.bin",
+          "/tmp/benchbob-blcard/recovery.bin"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/pieeprom.bin",
+          "/tmp/benchbob-blcard/pieeprom.bin"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/pieeprom.sig",
+          "/tmp/benchbob-blcard/pieeprom.sig"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "cp",
+          "/tmp/benchbob-rpiboot/card/README.txt",
+          "/tmp/benchbob-blcard/README.txt"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 50,
+          "message": "Copying files..."
+        }
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-nro",
+          "MOUNTPOINT",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blockdev",
+          "--flushbufs",
+          "/dev/sdb1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "mount",
+          "-o",
+          "ro",
+          "-t",
+          "vfat",
+          "/dev/sdb1",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sha256sum",
+          "/tmp/benchbob-blcard/recovery.bin",
+          "/tmp/benchbob-blcard/pieeprom.bin",
+          "/tmp/benchbob-blcard/pieeprom.sig",
+          "/tmp/benchbob-blcard/README.txt"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "umount",
+          "/tmp/benchbob-blcard"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      },
+      {
+        "rm": "/tmp/benchbob-rpiboot/card",
+        "op": {
+          "status": "writing",
+          "progress": 75,
+          "message": "Verifying..."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "blcard",
+      "device": "sdb",
+      "status": "error",
+      "progress": 75,
+      "message": "Verify failed: pieeprom.bin on the card doesn't match what was written"
+    }
+  },
+  "blcard-small-card": {
+    "log": [
+      {
+        "buildCardFiles": [
+          "2712",
+          "latest",
+          "[all]\nBOOT_ORDER=0xf461"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Building bootloader files..."
+        }
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "rm": "/tmp/benchbob-rpiboot/card",
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "blcard",
+      "device": "sdb",
+      "status": "error",
+      "progress": 20,
+      "message": "Card too small (8.0 MB)"
+    }
+  },
+  "blcard-fat16-sfdisk-fails": {
+    "log": [
+      {
+        "buildCardFiles": [
+          "2712",
+          "latest",
+          "[all]\nBOOT_ORDER=0xf461"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 0,
+          "message": "Building bootloader files..."
+        }
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/mmcblk1"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ],
+        "op": {
+          "status": "preparing",
+          "progress": 10,
+          "message": "Unmounting..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "wipefs",
+          "-a",
+          "/dev/mmcblk1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sfdisk",
+          "--wipe",
+          "always",
+          "--wipe-partitions",
+          "always",
+          "/dev/mmcblk1"
+        ],
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        },
+        "stdin": "label: dos\nstart=2048, size=96256, type=c\n"
+      },
+      {
+        "rm": "/tmp/benchbob-rpiboot/card",
+        "op": {
+          "status": "writing",
+          "progress": 20,
+          "message": "Partitioning..."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "blcard",
+      "device": "mmcblk1",
+      "status": "error",
+      "progress": 20,
+      "message": "sfdisk failed: sfdisk: Permission denied"
+    }
+  },
+  "blcard-unknown-image": {
+    "log": [],
+    "result": {
+      "id": "op",
+      "type": "blcard",
+      "device": "sdb",
+      "status": "error",
+      "progress": 0,
+      "message": "Unknown bootloader image"
+    }
+  },
+  "eject": {
+    "log": [
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-o",
+          "NAME,MOUNTPOINT",
+          "/dev/sdb"
+        ]
+      },
+      {
+        "cmd": [
+          "ls",
+          "/srv/nfs/drives/"
+        ]
+      },
+      {
+        "cmd": [
+          "ls",
+          "/etc/nbd-server/conf.d/"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "systemctl",
+          "restart",
+          "nbd-server"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "exportfs",
+          "-ra"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "udisksctl",
+          "power-off",
+          "-b",
+          "/dev/sdb",
+          "--no-user-interaction"
+        ]
+      },
+      {
+        "cmd": [
+          "readlink",
+          "-f",
+          "/sys/block/sdb/device"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "bash",
+          "-c",
+          "echo 1 > /sys/devices/platform/x/host0/target0:0:0/0:0:0:0/delete"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "message": "sdb ejected"
+    }
+  },
+  "eject-system": {
+    "log": [],
+    "result": {
+      "ok": false,
+      "message": "Cannot eject system device"
+    }
+  },
+  "scan-partitions": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "udevadm",
+          "settle",
+          "--timeout=5"
+        ]
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-b",
+          "-o",
+          "NAME,SIZE,TYPE,FSTYPE,LABEL",
+          "/dev/sdb"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "message": "Found 1 partition(s)",
+      "partitions": [
+        {
+          "name": "sdb1",
+          "size": 50,
+          "type": "part",
+          "fstype": "vfat",
+          "label": "BOOT"
+        }
+      ]
+    }
+  },
+  "scan-direct": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "udevadm",
+          "settle",
+          "--timeout=5"
+        ]
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-b",
+          "-o",
+          "NAME,SIZE,TYPE,FSTYPE,LABEL",
+          "/dev/sdb"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blkid",
+          "/dev/sdb"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "message": "Direct filesystem: /dev/sdb: UUID=\"1234-ABCD\" TYPE=\"vfat\""
+    }
+  },
+  "scan-file": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "udevadm",
+          "settle",
+          "--timeout=5"
+        ]
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-b",
+          "-o",
+          "NAME,SIZE,TYPE,FSTYPE,LABEL",
+          "/dev/sdb"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "blkid",
+          "/dev/sdb"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "file",
+          "-sL",
+          "/dev/sdb"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "message": "No partitions or filesystems found"
+    }
+  },
+  "scan-fails": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "partprobe",
+          "/dev/sdb"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "udevadm",
+          "settle",
+          "--timeout=5"
+        ]
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-J",
+          "-b",
+          "-o",
+          "NAME,SIZE,TYPE,FSTYPE,LABEL",
+          "/dev/sdb"
+        ]
+      }
+    ],
+    "result": {
+      "ok": false,
+      "message": "Scan failed"
+    }
+  },
+  "probe": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "sfdisk",
+          "-J",
+          "/dev/sdz"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sh",
+          "-c",
+          "dd if=/dev/sdz bs=4096 count=1 skip=0 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=1 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=2 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=3 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=4 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=5 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=6 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=7 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=8 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=9 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=10 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=11 status=none 2>/dev/null"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "device": "sdz",
+      "sizeBytes": 49152,
+      "sampledBlocks": 12,
+      "blockSize": 4096,
+      "bytesRead": 49152,
+      "counts": {
+        "zero": 7,
+        "ones": 1,
+        "text": 1,
+        "compressed": 1,
+        "structured": 2
+      },
+      "emptyPct": 67,
+      "unallocated": {
+        "ranges": [
+          {
+            "start": 0,
+            "end": 8192,
+            "bytes": 8192
+          },
+          {
+            "start": 32768,
+            "end": 49152,
+            "bytes": 16384
+          }
+        ],
+        "sampled": 6,
+        "withData": 2
+      },
+      "signatures": [
+        {
+          "name": "MBR partition table",
+          "offsets": [
+            0
+          ]
+        },
+        {
+          "name": "FAT32",
+          "offsets": [
+            0
+          ]
+        },
+        {
+          "name": "squashfs",
+          "offsets": [
+            40960
+          ]
+        }
+      ],
+      "map": [
+        {
+          "o": 0,
+          "k": "structured",
+          "e": 0.03
+        },
+        {
+          "o": 4096,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 8192,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 12288,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 16384,
+          "k": "text",
+          "e": 3.64
+        },
+        {
+          "o": 20480,
+          "k": "compressed",
+          "e": 7.96
+        },
+        {
+          "o": 24576,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 28672,
+          "k": "ones",
+          "e": 0
+        },
+        {
+          "o": 32768,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 36864,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 40960,
+          "k": "structured",
+          "e": 0.01
+        },
+        {
+          "o": 45056,
+          "k": "zero",
+          "e": 0
+        }
+      ],
+      "message": "Sampled 12 blocks (48.0 KB) — 67% empty, 2 block(s) with data outside any partition, 3 signature type(s) found"
+    }
+  },
+  "probe-no-table": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "sfdisk",
+          "-J",
+          "/dev/sdz"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sh",
+          "-c",
+          "dd if=/dev/sdz bs=4096 count=1 skip=0 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=1 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=2 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=3 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=4 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=5 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=6 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=7 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=8 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=9 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=10 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=11 status=none 2>/dev/null"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "device": "sdz",
+      "sizeBytes": 49152,
+      "sampledBlocks": 12,
+      "blockSize": 4096,
+      "bytesRead": 49152,
+      "counts": {
+        "zero": 12,
+        "ones": 0,
+        "text": 0,
+        "compressed": 0,
+        "structured": 0
+      },
+      "emptyPct": 100,
+      "unallocated": {
+        "ranges": [
+          {
+            "start": 0,
+            "end": 49152,
+            "bytes": 49152
+          }
+        ],
+        "sampled": 12,
+        "withData": 0
+      },
+      "signatures": [],
+      "map": [
+        {
+          "o": 0,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 4096,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 8192,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 12288,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 16384,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 20480,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 24576,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 28672,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 32768,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 36864,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 40960,
+          "k": "zero",
+          "e": 0
+        },
+        {
+          "o": 45056,
+          "k": "zero",
+          "e": 0
+        }
+      ],
+      "message": "Sampled 12 blocks (48.0 KB) — 100% empty"
+    }
+  },
+  "probe-short-read": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "sfdisk",
+          "-J",
+          "/dev/sdz"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sh",
+          "-c",
+          "dd if=/dev/sdz bs=4096 count=1 skip=0 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=1 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=3 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=4 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=5 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=7 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=8 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=9 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=11 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=12 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=13 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=15 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=16 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=17 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=19 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=20 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=21 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=23 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=24 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=25 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=27 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=28 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=29 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=31 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=32 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=33 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=34 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=35 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=36 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=37 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=39 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=40 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=41 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=43 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=44 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=45 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=47 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=48 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=49 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=51 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=52 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=53 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=55 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=56 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=57 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=59 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=60 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=61 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=63 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=64 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=65 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=67 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=68 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=69 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=71 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=72 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=73 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=75 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=76 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=77 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=79 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=80 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=81 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=83 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=84 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=85 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=87 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=88 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=89 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=91 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=92 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=93 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=95 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=96 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=97 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=99 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=100 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=101 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=102 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=103 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=104 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=105 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=107 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=108 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=109 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=111 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=112 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=113 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=115 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=116 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=117 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=119 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=120 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=121 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=123 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=124 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=125 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=127 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=128 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=130 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=131 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=132 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=134 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=135 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=136 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=138 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=139 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=140 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=142 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=143 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=144 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=146 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=147 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=148 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=150 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=151 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=152 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=153 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=154 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=155 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=156 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=158 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=159 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=160 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=162 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=163 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=164 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=166 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=167 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=168 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=170 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=171 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=172 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=174 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=175 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=176 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=178 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=179 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=180 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=182 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=183 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=184 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=186 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=187 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=188 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=190 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=191 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=192 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=194 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=195 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=196 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=198 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=199 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=200 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=202 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=203 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=204 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=206 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=207 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=208 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=210 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=211 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=212 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=214 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=215 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=216 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=218 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=219 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=220 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=221 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=222 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=223 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=224 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=226 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=227 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=228 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=230 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=231 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=232 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=234 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=235 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=236 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=238 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=239 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=240 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=242 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=243 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=244 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=246 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=247 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=248 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=250 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=251 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=252 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=254 status=none 2>/dev/null; dd if=/dev/sdz bs=4096 count=1 skip=255 status=none 2>/dev/null"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "device": "sdz",
+      "sizeBytes": 1048576,
+      "sampledBlocks": 2,
+      "blockSize": 4096,
+      "bytesRead": 8192,
+      "counts": {
+        "zero": 0,
+        "ones": 0,
+        "text": 1,
+        "compressed": 1,
+        "structured": 0
+      },
+      "emptyPct": 0,
+      "unallocated": {
+        "ranges": [],
+        "sampled": 0,
+        "withData": 0
+      },
+      "signatures": [],
+      "map": [
+        {
+          "o": 0,
+          "k": "text",
+          "e": 3.64
+        },
+        {
+          "o": 4096,
+          "k": "compressed",
+          "e": 7.79
+        }
+      ],
+      "message": "Sampled 2 blocks (8.0 KB) — 0% empty"
+    }
+  },
+  "probe-no-size": {
+    "log": [],
+    "result": {
+      "ok": false,
+      "message": "Could not determine device size"
+    }
+  },
+  "probe-system": {
+    "log": [],
+    "result": {
+      "ok": false,
+      "message": "Cannot probe system device"
+    }
+  },
+  "deepscan": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "dd",
+          "if=/dev/sdz",
+          "bs=4M",
+          "status=none"
+        ],
+        "op": {
+          "status": "scanning",
+          "progress": 0,
+          "message": "Scanning raw device..."
+        }
+      },
+      {
+        "read": 0,
+        "fd": 1,
+        "op": {
+          "status": "scanning",
+          "progress": 0,
+          "message": "Scanning raw device..."
+        }
+      },
+      {
+        "read": 1,
+        "fd": 1,
+        "op": {
+          "status": "scanning",
+          "progress": 37,
+          "message": "Scanned 2.9 KB / 8.0 KB — 0 signature type(s)"
+        }
+      },
+      {
+        "read": 2,
+        "fd": 1,
+        "op": {
+          "status": "scanning",
+          "progress": 73,
+          "message": "Scanned 5.9 KB / 8.0 KB — 2 signature type(s)"
+        }
+      },
+      {
+        "read": 3,
+        "fd": 1,
+        "op": {
+          "status": "scanning",
+          "progress": 99,
+          "message": "Scanned 8.0 KB / 8.0 KB — 3 signature type(s)"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "deepscan",
+      "device": "sdz",
+      "status": "done",
+      "progress": 100,
+      "message": "Found 3 signature type(s) in 8.0 KB",
+      "scanResult": {
+        "bytesScanned": 8192,
+        "signatures": [
+          {
+            "name": "MBR partition table",
+            "count": 1,
+            "first": [
+              4096
+            ]
+          },
+          {
+            "name": "squashfs",
+            "count": 1,
+            "first": [
+              2998
+            ]
+          },
+          {
+            "name": "ELF binary",
+            "count": 1,
+            "first": [
+              6100
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "deepscan-blank": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "dd",
+          "if=/dev/sdz",
+          "bs=4M",
+          "status=none"
+        ],
+        "op": {
+          "status": "scanning",
+          "progress": 0,
+          "message": "Scanning raw device..."
+        }
+      },
+      {
+        "read": 0,
+        "fd": 1,
+        "op": {
+          "status": "scanning",
+          "progress": 0,
+          "message": "Scanning raw device..."
+        }
+      },
+      {
+        "read": 1,
+        "fd": 1,
+        "op": {
+          "status": "scanning",
+          "progress": 0,
+          "message": "Scanned 4.9 KB — 0 signature type(s)"
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "deepscan",
+      "device": "sdz",
+      "status": "done",
+      "progress": 100,
+      "message": "No known signatures in 4.9 KB — device looks genuinely blank",
+      "scanResult": {
+        "bytesScanned": 5000,
+        "signatures": []
+      }
+    }
+  },
+  "rpiboot-msd": {
+    "log": [
+      {
+        "rpi": "loadMassStorage",
+        "path": "1-1.3",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Loading mass-storage gadget..."
+        }
+      },
+      {
+        "sleep": 1500,
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Loading mass-storage gadget..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "msd",
+        "device": "usb:1-1.3",
+        "status": "done",
+        "progress": 100,
+        "message": "Mass-storage gadget loaded. The module's storage should appear under Connected Drives within a few seconds."
+      },
+      "results": []
+    }
+  },
+  "rpiboot-msd-fails": {
+    "log": [
+      {
+        "rpi": "loadMassStorage",
+        "path": "1-1.3",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Loading mass-storage gadget..."
+        }
+      },
+      {
+        "sleep": 1500,
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Loading mass-storage gadget..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "msd",
+        "device": "usb:1-1.3",
+        "status": "error",
+        "progress": 10,
+        "message": "rpiboot failed (exit 1): no output"
+      },
+      "results": []
+    }
+  },
+  "rpiboot-msd-timeout": {
+    "log": [
+      {
+        "rpi": "loadMassStorage",
+        "path": "1-1.3",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Loading mass-storage gadget..."
+        }
+      },
+      {
+        "sleep": 1500,
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Loading mass-storage gadget..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "msd",
+        "device": "usb:1-1.3",
+        "status": "error",
+        "progress": 10,
+        "message": "rpiboot timed out: no output"
+      },
+      "results": []
+    }
+  },
+  "rpiboot-gone": {
+    "log": [],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "eeprom-check",
+        "device": "usb:1-1.4",
+        "status": "error",
+        "progress": 0,
+        "message": "Device is no longer in USB boot mode"
+      },
+      "results": []
+    }
+  },
+  "rpiboot-check": {
+    "log": [
+      {
+        "rpi": "readBootloaderInfo",
+        "path": "1-1.3",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Reading bootloader metadata..."
+        }
+      },
+      {
+        "rpi": "identifyBootloader",
+        "chip": "2711",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Reading bootloader metadata..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "eeprom-check",
+        "device": "usb:1-1.3",
+        "status": "done",
+        "progress": 100,
+        "message": "Read metadata from a CM4 (2 GB). Nothing was written. Power-cycle the module to leave recovery."
+      },
+      "results": [
+        {
+          "path": "1-1.3",
+          "chip": "2711",
+          "at": "<at>",
+          "kind": "eeprom-check",
+          "ok": true,
+          "message": "Read metadata from a CM4 (2 GB). Nothing was written. Power-cycle the module to leave recovery.",
+          "metadata": {
+            "USER_BOARDREV": "b03141",
+            "MAC_ADDR": "DC:A6:32:00:00:01",
+            "EEPROM_HASH": "ABCDEF",
+            "SERIAL": "a1b2c3d4"
+          },
+          "board": {
+            "model": "CM4",
+            "memory": "2 GB",
+            "revision": "1.1"
+          },
+          "installed": {
+            "source": "unknown",
+            "buildDate": null,
+            "label": "x",
+            "bootConf": null
+          }
+        }
+      ]
+    }
+  },
+  "rpiboot-check-old-rev": {
+    "log": [
+      {
+        "rpi": "readBootloaderInfo",
+        "path": "1-1.3",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Reading bootloader metadata..."
+        }
+      },
+      {
+        "rpi": "identifyBootloader",
+        "chip": "2711",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Reading bootloader metadata..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "eeprom-check",
+        "device": "usb:1-1.3",
+        "status": "done",
+        "progress": 100,
+        "message": "Read metadata. Nothing was written. Power-cycle the module to leave recovery."
+      },
+      "results": [
+        {
+          "path": "1-1.3",
+          "chip": "2711",
+          "at": "<at>",
+          "kind": "eeprom-check",
+          "ok": true,
+          "message": "Read metadata. Nothing was written. Power-cycle the module to leave recovery.",
+          "metadata": {
+            "USER_BOARDREV": "0010"
+          },
+          "board": null,
+          "installed": {
+            "source": "unknown",
+            "buildDate": null,
+            "label": "x",
+            "bootConf": null
+          }
+        }
+      ]
+    }
+  },
+  "rpiboot-check-nothing": {
+    "log": [
+      {
+        "rpi": "readBootloaderInfo",
+        "path": "1-1.3",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Reading bootloader metadata..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "eeprom-check",
+        "device": "usb:1-1.3",
+        "status": "error",
+        "progress": 100,
+        "message": "No metadata came back (timed out): no output"
+      },
+      "results": [
+        {
+          "path": "1-1.3",
+          "chip": "2711",
+          "at": "<at>",
+          "kind": "eeprom-check",
+          "ok": false,
+          "message": "No metadata came back (timed out): no output",
+          "metadata": null,
+          "board": null,
+          "installed": null
+        }
+      ]
+    }
+  },
+  "rpiboot-write": {
+    "log": [
+      {
+        "rpi": "writeBootloader",
+        "path": "1-1.3",
+        "image": "default",
+        "bootConf": "[all]\nBOOT_ORDER=0xf25641\n",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Writing bootloader 2025-05-08 (rpi-eeprom \"default\" channel)..."
+        }
+      },
+      {
+        "rpi": "recordWrite",
+        "record": {
+          "at": 1792490400000,
+          "chip": "2711",
+          "mac": "DC:A6:32:00:00:01",
+          "imageLabel": "2025-05-08 (rpi-eeprom \"default\" channel)",
+          "buildDate": "2025-05-08",
+          "bootConf": "[all]\nBOOT_ORDER=0xf25641\n",
+          "hashes": [
+            "0123abcd",
+            "ABCDEF"
+          ]
+        },
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Writing bootloader 2025-05-08 (rpi-eeprom \"default\" channel)..."
+        }
+      },
+      {
+        "rpi": "identifyBootloader",
+        "chip": "2711",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Writing bootloader 2025-05-08 (rpi-eeprom \"default\" channel)..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "eeprom-write",
+        "device": "usb:1-1.3",
+        "status": "done",
+        "progress": 100,
+        "message": "Bootloader EEPROM written and verified. Power-cycle the module (remove the nRPIBOOT jumper to boot normally)."
+      },
+      "results": [
+        {
+          "path": "1-1.3",
+          "chip": "2711",
+          "at": "<at>",
+          "kind": "eeprom-write",
+          "ok": true,
+          "message": "Bootloader EEPROM written and verified. Power-cycle the module (remove the nRPIBOOT jumper to boot normally).",
+          "metadata": {
+            "USER_BOARDREV": "b03141",
+            "MAC_ADDR": "DC:A6:32:00:00:01",
+            "EEPROM_HASH": "ABCDEF",
+            "SERIAL": "a1b2c3d4",
+            "EEPROM_UPDATE": "success"
+          },
+          "board": {
+            "model": "CM4",
+            "memory": "2 GB",
+            "revision": "1.1"
+          },
+          "installed": {
+            "source": "unknown",
+            "buildDate": null,
+            "label": "x",
+            "bootConf": null
+          }
+        }
+      ]
+    }
+  },
+  "rpiboot-write-failed": {
+    "log": [
+      {
+        "rpi": "writeBootloader",
+        "path": "1-1.3",
+        "image": "default",
+        "bootConf": "[all]\n",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Writing bootloader 2025-05-08 (rpi-eeprom \"default\" channel)..."
+        }
+      },
+      {
+        "rpi": "identifyBootloader",
+        "chip": "2711",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Writing bootloader 2025-05-08 (rpi-eeprom \"default\" channel)..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "eeprom-write",
+        "device": "usb:1-1.3",
+        "status": "error",
+        "progress": 100,
+        "message": "Bootloader update reported \"failed\". The old bootloader is most likely still in place."
+      },
+      "results": [
+        {
+          "path": "1-1.3",
+          "chip": "2711",
+          "at": "<at>",
+          "kind": "eeprom-write",
+          "ok": false,
+          "message": "Bootloader update reported \"failed\". The old bootloader is most likely still in place.",
+          "metadata": {
+            "USER_BOARDREV": "b03141",
+            "MAC_ADDR": "DC:A6:32:00:00:01",
+            "EEPROM_HASH": "ABCDEF",
+            "SERIAL": "a1b2c3d4",
+            "EEPROM_UPDATE": "failed"
+          },
+          "board": {
+            "model": "CM4",
+            "memory": "2 GB",
+            "revision": "1.1"
+          },
+          "installed": {
+            "source": "unknown",
+            "buildDate": null,
+            "label": "x",
+            "bootConf": null
+          }
+        }
+      ]
+    }
+  },
+  "rpiboot-write-unknown": {
+    "log": [
+      {
+        "rpi": "writeBootloader",
+        "path": "1-1.3",
+        "image": "default",
+        "bootConf": "[all]\n",
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Writing bootloader 2025-05-08 (rpi-eeprom \"default\" channel)..."
+        }
+      },
+      {
+        "rpi": "recordWrite",
+        "record": {
+          "at": 1792490400000,
+          "chip": "2711",
+          "mac": null,
+          "imageLabel": "2025-05-08 (rpi-eeprom \"default\" channel)",
+          "buildDate": "2025-05-08",
+          "bootConf": "[all]\n",
+          "hashes": [
+            "0123abcd",
+            ""
+          ]
+        },
+        "op": {
+          "status": "running",
+          "progress": 10,
+          "message": "Writing bootloader 2025-05-08 (rpi-eeprom \"default\" channel)..."
+        }
+      }
+    ],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "eeprom-write",
+        "device": "usb:1-1.3",
+        "status": "error",
+        "progress": 100,
+        "message": "Outcome unknown, no metadata came back (rpiboot exit 1). A rapidly flashing green LED on the module means success. Last output: no output"
+      },
+      "results": [
+        {
+          "path": "1-1.3",
+          "chip": "2711",
+          "at": "<at>",
+          "kind": "eeprom-write",
+          "ok": false,
+          "message": "Outcome unknown, no metadata came back (rpiboot exit 1). A rapidly flashing green LED on the module means success. Last output: no output",
+          "metadata": null,
+          "board": null,
+          "installed": null
+        }
+      ]
+    }
+  },
+  "rpiboot-write-bad-image": {
+    "log": [],
+    "result": {
+      "op": {
+        "id": "op",
+        "type": "eeprom-write",
+        "device": "usb:1-1.3",
+        "status": "error",
+        "progress": 10,
+        "message": "Unknown bootloader image"
+      },
+      "results": []
+    }
+  },
+  "files-root": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives",
+          "-mindepth",
+          "1",
+          "-maxdepth",
+          "1",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-mz",
+          "--",
+          "/srv/nfs/drives/passwd-link",
+          "/srv/nfs/drives/broken",
+          "/srv/nfs/drives/cfg",
+          "/srv/nfs/drives/dirlink"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/missing",
+          "/srv/nfs/drives/bootfs/config.txt",
+          "/srv/nfs/drives/bootfs",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%p\\0%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "path": "",
+      "truncated": false,
+      "total": 10,
+      "entries": [
+        {
+          "name": "Älter ",
+          "type": "dir",
+          "size": null,
+          "mtime": 1792490004000
+        },
+        {
+          "name": "bootfs",
+          "type": "dir",
+          "size": null,
+          "mtime": 1792490000123
+        },
+        {
+          "name": "_under",
+          "type": "file",
+          "size": 1,
+          "mtime": 0
+        },
+        {
+          "name": "a fifo",
+          "type": "other",
+          "size": 0,
+          "mtime": 1792490009000
+        },
+        {
+          "name": "broken",
+          "type": "broken",
+          "size": null,
+          "mtime": null,
+          "link": "missing"
+        },
+        {
+          "name": "cfg",
+          "type": "broken",
+          "size": null,
+          "mtime": null,
+          "link": "bootfs/config.txt"
+        },
+        {
+          "name": "dirlink",
+          "type": "broken",
+          "size": null,
+          "mtime": null,
+          "link": "bootfs"
+        },
+        {
+          "name": "File2.txt",
+          "type": "file",
+          "size": 5,
+          "mtime": 1000
+        },
+        {
+          "name": "file10.txt",
+          "type": "file",
+          "size": 123,
+          "mtime": 1792490001500
+        },
+        {
+          "name": "passwd-link",
+          "type": "outside",
+          "size": null,
+          "mtime": null,
+          "link": "/etc/passwd"
+        }
+      ]
+    }
+  },
+  "files-realpath-fallback": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives",
+          "-mindepth",
+          "1",
+          "-maxdepth",
+          "1",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-mz",
+          "--",
+          "/srv/nfs/drives/passwd-link",
+          "/srv/nfs/drives/broken",
+          "/srv/nfs/drives/cfg",
+          "/srv/nfs/drives/dirlink"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "sh",
+          "-c",
+          "for p; do realpath -mz -- \"$p\" 2>/dev/null || printf \"\\0\"; done",
+          "sh",
+          "/srv/nfs/drives/passwd-link",
+          "/srv/nfs/drives/broken",
+          "/srv/nfs/drives/cfg",
+          "/srv/nfs/drives/dirlink"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs/config.txt",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%p\\0%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "path": "",
+      "truncated": false,
+      "total": 10,
+      "entries": [
+        {
+          "name": "Älter ",
+          "type": "dir",
+          "size": null,
+          "mtime": 1792490004000
+        },
+        {
+          "name": "bootfs",
+          "type": "dir",
+          "size": null,
+          "mtime": 1792490000123
+        },
+        {
+          "name": "_under",
+          "type": "file",
+          "size": 1,
+          "mtime": 0
+        },
+        {
+          "name": "a fifo",
+          "type": "other",
+          "size": 0,
+          "mtime": 1792490009000
+        },
+        {
+          "name": "broken",
+          "type": "broken",
+          "size": null,
+          "mtime": null,
+          "link": "missing"
+        },
+        {
+          "name": "cfg",
+          "type": "broken",
+          "size": null,
+          "mtime": null,
+          "link": "bootfs/config.txt"
+        },
+        {
+          "name": "dirlink",
+          "type": "broken",
+          "size": null,
+          "mtime": null,
+          "link": "bootfs"
+        },
+        {
+          "name": "File2.txt",
+          "type": "file",
+          "size": 5,
+          "mtime": 1000
+        },
+        {
+          "name": "file10.txt",
+          "type": "file",
+          "size": 123,
+          "mtime": 1792490001500
+        },
+        {
+          "name": "passwd-link",
+          "type": "broken",
+          "size": null,
+          "mtime": null,
+          "link": "/etc/passwd"
+        }
+      ]
+    }
+  },
+  "files-partial": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/bootfs"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs",
+          "-mindepth",
+          "1",
+          "-maxdepth",
+          "1",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "ok": true,
+      "path": "bootfs",
+      "warning": "find: '/srv/nfs/drives/bootfs/x': Permission denied",
+      "truncated": false,
+      "total": 1,
+      "entries": [
+        {
+          "name": "ok.txt",
+          "type": "file",
+          "size": 1,
+          "mtime": 2000
+        }
+      ]
+    }
+  },
+  "files-unreadable": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/bootfs"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs",
+          "-mindepth",
+          "1",
+          "-maxdepth",
+          "1",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "error": "find: denied",
+      "status": 500
+    }
+  },
+  "files-dotdot": {
+    "log": [],
+    "result": {
+      "error": "Invalid path",
+      "status": 400
+    }
+  },
+  "files-outside": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/rootfs/etc"
+        ]
+      }
+    ],
+    "result": {
+      "error": "Path leads outside the drives",
+      "status": 403
+    }
+  },
+  "files-sibling-prefix": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/x"
+        ]
+      }
+    ],
+    "result": {
+      "error": "Path leads outside the drives",
+      "status": 403
+    }
+  },
+  "files-missing": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/nope"
+        ]
+      }
+    ],
+    "result": {
+      "error": "Not found",
+      "status": 404
+    }
+  },
+  "files-not-dir": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/bootfs/config.txt"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs/config.txt",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "error": "Not a directory",
+      "status": 400
+    }
+  },
+  "download-range": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/bootfs/my file ü.txt"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs/my file ü.txt",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      },
+      {
+        "access": "/srv/nfs/drives/bootfs/my file ü.txt"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "dd",
+          "if=/srv/nfs/drives/bootfs/my file ü.txt",
+          "bs=1M",
+          "iflag=skip_bytes,count_bytes",
+          "skip=10",
+          "count=10",
+          "status=none"
+        ]
+      }
+    ],
+    "result": {
+      "status": 206,
+      "headers": {
+        "accept-ranges": "bytes",
+        "cache-control": "no-cache",
+        "content-disposition": "attachment; filename=\"my file _.txt\"; filename*=UTF-8''my%20file%20%C3%BC.txt",
+        "content-length": "10",
+        "content-range": "bytes 10-19/1000",
+        "content-type": "application/octet-stream",
+        "last-modified": "Tue, 20 Oct 2026 09:53:20 GMT"
+      }
+    }
+  },
+  "download-whole": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/bootfs/my file ü.txt"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs/my file ü.txt",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      },
+      {
+        "access": "/srv/nfs/drives/bootfs/my file ü.txt"
+      },
+      {
+        "cmd": [
+          "sudo",
+          "dd",
+          "if=/srv/nfs/drives/bootfs/my file ü.txt",
+          "bs=1M",
+          "iflag=skip_bytes,count_bytes",
+          "skip=0",
+          "count=1000",
+          "status=none"
+        ]
+      }
+    ],
+    "result": {
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "cache-control": "no-cache",
+        "content-disposition": "attachment; filename=\"my file _.txt\"; filename*=UTF-8''my%20file%20%C3%BC.txt",
+        "content-length": "1000",
+        "content-type": "application/octet-stream",
+        "last-modified": "Tue, 20 Oct 2026 09:53:20 GMT"
+      }
+    }
+  },
+  "download-head": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/bootfs/my file ü.txt"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs/my file ü.txt",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "status": 206,
+      "headers": {
+        "accept-ranges": "bytes",
+        "cache-control": "no-cache",
+        "content-disposition": "attachment; filename=\"my file _.txt\"; filename*=UTF-8''my%20file%20%C3%BC.txt",
+        "content-length": "100",
+        "content-range": "bytes 900-999/1000",
+        "content-type": "application/octet-stream",
+        "last-modified": "Tue, 20 Oct 2026 09:53:20 GMT"
+      }
+    }
+  },
+  "download-416": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/bootfs/my file ü.txt"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs/my file ü.txt",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "status": 416,
+      "headers": {
+        "content-range": "bytes */1000"
+      }
+    }
+  },
+  "download-dir": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/bootfs"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/bootfs",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "error": "Not a regular file",
+      "status": 400
+    }
+  },
+  "download-empty": {
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "realpath",
+          "-ez",
+          "--",
+          "/srv/nfs/drives/e"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "find",
+          "/srv/nfs/drives/e",
+          "-maxdepth",
+          "0",
+          "-printf",
+          "%y\\0%Y\\0%s\\0%T@\\0%l\\0%f\\0"
+        ]
+      }
+    ],
+    "result": {
+      "status": 200,
+      "headers": {
+        "accept-ranges": "bytes",
+        "cache-control": "no-cache",
+        "content-disposition": "attachment; filename=\"e\"; filename*=UTF-8''e",
+        "content-length": "0",
+        "content-type": "application/octet-stream",
+        "last-modified": "Thu, 01 Jan 1970 00:00:01 GMT"
+      }
+    }
+  },
+  "flash-404": {
+    "log": [
+      {
+        "cmd": [
+          "mkdir",
+          "-p",
+          "/var/tmp/benchbob-flash"
+        ],
+        "op": {
+          "status": "starting",
+          "progress": 0,
+          "message": "Starting..."
+        }
+      },
+      {
+        "fetch": "https://example.com/os.img.xz",
+        "op": {
+          "status": "downloading",
+          "progress": 0,
+          "message": "Starting download..."
+        }
+      }
+    ],
+    "result": {
+      "id": "op",
+      "type": "flash",
+      "device": "sdb",
+      "status": "error",
+      "progress": 0,
+      "message": "Download failed: 404"
+    }
+  }
+}

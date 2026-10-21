@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 benchbob-core.workspace = true
 benchbob-boards.workspace = true
+benchbob-drives.workspace = true
 benchbob-gpio.workspace = true
 
 anyhow.workspace = true
