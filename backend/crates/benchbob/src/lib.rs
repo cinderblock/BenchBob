@@ -65,6 +65,7 @@ pub fn drivers(board: &Arc<Board>) -> Vec<Arc<dyn benchbob_core::Driver>> {
         Arc::new(i2c),
         Arc::new(onewire),
         Arc::new(benchbob_serial::Serial::new()),
+        Arc::new(benchbob_usb::Usb::new()),
     ]
 }
 
