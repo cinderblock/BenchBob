@@ -403,13 +403,35 @@ mod tests {
     #[test]
     fn bitrate_fd_and_flags() {
         let can0 = parse_ip_link(&gs_usb()).unwrap();
-        let c = norm_cfg(&json!({ "bitrate": 250000, "samplePoint": 87.5, "fd": true, "dbitrate": 4000000, "listenOnly": true, "restartMs": 0 })).unwrap();
+        let c = norm_cfg(
+            &json!({ "bitrate": 250000, "samplePoint": 87.5, "fd": true, "dbitrate": 4000000, "listenOnly": true, "restartMs": 0 }),
+        )
+        .unwrap();
         assert_eq!(
             ip_args(&can0, &c).unwrap(),
             vec![
-                ["link", "set", "dev", "can0", "type", "can", "bitrate", "250000", "sample-point", "0.875", "dbitrate", "4000000", "fd", "on", "listen-only", "on", "restart-ms", "0"]
-                    .map(String::from)
-                    .to_vec()
+                [
+                    "link",
+                    "set",
+                    "dev",
+                    "can0",
+                    "type",
+                    "can",
+                    "bitrate",
+                    "250000",
+                    "sample-point",
+                    "0.875",
+                    "dbitrate",
+                    "4000000",
+                    "fd",
+                    "on",
+                    "listen-only",
+                    "on",
+                    "restart-ms",
+                    "0"
+                ]
+                .map(String::from)
+                .to_vec()
             ]
         );
     }
@@ -433,14 +455,20 @@ mod tests {
     fn vcan_only_takes_the_fd_mtu() {
         let v = parse_ip_link(&vcan()).unwrap();
         assert!(ip_args(&v, &CanCfg { bitrate: Some(500000.0), ..Default::default() }).unwrap().is_empty());
-        assert_eq!(ip_args(&v, &CanCfg { fd: Some(false), ..Default::default() }).unwrap(), vec![["link", "set", "dev", "vcan0", "mtu", "16"].map(String::from).to_vec()]);
+        assert_eq!(
+            ip_args(&v, &CanCfg { fd: Some(false), ..Default::default() }).unwrap(),
+            vec![["link", "set", "dev", "vcan0", "mtu", "16"].map(String::from).to_vec()]
+        );
     }
 
     #[test]
     fn norm_cfg_validation() {
         assert_eq!(norm_cfg(&json!({ "bitrate": 5 })).unwrap_err().message, "bitrate must be 1000–1000000");
         assert_eq!(norm_cfg(&json!({ "samplePoint": 120 })).unwrap_err().message, "sample point 120 must be between 0 and 1 (or 0–100 %)");
-        assert_eq!(norm_cfg(&json!({ "samplePoint": "0.8", "up": 1, "junk": 1 })).unwrap().to_json(), json!({ "samplePoint": 0.8, "up": true }));
+        assert_eq!(
+            norm_cfg(&json!({ "samplePoint": "0.8", "up": 1, "junk": 1 })).unwrap().to_json(),
+            json!({ "samplePoint": 0.8, "up": true })
+        );
         assert_eq!(norm_cfg(&json!({ "bitrate": "", "fd": null })).unwrap(), CanCfg::default());
         assert_eq!(norm_cfg(&json!({ "samplePoint": "87.5%" })).unwrap().sample_point, Some(0.875));
         // Key order is normCfg's, whatever the request's.

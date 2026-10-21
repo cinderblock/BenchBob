@@ -142,7 +142,7 @@ pub fn parse_hex(s: &str) -> Result<Vec<u8>, String> {
     if !t.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("Not hex: \"{s}\""));
     }
-    if t.len() % 2 != 0 {
+    if !t.len().is_multiple_of(2) {
         return Err(format!("Odd number of hex digits: \"{s}\""));
     }
     Ok((0..t.len() / 2).map(|i| u8::from_str_radix(&t[i * 2..i * 2 + 2], 16).unwrap()).collect())
@@ -150,7 +150,11 @@ pub fn parse_hex(s: &str) -> Result<Vec<u8>, String> {
 
 /// JavaScript's `\s`.
 pub fn js_space(c: char) -> bool {
-    matches!(c, ' ' | '\t' | '\n' | '\x0B' | '\x0C' | '\r' | '\u{a0}' | '\u{feff}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}')
+    matches!(
+        c,
+        ' ' | '\t' | '\n' | '\x0B' | '\x0C' | '\r' | '\u{a0}' | '\u{feff}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}'
+    )
 }
 
 /// `Uint8Array.from(v)` for a JSON value: an array's elements as bytes, anything else empty.
@@ -380,7 +384,20 @@ pub fn parse_candump_line(line: &str) -> Result<Option<CandumpLine>, String> {
     if id_s.len() == 8 && to_uint32(parse_int_hex(id_s).unwrap_or(0.0)) & CAN_ERR_FLAG != 0 {
         let data = parse_hex(&body[hash.map(|i| i + 1).unwrap_or(0)..])?;
         let id = to_uint32(parse_int_hex(id_s).unwrap_or(0.0)) & CAN_ERR_MASK;
-        let frame = CanFrame { id, ext: false, rtr: false, err: true, fd: false, brs: false, esi: false, len: data.len() as u8, data, ts, own: false, local: false };
+        let frame = CanFrame {
+            id,
+            ext: false,
+            rtr: false,
+            err: true,
+            fd: false,
+            brs: false,
+            esi: false,
+            len: data.len() as u8,
+            data,
+            ts,
+            own: false,
+            local: false,
+        };
         return Ok(Some(CandumpLine { ts, iface: m[3].to_string(), frame }));
     }
     let mut f = make_frame(&parse_cansend(body)?)?;
@@ -480,7 +497,10 @@ pub fn decode_error(f: &CanFrame) -> DecodedError {
         parts.push(format!("arbitration lost at bit {}", d(0)));
     }
     if f.id & 0x004 != 0 && d(1) != 0 {
-        parts.push(format!("controller: {}", ERR_CTRL.iter().filter(|(b, _)| d(1) & b != 0).map(|(_, n)| *n).collect::<Vec<_>>().join(", ")));
+        parts.push(format!(
+            "controller: {}",
+            ERR_CTRL.iter().filter(|(b, _)| d(1) & b != 0).map(|(_, n)| *n).collect::<Vec<_>>().join(", ")
+        ));
     }
     if f.id & 0x008 != 0 {
         let types: Vec<&str> = ERR_PROT.iter().filter(|(b, _)| d(2) & b != 0).map(|(_, n)| *n).collect();
@@ -501,7 +521,11 @@ pub fn decode_error(f: &CanFrame) -> DecodedError {
         .collect();
     text.extend(parts);
     let text = if text.is_empty() { "error frame".to_string() } else { text.join("; ") };
-    let (tec, rec) = if f.id & 0x200 != 0 || d(6) != 0 || d(7) != 0 { (Some(f.data.get(6).copied()), Some(f.data.get(7).copied())) } else { (None, None) };
+    let (tec, rec) = if f.id & 0x200 != 0 || d(6) != 0 || d(7) != 0 {
+        (Some(f.data.get(6).copied()), Some(f.data.get(7).copied()))
+    } else {
+        (None, None)
+    };
     DecodedError { ts: f.ts, classes, text, bus_off: f.id & 0x040 != 0, tec: tec.flatten(), rec: rec.flatten() }
 }
 
@@ -713,7 +737,8 @@ pub fn pick_bitrate(trials: &[BitrateTrial]) -> BitrateVerdict {
         result: "none",
         bitrate: None,
         confidence: None,
-        text: "Errors at every rate and no clean frames: check CAN-H/CAN-L wiring and termination, or the bus uses a non-standard bitrate.".into(),
+        text: "Errors at every rate and no clean frames: check CAN-H/CAN-L wiring and termination, or the bus uses a non-standard bitrate."
+            .into(),
     }
 }
 
@@ -817,7 +842,8 @@ pub fn sc_parse_id_len_data(words: &[String]) -> Result<CanFrame, String> {
 
 pub fn beacon_xml(host: &str, ip: &str, port: u16, buses: &[String]) -> String {
     let x = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
-    let mut s = format!("<CANBeacon name=\"{}\" type=\"SocketCAN\" description=\"BenchBob socketcand\">\n<URL>can://{ip}:{port}</URL>", x(host));
+    let mut s =
+        format!("<CANBeacon name=\"{}\" type=\"SocketCAN\" description=\"BenchBob socketcand\">\n<URL>can://{ip}:{port}</URL>", x(host));
     for b in buses {
         s += &format!("<Bus name=\"{}\"/>", x(b));
     }

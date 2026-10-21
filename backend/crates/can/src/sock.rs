@@ -159,7 +159,8 @@ impl CanSocket {
             return Err(errno_msg(&format!("bind({iface})")));
         }
         // SAFETY: the OwnedFd is open and moves into the AsyncFd, which owns it from here on.
-        let fd = unsafe { AsyncFd::register_with_interest(owned, tokio::io::Interest::READABLE) }.map_err(|_| format!("epoll({iface}) failed"))?;
+        let fd = unsafe { AsyncFd::register_with_interest(owned, tokio::io::Interest::READABLE) }
+            .map_err(|_| format!("epoll({iface}) failed"))?;
         let shared = Arc::new(Shared {
             fd,
             iface: iface.to_string(),
@@ -336,9 +337,16 @@ mod tests {
     #[tokio::test]
     async fn vcan_send_receive_own_and_local() {
         let Some(name) = iface() else { return eprintln!("BENCHBOB_CAN_TEST_VCAN not set: skipped") };
+        let _g = crate::VCAN_LOCK.lock().await;
         let (tx_a, mut rx_a) = mpsc::unbounded_channel();
         let (tx_b, mut rx_b) = mpsc::unbounded_channel();
-        let a = CanSocket::open(&name, &Options { fd_frames: true, recv_own: true, err_mask: CAN_ERR_MASK, ..Default::default() }, Box::new(move |f| tx_a.send(f).unwrap()), None).unwrap();
+        let a = CanSocket::open(
+            &name,
+            &Options { fd_frames: true, recv_own: true, err_mask: CAN_ERR_MASK, ..Default::default() },
+            Box::new(move |f| tx_a.send(f).unwrap()),
+            None,
+        )
+        .unwrap();
         let b = CanSocket::open(&name, &Options::default(), Box::new(move |f| tx_b.send(f).unwrap()), None).unwrap();
         let f = make_frame(&FrameSpec { id: 291.0, data: Payload::Hex("DEADBEEF".into()), ..Default::default() }).unwrap();
         a.send(&f).unwrap();
