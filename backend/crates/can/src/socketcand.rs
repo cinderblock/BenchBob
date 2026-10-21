@@ -216,8 +216,8 @@ impl Inner {
             .v()
     }
 
-    pub(crate) fn start_socketcand(self: &Arc<Self>) {
-        self.stop_socketcand();
+    pub(crate) async fn start_socketcand(self: &Arc<Self>) {
+        self.stop_socketcand().await;
         if !self.setting("socketcand").is_none_or(|v| truthy(&v)) {
             return;
         }
@@ -246,12 +246,16 @@ impl Inner {
         self.ctx().changed();
     }
 
-    pub(crate) fn stop_socketcand(&self) {
-        let clients = {
+    /// Close the listener (waiting until its port is free again) and end every client.
+    pub(crate) async fn stop_socketcand(&self) {
+        let (server, clients) = {
             let mut sc = self.sc.lock().unwrap();
-            sc.server = None;
-            std::mem::take(&mut sc.clients)
+            (sc.server.take(), std::mem::take(&mut sc.clients))
         };
+        if let Some(mut t) = server {
+            t.0.abort();
+            let _ = (&mut t.0).await;
+        }
         for c in clients {
             cleanup(&mut c.lock().unwrap());
             end(&mut c.lock().unwrap());

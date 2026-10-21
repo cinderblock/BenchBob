@@ -153,7 +153,7 @@ pub(crate) fn routes(i: &Arc<Inner>) -> Vec<Route> {
                 if b.get("errMask").is_some_and(|v| !v.is_null()) {
                     ctx.set_setting("socketcandErrMask", Value::from(frame::to_uint32(arg_num(&b, "errMask"))));
                 }
-                i.start_socketcand();
+                i.start_socketcand().await;
                 let epoch = i.epoch.load(std::sync::atomic::Ordering::SeqCst);
                 i.start_beacon(epoch).await;
                 json(i.socketcand_out())

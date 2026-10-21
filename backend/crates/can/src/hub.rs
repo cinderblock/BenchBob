@@ -50,12 +50,13 @@ impl OutFrame {
             .k("rtr", self.rtr)
             .k("fd", self.fd)
             .k("brs", self.brs)
-            .o("esi", self.esi.then_some(true))
-            .o("err", self.err.then_some(true))
             .k("len", self.len)
             .k("data", self.data.clone())
             .k("ts", num(self.ts))
             .k("dir", if self.tx { "tx" } else { "rx" })
+            // toOut() adds these after the fact, so they come last.
+            .o("esi", self.esi.then_some(true))
+            .o("err", self.err.then_some(true))
             .o("text", self.text.clone())
     }
 }

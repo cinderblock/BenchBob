@@ -342,5 +342,24 @@ async fn socketcand_raw_and_bcm() {
     drop(s);
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(t.can.inner.socketcand_out()["clients"].as_array().unwrap().len(), 0);
+    // Settings changes restart the listener on the same port: it must be free again by then.
+    let (_, v) = t.call(Method::POST, "/api/can/socketcand", json!({ "errMask": 4 })).await;
+    assert_eq!((v["listening"].clone(), v["error"].clone(), v["errMask"].clone()), (json!(true), json!(""), json!(4)));
     t.can.stop(StopReason::Shutdown).await;
+}
+
+#[test]
+fn out_frames_put_esi_err_and_text_last() {
+    // toOut() builds the object, then adds esi/err (and the driver adds text): they follow dir.
+    let mut f = frame::make_frame(&frame::spec_from_json(&json!({ "cansend": "456##3AABB" })).unwrap()).unwrap();
+    f.ts = 1700000000123.4567;
+    let o = hub::to_out(&f);
+    assert_eq!(
+        serde_json::to_string(&o.json()).unwrap(),
+        r#"{"id":1110,"ext":false,"rtr":false,"fd":true,"brs":true,"len":2,"data":"AABB","ts":1700000000.123457,"dir":"rx","esi":true}"#
+    );
+    let mut e = o.clone();
+    (e.err, e.esi, e.text) = (true, false, Some("bus off".into()));
+    let keys: Vec<String> = e.json().as_object().unwrap().keys().cloned().collect();
+    assert_eq!(keys, ["id", "ext", "rtr", "fd", "brs", "len", "data", "ts", "dir", "err", "text"]);
 }

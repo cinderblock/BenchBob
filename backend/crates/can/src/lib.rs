@@ -934,7 +934,7 @@ impl Driver for Can {
         i.refresh().await;
         i.st.lock().unwrap().initial_scan = false;
         i.refresh_recordings();
-        i.start_socketcand();
+        i.start_socketcand().await;
         i.start_beacon(epoch).await;
         i.loops.lock().unwrap().push(Task(tokio::spawn(i.clone().tick_loop(epoch))));
         Ok(())
@@ -945,7 +945,7 @@ impl Driver for Can {
         i.epoch.fetch_add(1, Ordering::SeqCst);
         i.loops.lock().unwrap().clear();
         i.stop_beacon();
-        i.stop_socketcand();
+        i.stop_socketcand().await;
         let slcans: Vec<Slcan> = {
             let mut st = i.st.lock().unwrap();
             let names: Vec<String> = st.hubs.keys().cloned().collect();
