@@ -5,7 +5,7 @@ binary per architecture, the same API (paths, JSON shapes and key order, SSE and
 WebSocket messages, MCP tool names), the same settings files, so either the old dashboard
 or the new web UI works against either server.
 
-> **Status:** the foundation, the board layer and the GPIO panel are native. Everything
+> **Status:** the foundation, the board layer and the GPIO and CAN panels are native. Everything
 > else is proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
 > own port 80 before it has every panel. The released `.deb` still runs Bun only.
 
@@ -16,6 +16,7 @@ or the new web UI works against either server.
 | `/api/update*` (release check, settings, install), `/mcp` (stateless Streamable HTTP), `/api/periph/driver`, `/api/periph/timeline` | yes |
 | `GET /api/boards`: the board files loaded, which one matched, files that failed (new) | yes |
 | GPIO panel: `/api/gpio*`, `/ws/gpio`, `gpio_*` MCP tools, plus `POST /api/gpio/line` (new) | yes |
+| CAN panel: `/api/can*`, `/ws/can/:iface`, `can_*` MCP tools, the socketcand server and its UDP beacon | yes |
 | Drives, flashing, rpiboot, files, catalog, and every other panel | proxied |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
@@ -31,6 +32,7 @@ to any bob.
 | `crates/core` (`benchbob-core`) | The `Driver` trait (routes, WebSockets, MCP tools, status), the registry, `peripherals.json` settings (merged on write), udev hotplug, the event timeline, MCP, child processes, the state directory |
 | `crates/boards` (`benchbob-boards`) | The board file format, loading (`/usr/share/benchbob/boards`, then `/etc/benchbob/boards.d`) and detection |
 | `crates/gpio` (`benchbob-gpio`) | The GPIO driver: gpiochip v2 uAPI (with output requests), passive level readers (BCM2711 gpiomem, RP1), config.txt and boot-overlay editors, board scripts |
+| `crates/can` (`benchbob-can`) | The CAN driver: SocketCAN raw sockets (libc), `ip link` config, auto-bitrate, vcan, SLCAN, per-ID table, captures, periodic jobs, candump recordings, the socketcand server |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -69,6 +71,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
+The CAN tests that need a bus run on a vcan named by `BENCHBOB_CAN_TEST_VCAN` (create it once
+as root: `ip link add dev vcanbbtest0 type vcan && ip link set vcanbbtest0 mtu 72 up`;
+the tests themselves need no privileges) and are skipped without it.
+
 CI runs those on x86-64 and arm64, builds every target, smoke-tests the x86-64 binary,
 and installs a `.deb` built with it to switch Rust mode on and off.
 
@@ -86,7 +92,8 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_LEGACY_PORT` | proxy every route this server doesn't have to the Bun server on `127.0.0.1:<port>` |
 | `BENCHBOB_BOARD` | force a board id |
 | `BENCHBOB_BOARDS_DIR`, `BENCHBOB_BOARDS_D` | other board directories (shipped / user) |
-| `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port |
+| `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port (socketcand: 29536 + offset) |
+| `BENCHBOB_CAN_REC_DIR` | where CAN recordings go (default `/var/tmp/benchbob-can`, capped at 256 MB each) |
 | `BENCHBOB_CONFIG_TXT`, `BENCHBOB_CMDLINE_TXT`, `BENCHBOB_BOOT_ENV`, `BENCHBOB_OVERLAY_DIR` | point the boot-config editors at test copies (reboot is then refused) |
 | `RUST_LOG` | log filter (default `info`) |
 
@@ -112,6 +119,16 @@ on` enables `benchbob-rust.service` on port 80 and moves `benchbob.service` to p
 with that variable (a drop-in, refreshed on every upgrade); `sudo benchbob-setup rust off`
 undoes it. The Bun server still listens on every interface on 8081 (it has no
 bind-address setting).
+
+## CAN notes
+
+- One raw socket per interface feeds the stats, the dashboard, captures and recordings. It
+  waits for readiness instead of polling, then gathers for 5 ms while traffic flows.
+  Kernel RX timestamps, own-frame echoes (`dir: "tx"`) and the drop counter come from
+  recvmsg; timestamps use SO_TIMESTAMP_NEW, so 32-bit ARM builds read them right.
+- `ip link` changes, vcan and slcand run through `sudo -n`, as the Bun server's do.
+- On desky (Pi 4, 1k frames/s on a vcan) it used 3.0 % of a core idle and 3.9 % with a
+  dashboard watching, against Bun's 4.2 % and 5.1 %.
 
 ## GPIO notes
 
