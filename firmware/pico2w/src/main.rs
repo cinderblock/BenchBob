@@ -1,7 +1,9 @@
 //! BenchBob node firmware for the Raspberry Pi Pico 2 W.
 //!
 //! - Wi-Fi (CYW43439 over PIO SPI) with DHCP; credentials from the config region.
-//! - HTTP on port 80: the node API and MCP (two connections at a time).
+//! - HTTP on port 80: the web UI (from flash), the node API and MCP (four connections
+//!   at a time: a browser loads the page's files in parallel, and a connection arriving
+//!   while every task is busy is refused).
 //! - mDNS: `<hostname>.local`, `_benchbob._tcp`, `_http._tcp`.
 //! - Improv Wi-Fi over USB CDC for provisioning.
 
@@ -41,6 +43,9 @@ pub const FLASH_SIZE: usize = 4 * 1024 * 1024;
 pub const CONFIG_OFFSET: u32 = 0x003F_E000;
 
 pub type NodeFlash = Flash<'static, FLASH, Blocking, FLASH_SIZE>;
+/// HTTP server tasks (about 19 KiB of buffers each). The stack gets four more sockets
+/// (DHCP, mDNS and two spare, as before).
+const HTTP_TASKS: usize = 4;
 type SharedNode = Mutex<CriticalSectionRawMutex, Shared<PicoNode>>;
 
 #[unsafe(link_section = ".bi_entries")]
@@ -70,7 +75,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'sta
     runner.run().await
 }
 
-#[embassy_executor::task(pool_size = 2)]
+#[embassy_executor::task(pool_size = HTTP_TASKS)]
 async fn http_task(stack: Stack<'static>, shared: &'static SharedNode, bufs: &'static mut http::Buffers) -> ! {
     http::serve(stack, shared, 80, bufs).await
 }
@@ -131,7 +136,7 @@ async fn main(spawner: Spawner) {
     let mut dhcp = embassy_net::DhcpConfig::default();
     let h = hostname.as_str();
     dhcp.hostname = heapless::String::try_from(&h[..h.len().min(32)]).ok();
-    static RESOURCES: StaticCell<StackResources<6>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<{ HTTP_TASKS + 4 }>> = StaticCell::new();
     let seed = RoscRng.next_u64();
     let (stack, net_runner) = embassy_net::new(net_device, embassy_net::Config::dhcpv4(dhcp), RESOURCES.init(StackResources::new()), seed);
     spawner.spawn(unwrap!(net_task(net_runner)));
@@ -152,10 +157,10 @@ async fn main(spawner: Spawner) {
     static SHARED: StaticCell<SharedNode> = StaticCell::new();
     let shared: &'static SharedNode = SHARED.init(Mutex::new(Shared::new(PicoNode::new(pins, i2c0))));
 
-    static HTTP_BUFS: StaticCell<[http::Buffers; 2]> = StaticCell::new();
-    let [b0, b1] = HTTP_BUFS.init([const { http::Buffers::new() }; 2]);
-    spawner.spawn(unwrap!(http_task(stack, shared, b0)));
-    spawner.spawn(unwrap!(http_task(stack, shared, b1)));
+    static HTTP_BUFS: StaticCell<[http::Buffers; HTTP_TASKS]> = StaticCell::new();
+    for b in HTTP_BUFS.init([const { http::Buffers::new() }; HTTP_TASKS]) {
+        spawner.spawn(unwrap!(http_task(stack, shared, b)));
+    }
     static MDNS_BUFS: StaticCell<benchbob_node::mdns::Buffers> = StaticCell::new();
     spawner.spawn(unwrap!(mdns_task(stack, MDNS_BUFS.init(benchbob_node::mdns::Buffers::new()))));
 

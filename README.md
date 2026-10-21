@@ -233,8 +233,11 @@ BOB_PROXY=http://deskypi.local bun run dev   # or proxy /api, /ws and /mcp to on
 bun run test                 # Vitest component and unit tests
 bun run typecheck
 bun run build                # dist/ (full) and dist-mcu/ (node build), then the size budget
-bun scripts/mock-node.ts     # a pretend microcontroller node on :8099, for the node sections
 ```
+
+For the node sections and the MCU build, `cargo run --example mock_node` in
+`firmware/proto` runs a pretend node on :8099 using the firmware's own request handling:
+it serves `dist-mcu/` at `/`, or use `bun run dev` with `?bob=http://127.0.0.1:8099`.
 
 Every request goes through a `BobConnection` (base URL), and a `<Bob>` component holds
 one bob's whole dashboard, so a page can show several bobs; every bob answers with
@@ -254,8 +257,9 @@ contract for boot config and health. Adding a board needs no rebuild; see
 `firmware/` holds Rust + Embassy firmware that turns a Raspberry Pi Pico 2 W or an
 ESP32-C6 into a BenchBob **node**: a Wi-Fi board with the same REST shapes and MCP tool
 names for the GPIO and I²C it has, provisioned over Improv Wi-Fi (USB) or, on the Pico, a
-`config.uf2`, and discoverable over mDNS (`_benchbob._tcp`). It is v0.1 and not yet tested
-on hardware; see [firmware/README.md](firmware/README.md).
+`config.uf2`, and discoverable over mDNS (`_benchbob._tcp`). Each node serves the web
+UI's MCU build from its own flash at `http://<node>.local/`, so a browser is all it
+takes. It is v0.1 and not yet tested on hardware; see [firmware/README.md](firmware/README.md).
 
 ## License
 

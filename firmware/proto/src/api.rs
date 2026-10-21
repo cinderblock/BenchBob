@@ -28,6 +28,10 @@ pub struct BoardInfo {
     pub board_name: &'static str,
     pub chip: &'static str,
     pub firmware_version: &'static str,
+    /// Firmware version plus a hash of the embedded web UI (`0.1.0+1a2b3c4d`): stamped
+    /// into the served page and sent in `/api/status`, so an open page whose node was
+    /// reflashed reloads.
+    pub build: &'static str,
     pub pins: &'static [PinInfo],
     pub i2c: &'static [I2cBusInfo],
 }
@@ -368,7 +372,7 @@ impl Api {
         let info = node.info();
         match (m, parts) {
             (_, ["mcp", "", ..]) => return Ok(self.mcp(node, req, out, scratch)),
-            ("GET", ["" | "api", "", ..]) => self.docs(node, req, out),
+            ("GET", ["api", "", ..]) => self.docs(node, req, out),
             ("GET", ["api", "status", "", ..]) => status_view(node, out),
             ("GET", ["api", "gpio", "", ..]) => self.gpio_state(node, None, out),
             ("POST", ["api", "gpio", "output-control", "", ..]) => {
@@ -705,7 +709,7 @@ impl Api {
 fn route_exists(parts: &[&str; 6]) -> bool {
     matches!(
         parts,
-        ["" | "api", "", ..]
+        ["api", "", ..]
             | ["api", "status", "", ..]
             | ["api", "gpio", "", ..]
             | ["api", "gpio", _, "", ..]
@@ -729,7 +733,7 @@ fn status_view<N: Node>(node: &mut N, out: &mut Buf<'_>) -> R {
     let s = node.status();
     let mut j = Json::new(out);
     j.obj().kv_str("hostname", s.hostname).key("uptime").fixed(s.uptime_ms, 3);
-    j.kv_str("version", info.firmware_version).kv_str("board", info.board).kv_str("boardName", info.board_name).kv_str("chip", info.chip);
+    j.kv_str("version", info.firmware_version).kv_str("build", info.build).kv_str("board", info.board).kv_str("boardName", info.board_name).kv_str("chip", info.chip);
     let m = s.mac;
     j.key("network").obj();
     j.key("mac").str_fmt(format_args!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5]));
@@ -842,8 +846,9 @@ fn i2c_read<N: Node>(node: &mut N, b: &I2cBusInfo, addr: u8, args: Option<&Value
 
 /// Endpoint docs for GET /api (values are JSON).
 const ENDPOINTS: &[(&str, &str)] = &[
+    ("GET /", r#""The web UI""#),
     ("GET /api", r#""This documentation""#),
-    ("GET /api/status", r#""Node status: hostname, uptime (s), firmware version, board, Wi-Fi (state, SSID, RSSI dBm, IP, MAC), heap""#),
+    ("GET /api/status", r#""Node status: hostname, uptime (s), firmware version and build, board, Wi-Fi (state, SSID, RSSI dBm, IP, MAC), heap""#),
     ("GET /api/gpio", r#""Every GPIO the board exposes: function (input/output, or what the firmware uses it for), level, pull, header pin, and why it can't be driven""#),
     ("POST /api/gpio/output-control", r#"{"description":"Turn GPIO output control on/off (off after every reset). Enabling requires confirm: true","body":{"enabled":true,"confirm":true}}"#),
     ("POST /api/gpio/:gpio", r#"{"description":"Drive a GPIO (needs output control on): mode high|low|input, pull up|down|none. Refused for pins the firmware uses (I2C, Wi-Fi, USB)","body":{"mode":"high","pull":"none"}}"#),

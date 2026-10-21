@@ -191,7 +191,7 @@ export class BobStore {
       if (!this.snap.nodeInfo) await this.probeNode();
       try {
         const n = await this.conn.json<NodeStatus>("GET", "/api/status");
-        this.set({ kind: "node", connected: true, node: n, tick: this.snap.tick + 1, ...this.versionUpdate(n.version) });
+        this.set({ kind: "node", connected: true, node: n, tick: this.snap.tick + 1, ...this.versionUpdate(n.build ?? n.version) });
       } catch {
         this.set({ connected: false });
       }

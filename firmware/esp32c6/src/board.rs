@@ -63,6 +63,7 @@ pub static INFO: BoardInfo = BoardInfo {
     board_name: "ESP32-C6",
     chip: "ESP32-C6",
     firmware_version: benchbob_proto::VERSION,
+    build: benchbob_node::web::BUILD,
     pins: &PINS,
     i2c: &BUSES,
 };

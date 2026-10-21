@@ -8,6 +8,7 @@
 //! - [`config`]: the Wi-Fi/hostname record kept in the reserved flash region
 //! - [`uf2`]: UF2 blocks, for the Pico `config.uf2`
 //! - [`mdns`]: a minimal mDNS responder (hostname and `_benchbob._tcp` service)
+//! - [`web`]: serving the embedded web UI (caching, gzip)
 
 #![no_std]
 
@@ -18,6 +19,7 @@ pub mod improv;
 pub mod json;
 pub mod mdns;
 pub mod uf2;
+pub mod web;
 
 /// Firmware version, from this crate's Cargo.toml (all firmware crates share it).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

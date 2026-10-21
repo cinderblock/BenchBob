@@ -2,13 +2,13 @@
 //! (a [`benchbob_proto::api::Node`] impl, a flash driver, a serial port, a Wi-Fi task)
 //! and spawn these:
 //!
-//! - [`http::serve`]: the REST API and MCP endpoint on port 80
+//! - [`http::serve`]: the web UI, the REST API and the MCP endpoint on port 80
 //! - [`mdns::run`]: `<hostname>.local` and `_benchbob._tcp` discovery
 //! - [`improv::run`]: Improv Wi-Fi provisioning over the board's serial port
 //!
 //! [`store::ConfigStore`] keeps the Wi-Fi credentials and hostname in flash; [`net`] is
 //! the network state the board's Wi-Fi task publishes; [`wifi`] carries provisioning
-//! requests to that task.
+//! requests to that task. [`web`] is the web UI build, embedded at compile time.
 
 #![no_std]
 
@@ -21,6 +21,12 @@ pub mod mdns;
 pub mod net;
 pub mod store;
 pub mod wifi;
+
+/// The web UI's MCU build (`web/dist-mcu`), embedded by build.rs: [`web::ASSETS`] and
+/// [`web::BUILD`] (for the board's `BoardInfo::build`).
+pub mod web {
+    include!(concat!(env!("OUT_DIR"), "/web.rs"));
+}
 
 /// A small inline string for formatting (IP addresses, numbers).
 pub struct StrBuf<const N: usize> {

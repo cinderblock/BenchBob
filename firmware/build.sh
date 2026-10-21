@@ -4,9 +4,16 @@
 #   firmware/build.sh pico2w     benchbob-node-pico2w.uf2   (needs Bun for elf2uf2.ts)
 #   firmware/build.sh esp32c6    benchbob-node-esp32c6.bin  (needs espflash 4)
 # Works in Git Bash on Windows too.
+#
+# Both images embed the web UI's MCU build. This builds it (web/dist-mcu, with Bun) unless
+# BENCHBOB_WEB_DIST already points at one (CI passes the web job's tested build).
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p dist
+
+if [ -z "${BENCHBOB_WEB_DIST:-}" ]; then
+	(cd ../web && bun install --frozen-lockfile && bun run build:mcu)
+fi
 
 build_pico2w() {
 	(cd pico2w && cargo build --release --locked)

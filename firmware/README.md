@@ -2,9 +2,9 @@
 
 A **node** is a small Wi-Fi microcontroller board that speaks a subset of BenchBob's API:
 the same REST shapes and MCP tool names as the Linux server, for the GPIO and I²C it has.
-Scripts and AI agents that work against a BenchBob work against a node too. A BenchBob
-server will later find nodes over mDNS and adopt them as remote panels; that part isn't
-written yet.
+Scripts and AI agents that work against a BenchBob work against a node too. Like every
+bob it stands alone and serves its own dashboard: open `http://<hostname>.local/` for the
+web UI's node build (status, GPIO, I²C), embedded in the firmware.
 
 > **Status: v0.1, untested on hardware.** Everything here compiles, and the shared logic
 > (API, MCP, JSON, Improv framing, config record, UF2, mDNS) has host tests, but nobody
@@ -71,8 +71,9 @@ fast while connecting, and stays on when connected. The ESP32-C6 has no status L
 
 | Endpoint | What |
 | --- | --- |
+| `GET /` | The web UI (see [Web UI](#web-ui)) |
 | `GET /api` | Docs: `name: "BenchBob node API"`, `appVersion`, board, endpoints, MCP tools |
-| `GET /api/status` | Hostname, uptime, version, board, Wi-Fi (state, SSID, RSSI, IP, MAC), heap (ESP32-C6) |
+| `GET /api/status` | Hostname, uptime, version, `build`, board, Wi-Fi (state, SSID, RSSI, IP, MAC), heap (ESP32-C6) |
 | `GET /api/gpio` | Every GPIO: function, level, pull, header pin, and why it can't be driven |
 | `POST /api/gpio/output-control` | `{enabled, confirm: true}`: output control is **off at every boot**; enabling needs `confirm: true` |
 | `POST /api/gpio/:gpio` | `{mode: high\|low\|input, pull: up\|down\|none}`, once output control is on |
@@ -84,6 +85,10 @@ fast while connecting, and stays on when connected. The ESP32-C6 has no status L
 ```sh
 claude mcp add --transport http bench-node http://benchbob-0a1b2c.local/mcp
 ```
+
+Every response carries permissive CORS (`Access-Control-Allow-Origin: *`, no
+credentials) and `OPTIONS` answers preflights, as on the Linux server, so a page or app
+served from elsewhere can use a node's API.
 
 Differences from the Linux server: no chip identification or decoded readings on I²C
 (addresses only), no I²C writes, no WebSockets, no settings persisted besides Wi-Fi and
@@ -102,6 +107,28 @@ read one byte at every address (as the Pico SDK's `bus_scan` does). Pins the fir
 `api=/api`, `mcp=/mcp`) and `_http._tcp`, so `dns-sd -B _benchbob._tcp` or
 `avahi-browse -r _benchbob._tcp` lists nodes.
 
+## Web UI
+
+The firmware embeds `web/dist-mcu`, the web UI built with only the node sections
+(`cd web && bun run build:mcu`; one JS and one CSS file, about 25 KB gzipped). At build
+time `node/build.rs` stores each file gzipped and raw (raw for clients that don't send
+`Accept-Encoding: gzip`), and stamps the page with the **build id**: the firmware version
+plus a hash of the UI (`0.1.0+49592bd9`), also reported as `build` in `/api/status`. An
+open page whose node reports another build (after a reflash) reloads itself.
+
+`index.html` is sent with `Cache-Control: no-cache` and an ETag (a revisit costs a 304);
+the files under `/assets/` have content hashes in their names and are cached for a year.
+Files go out straight from flash, so their size isn't limited by the response buffer.
+
+The HTTP server runs four connections at a time and closes each after one response;
+a connection arriving while all four are busy is refused (embassy-net answers it with a
+reset). That's why the node build is one JS file rather than lazy chunks.
+
+**Without hardware**, `cargo run --example mock_node` in `proto/` runs this crate's API,
+MCP and UI handling over std networking against a pretend board, on
+`http://127.0.0.1:8099/` (arguments: address, then a `dist-mcu` directory). It serves
+the UI uncompressed, and its build id changes on every start, so open pages reload.
+
 ## Flash layout
 
 | Board | Firmware | Config region |
@@ -119,16 +146,20 @@ sectors, and the ESP32-C6 image is built with `--skip-padding` so it ends with t
 ## Layout
 
 - `proto/`: `no_std`, dependency-free, host-tested: the API router and MCP, JSON, HTTP
-  framing, Improv packets, the config record, UF2 blocks, mDNS.
+  framing and CORS, serving the web UI, Improv packets, the config record, UF2 blocks,
+  mDNS. `examples/mock_node.rs` is the host-side pretend node.
 - `node/`: Embassy glue both boards share: HTTP server, mDNS task, Improv session,
-  config store (embedded-storage `NorFlash`), the Wi-Fi request channels.
+  config store (embedded-storage `NorFlash`), the Wi-Fi request channels, and the
+  embedded web UI (`build.rs`).
 - `pico2w/`, `esp32c6/`: the board crates (pins, I²C, flash, USB, Wi-Fi task).
 - `tools/`: `elf2uf2.ts` (RP2350 UF2s), `config-uf2.ts` and `config.html`, tests.
 
 ## Building
 
-Stock stable Rust (no Xtensa toolchain), [Bun](https://bun.sh) for the tools, and
-espflash 4 for the ESP32-C6 image:
+Stock stable Rust (no Xtensa toolchain), [Bun](https://bun.sh) for the web UI and the
+tools, and espflash 4 for the ESP32-C6 image. `build.sh` builds the web UI's node build
+first; a plain `cargo build` in a board crate needs `web/dist-mcu` to exist (or
+`BENCHBOB_WEB_DIST` pointing at one) and says so if it doesn't:
 
 ```sh
 rustup target add thumbv8m.main-none-eabihf riscv32imac-unknown-none-elf
@@ -161,9 +192,14 @@ Verified by building and tests only:
 - Both images build in release mode; the Pico UF2's pages reproduce
   `objcopy -O binary` byte for byte, and BenchBob's own UF2 parser accepts both the
   firmware and config UF2s for an RP2350. The ESP32-C6 image was read back: partition
-  table at 0x8000 with `bbconfig` at 0x3FE000, image ending at 0xB8EB0.
-- The API, MCP, JSON, HTTP head parsing, Improv framing, config record (incl. torn
-  writes), UF2 and mDNS packets, against a mock board on the host.
+  table at 0x8000 with `bbconfig` at 0x3FE000, image ending at 0xD3B60 (with the web
+  UI; well clear of `bbconfig`). Both images carry the stamped page.
+- The API, MCP, JSON, HTTP head parsing, CORS, UI caching (304, gzip or raw), Improv
+  framing, config record (incl. torn writes), UF2 and mDNS packets, against a mock board
+  on the host.
+- The web UI's node build in a real browser against `mock_node`: page and assets load,
+  status/GPIO/I²C poll, a scan and output control work, and the page reloads when the
+  node's build changes.
 - `config.uf2` from the Rust encoder, `config-uf2.ts` and `config.html` are
   byte-identical (golden fixture).
 
@@ -171,11 +207,11 @@ Untested on hardware: everything that touches a radio, a pin, a bus, flash or US
 
 ## Known gaps and follow-ups
 
-- Server-side adoption of nodes over mDNS (BenchBob side).
 - AP + captive-portal provisioning; BLE Improv on the ESP32-C6.
 - ESP32-C6 status LED (WS2812 on GPIO8 needs RMT); CAN (TWAI), 1-Wire, serial bridge.
 - A BenchBob USB PID for the Pico (it borrows Raspberry Pi's CDC PID).
 - No mDNS probing/conflict resolution; pick unique hostnames (the default is unique).
 - Changing the hostname over Improv updates mDNS at once; DHCP sees it after a reset.
-- Requests over 4 KiB or responses over 8 KiB are refused; `Expect: 100-continue`
+- API requests over 4 KiB or API responses over 8 KiB are refused (UI files aren't
+  limited); `Expect: 100-continue`
   isn't answered (fine for curl's small JSON bodies).

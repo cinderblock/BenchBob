@@ -59,6 +59,7 @@ pub static INFO: BoardInfo = BoardInfo {
     board_name: "Raspberry Pi Pico 2 W",
     chip: "RP2350",
     firmware_version: benchbob_proto::VERSION,
+    build: benchbob_node::web::BUILD,
     pins: &PINS,
     i2c: &BUSES,
 };

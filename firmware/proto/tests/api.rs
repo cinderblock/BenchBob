@@ -11,7 +11,7 @@ static PINS: [PinInfo; 4] = [
     PinInfo { gpio: 5, header: Some(7), func: Some("I2C0 SCL"), note: None },
 ];
 static BUSES: [I2cBusInfo; 1] = [I2cBusInfo { bus: 0, label: "I2C0 (GP4/GP5)", sda: 4, scl: 5, hz: 100_000, can_quick: false }];
-static INFO: BoardInfo = BoardInfo { board: "mock", board_name: "Mock Board", chip: "MOCK1", firmware_version: "0.1.0", pins: &PINS, i2c: &BUSES };
+static INFO: BoardInfo = BoardInfo { board: "mock", board_name: "Mock Board", chip: "MOCK1", firmware_version: "0.1.0", build: "0.1.0+test", pins: &PINS, i2c: &BUSES };
 
 #[derive(Default)]
 struct Mock {
@@ -132,6 +132,7 @@ fn docs_and_status() {
     let v = r.json();
     assert_eq!(v.get("uptime").unwrap().raw(), "12.345");
     assert_eq!(s(v.get("version")), "0.1.0");
+    assert_eq!(s(v.get("build")), "0.1.0+test");
     let net = v.get("network").unwrap();
     assert_eq!(net.get("rssi").unwrap().as_i64(), Some(-52));
     assert_eq!(s(net.get("ip")), "10.0.0.9");
@@ -142,6 +143,8 @@ fn docs_and_status() {
 #[test]
 fn not_found_and_method_not_allowed() {
     let mut h = Harness::new();
+    // `/` is the web UI, served before the API sees the request.
+    assert_eq!(h.req("GET", "/", "").status, 404);
     let r = h.req("GET", "/nope", "");
     assert_eq!(r.status, 404);
     assert_eq!(r.json().get("ok").unwrap().as_bool(), Some(false));

@@ -139,7 +139,8 @@ jobs:
         run: bun test firmware/tools/
 
   firmware-build:
-    needs: firmware-test
+    # Both images embed the web UI's MCU build, as built and tested by the web job.
+    needs: [firmware-test, web]
     strategy:
       matrix:
         include:
@@ -165,7 +166,13 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: espflash@4.6.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist-mcu
+          path: web/dist-mcu
       - run: firmware/build.sh ${{ matrix.board }}
+        env:
+          BENCHBOB_WEB_DIST: ${{ github.workspace }}/web/dist-mcu
       - uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ matrix.board }}

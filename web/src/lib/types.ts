@@ -149,6 +149,8 @@ export interface NodeStatus {
   hostname: string;
   uptime: number;
   version: string;
+  /** Firmware version + embedded UI hash, as stamped into the page the node serves. */
+  build?: string;
   board: string;
   boardName: string;
   chip: string;

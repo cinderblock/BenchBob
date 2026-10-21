@@ -1,10 +1,13 @@
-//! A connection-per-request HTTP/1.1 server over embassy-net. Routing and responses are
-//! `benchbob_proto::api`; this only moves bytes. Run several of these tasks to serve
-//! requests concurrently (they share the board through a mutex).
+//! A connection-per-request HTTP/1.1 server over embassy-net. The web UI comes straight
+//! from flash (`benchbob_proto::web` decides what to send); routing and responses for the
+//! API are `benchbob_proto::api`; this only moves bytes. Run several of these tasks to
+//! serve requests concurrently (they share the board through a mutex): a connection that
+//! arrives while every task is busy is refused, not queued.
 
 use benchbob_proto::api::{Api, Node, Reply, Request};
 use benchbob_proto::http::{self, HeadError};
 use benchbob_proto::json::Buf;
+use benchbob_proto::web;
 use embassy_net::Stack;
 use embassy_net::tcp::TcpSocket;
 use embassy_sync::blocking_mutex::raw::RawMutex;
@@ -95,6 +98,22 @@ async fn connection<M: RawMutex, N: Node>(sock: &mut TcpSocket<'_>, shared: &Mut
     }
     // Parse again over the full buffer (the head borrows it).
     let h = http::parse_head(&req[..total]).ok().flatten().ok_or("head vanished")?;
+    if h.method == "OPTIONS" {
+        let mut mem = [0u8; 512];
+        let mut b = Buf::new(&mut mem);
+        http::preflight(&h, &mut b);
+        sock.write_all(b.as_bytes()).await.map_err(|_| "write failed")?;
+        return sock.flush().await.map_err(|_| "flush failed");
+    }
+    if let Some(s) = web::lookup(crate::web::ASSETS, h.method, h.path, h.accept_encoding, h.if_none_match) {
+        let mut mem = [0u8; 384];
+        let mut b = Buf::new(&mut mem);
+        s.write_head(&mut b);
+        sock.write_all(b.as_bytes()).await.map_err(|_| "write failed")?;
+        // From flash, however big: no response buffer involved.
+        sock.write_all(s.body()).await.map_err(|_| "write failed")?;
+        return sock.flush().await.map_err(|_| "flush failed");
+    }
     let request = Request { method: h.method, path: h.path, query: h.query, host: h.host, body: &req[head_len..total] };
     let mut body = Buf::new(out);
     let reply: Reply = {

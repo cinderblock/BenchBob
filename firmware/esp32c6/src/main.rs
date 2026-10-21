@@ -1,7 +1,9 @@
 //! BenchBob node firmware for the ESP32-C6.
 //!
 //! - Wi-Fi station (esp-radio) with DHCP; credentials from the `bbconfig` partition.
-//! - HTTP on port 80: the node API and MCP (two connections at a time).
+//! - HTTP on port 80: the web UI (from flash), the node API and MCP (four connections
+//!   at a time: a browser loads the page's files in parallel, and a connection arriving
+//!   while every task is busy is refused).
 //! - mDNS: `<hostname>.local`, `_benchbob._tcp`, `_http._tcp`.
 //! - Improv Wi-Fi on the native USB port (USB-Serial-JTAG). Logs go to UART0 (GPIO16/17,
 //!   the DevKitC-1's "UART" USB port) so they don't interleave with Improv packets.
@@ -45,6 +47,9 @@ esp_bootloader_esp_idf::esp_app_desc!();
 /// Where partitions.csv puts `bbconfig`; used only if the table can't be read.
 const CONFIG_OFFSET_DEFAULT: u32 = 0x3F_E000;
 
+/// HTTP server tasks (about 19 KiB of buffers each). The stack gets four more sockets
+/// (DHCP, mDNS and two spare, as before).
+const HTTP_TASKS: usize = 4;
 type SharedNode = Mutex<CriticalSectionRawMutex, Shared<C6Node>>;
 
 static DEVICE: DeviceInfo = DeviceInfo { firmware: "BenchBob node", version: benchbob_proto::VERSION, chip: "ESP32-C6" };
@@ -54,7 +59,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, Interface<'static>>) 
     runner.run().await
 }
 
-#[embassy_executor::task(pool_size = 2)]
+#[embassy_executor::task(pool_size = HTTP_TASKS)]
 async fn http_task(stack: Stack<'static>, shared: &'static SharedNode, bufs: &'static mut http::Buffers) -> ! {
     http::serve(stack, shared, 80, bufs).await
 }
@@ -120,7 +125,7 @@ async fn main(spawner: Spawner) {
     dhcp.hostname = heapless::String::try_from(&h[..h.len().min(32)]).ok();
     let rng = Rng::new();
     let seed = (rng.random() as u64) << 32 | rng.random() as u64;
-    static RESOURCES: StaticCell<StackResources<6>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<{ HTTP_TASKS + 4 }>> = StaticCell::new();
     let (stack, net_runner) = embassy_net::new(interfaces.station, embassy_net::Config::dhcpv4(dhcp), RESOURCES.init(StackResources::new()), seed);
     spawner.spawn(net_task(net_runner).expect("net task"));
     spawner.spawn(wifi::task(controller, stack, improv::credentials(&config)).expect("wifi task"));
@@ -140,10 +145,10 @@ async fn main(spawner: Spawner) {
     static SHARED: StaticCell<SharedNode> = StaticCell::new();
     let shared: &'static SharedNode = SHARED.init(Mutex::new(Shared::new(C6Node::new(pins, i2c0))));
 
-    static HTTP_BUFS: StaticCell<[http::Buffers; 2]> = StaticCell::new();
-    let [b0, b1] = HTTP_BUFS.init([const { http::Buffers::new() }; 2]);
-    spawner.spawn(http_task(stack, shared, b0).expect("http task"));
-    spawner.spawn(http_task(stack, shared, b1).expect("http task"));
+    static HTTP_BUFS: StaticCell<[http::Buffers; HTTP_TASKS]> = StaticCell::new();
+    for b in HTTP_BUFS.init([const { http::Buffers::new() }; HTTP_TASKS]) {
+        spawner.spawn(http_task(stack, shared, b).expect("http task"));
+    }
     static MDNS_BUFS: StaticCell<benchbob_node::mdns::Buffers> = StaticCell::new();
     spawner.spawn(mdns_task(stack, MDNS_BUFS.init(benchbob_node::mdns::Buffers::new())).expect("mdns task"));
 

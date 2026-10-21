@@ -45,6 +45,11 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 2048,
       reportCompressedSize: false,
       chunkSizeWarningLimit: 300,
+      // A node serves this from flash with a few HTTP tasks and closes every connection;
+      // a connection arriving while all of them are busy is refused. So the MCU build is
+      // one JS and one CSS file (its panels are small), not a page that fans out into
+      // lazy chunks.
+      ...(mcu ? { cssCodeSplit: false, rolldownOptions: { output: { codeSplitting: false } } } : {}),
     },
     server: proxy
       ? {
