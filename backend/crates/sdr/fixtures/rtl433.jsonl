@@ -1,0 +1,14 @@
+rtl_433 version 25.02 (2025-02-19) inputs file rtl_tcp RTL-SDR SoapySDR
+Found Rafael Micro R820T tuner
+Exact sample rate is: 250000.000414 Hz
+[R82XX] PLL not locked!
+Sample rate set to 250000 S/s.
+Tuner gain set to Auto.
+Tuned to 433.920MHz.
+{"time" : "1792226000.123456", "protocol" : 40, "model" : "Acurite-Tower", "id" : 2483, "channel" : "A", "battery_ok" : 1, "temperature_C" : 22.300, "humidity" : 45, "mic" : "CHECKSUM", "mod" : "ASK", "freq" : 433.954, "rssi" : -0.121, "snr" : 22.510, "noise" : -22.631}
+{"time" : "1792226002.501223", "protocol" : 73, "model" : "LaCrosse-TX141THBv2", "id" : 192, "channel" : 0, "battery_ok" : 1, "temperature_C" : 21.600, "humidity" : 52, "test" : "No", "mic" : "CRC", "mod" : "ASK", "freq" : 433.885, "rssi" : -8.405, "snr" : 14.122, "noise" : -22.527}
+{"time" : "1792226003.000101", "protocol" : 142, "model" : "Fineoffset-WH51", "id" : "0d0b1c", "battery_ok" : 1.000, "battery_mV" : 1600, "moisture" : 35, "boost" : 0, "ad_raw" : 245, "mic" : "CRC", "mod" : "FSK", "freq1" : 433.932, "freq2" : 433.865, "rssi" : -11.213, "snr" : 10.880, "noise" : -22.093}
+{"time" : "1792226030.200000", "protocol" : 40, "model" : "Acurite-Tower", "id" : 2483, "channel" : "A", "battery_ok" : 1, "temperature_C" : 22.400, "humidity" : 46, "mic" : "CHECKSUM", "mod" : "ASK", "freq" : 433.953, "rssi" : -0.300, "snr" : 22.300, "noise" : -22.600}
+{"time" : "1792226031.000000", "protocol" : 59, "model" : "Toyota", "type" : "TPMS", "id" : "f1e2d3c4", "status" : 128, "pressure_PSI" : 32.500, "temperature_C" : 20.000, "mic" : "CRC", "mod" : "FSK", "freq1" : 433.920, "freq2" : 433.870, "rssi" : -15.100, "snr" : 7.500, "noise" : -22.600}
+{"time" : "1792226060.700000", "protocol" : 40, "model" : "Acurite-Tower", "id" : 2483, "channel" : "A", "battery_ok" : 0, "temperature_C" : 22.500, "humidity" : 46, "mic" : "CHECKSUM", "mod" : "ASK", "freq" : 433.950, "rssi" : -0.500, "snr" : 22.000, "noise" : -22.500}
+{"time" : "1792226061.000000", "protocol" : 40, "model" : "Acurite-Tower", "id" : 9120, "channel" : "C", "battery_ok" : 1, "temperature_C" : -3.100, "humidity" : 88, "mic" : "CHECKSUM", "mod" : "ASK", "freq" : 433.951, "rssi" : -9.000, "snr" : 12.000, "noise" : -21.000}

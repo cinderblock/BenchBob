@@ -113,6 +113,7 @@ dependencies = [
  "benchbob-gps",
  "benchbob-i2c",
  "benchbob-onewire",
+ "benchbob-sdr",
  "benchbob-serial",
  "benchbob-ups",
  "bytes",
@@ -281,6 +282,22 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "benchbob-sdr"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
