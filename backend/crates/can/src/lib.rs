@@ -777,9 +777,10 @@ impl Inner {
                     ws.q.clear();
                     continue;
                 }
-                let frames: Vec<Value> = ws.q.drain(..).map(|f| f.json()).collect();
-                ws.client
-                    .send(serde_json::to_string(&O::new().k("type", "frames").k("frames", frames).k("dropped", ws.dropped).v()).unwrap());
+                let msg =
+                    format!("{{\"type\":\"frames\",\"frames\":{},\"dropped\":{}}}", serde_json::to_string(&ws.q).unwrap(), ws.dropped);
+                ws.q.clear();
+                ws.client.send(msg);
                 ws.dropped = 0;
             }
         }
@@ -791,10 +792,8 @@ impl Inner {
                     if !ws.stats {
                         continue;
                     }
-                    let s = snap.get_or_insert_with(|| {
-                        serde_json::to_string(&json::spread(O::new().k("type", "stats").v(), hub.snapshot(st.ifaces.get(&hub.name), true)))
-                            .unwrap()
-                    });
+                    let s = snap
+                        .get_or_insert_with(|| serde_json::to_string(&hub.snap(st.ifaces.get(&hub.name), true, Some("stats"))).unwrap());
                     ws.client.send(s.clone());
                 }
             }

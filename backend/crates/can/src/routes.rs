@@ -567,7 +567,8 @@ pub(crate) fn tools(i: &Arc<Inner>) -> Vec<Tool> {
                 let ids: Vec<Value> = hub
                     .id_rows(limit)
                     .into_iter()
-                    .map(|mut r| {
+                    .map(|r| {
+                        let mut r = serde_json::to_value(r).unwrap();
                         let o = r.as_object_mut().unwrap();
                         let (id, ext) = (o["id"].as_u64().unwrap_or(0) as u32, o["ext"] == true);
                         o.insert("id".into(), Value::from(frame::fmt_id(id, ext)));

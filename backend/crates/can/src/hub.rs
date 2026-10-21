@@ -39,26 +39,118 @@ pub struct OutFrame {
     pub text: Option<String>,
 }
 
+/// A JavaScript number for serde: integral values as integers, NaN as null.
+pub struct JsNum(pub f64);
+
+impl serde::Serialize for JsNum {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let f = self.0;
+        if f.is_finite() && f.fract() == 0.0 && f.abs() < 9.007_199_254_740_992e15 {
+            s.serialize_i64(f as i64)
+        } else if f.is_finite() {
+            s.serialize_f64(f)
+        } else {
+            s.serialize_none()
+        }
+    }
+}
+
+/// `{ type, ...frame }`: a frame with a leading type tag (the WebSocket's `frame` message).
+pub struct Tagged<'a>(pub &'static str, pub &'a OutFrame);
+
 impl OutFrame {
+    fn fields<S: serde::ser::SerializeStruct>(&self, st: &mut S) -> Result<(), S::Error> {
+        st.serialize_field("id", &self.id)?;
+        st.serialize_field("ext", &self.ext)?;
+        st.serialize_field("rtr", &self.rtr)?;
+        st.serialize_field("fd", &self.fd)?;
+        st.serialize_field("brs", &self.brs)?;
+        st.serialize_field("len", &self.len)?;
+        st.serialize_field("data", &self.data)?;
+        st.serialize_field("ts", &JsNum(self.ts))?;
+        st.serialize_field("dir", if self.tx { "tx" } else { "rx" })?;
+        // toOut() adds these after the fact, so they come last.
+        if self.esi {
+            st.serialize_field("esi", &true)?;
+        }
+        if self.err {
+            st.serialize_field("err", &true)?;
+        }
+        if let Some(t) = &self.text {
+            st.serialize_field("text", t)?;
+        }
+        Ok(())
+    }
+
     pub fn json(&self) -> Value {
-        self.into_obj(O::new()).v()
+        serde_json::to_value(self).unwrap_or(Value::Null)
     }
-    /// The frame's keys appended to `o` (for `{type: "frame", ...o}`).
-    pub fn into_obj(&self, o: O) -> O {
-        o.k("id", self.id)
-            .k("ext", self.ext)
-            .k("rtr", self.rtr)
-            .k("fd", self.fd)
-            .k("brs", self.brs)
-            .k("len", self.len)
-            .k("data", self.data.clone())
-            .k("ts", num(self.ts))
-            .k("dir", if self.tx { "tx" } else { "rx" })
-            // toOut() adds these after the fact, so they come last.
-            .o("esi", self.esi.then_some(true))
-            .o("err", self.err.then_some(true))
-            .o("text", self.text.clone())
+}
+
+impl serde::Serialize for OutFrame {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("OutFrame", 12)?;
+        self.fields(&mut st)?;
+        st.end()
     }
+}
+
+impl serde::Serialize for Tagged<'_> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("Frame", 13)?;
+        st.serialize_field("type", self.0)?;
+        self.1.fields(&mut st)?;
+        st.end()
+    }
+}
+
+/// One row of the per-ID table, as idRows() makes it.
+#[derive(serde::Serialize)]
+pub struct IdRowJson {
+    pub id: u32,
+    pub ext: bool,
+    pub fd: bool,
+    pub rtr: bool,
+    pub len: u8,
+    pub count: u64,
+    pub period: JsNum,
+    pub data: String,
+    pub hot: u32,
+    pub last: JsNum,
+    pub dir: &'static str,
+}
+
+#[derive(serde::Serialize)]
+pub struct Berr<'a> {
+    pub tx: &'a Value,
+    pub rx: &'a Value,
+}
+
+/// snapshot(): the stats view of a hub, optionally tagged `type: "stats"`.
+#[derive(serde::Serialize)]
+pub struct Snap<'a> {
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub ty: Option<&'static str>,
+    pub iface: &'a str,
+    pub up: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<&'a Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub berr: Option<Berr<'a>>,
+    pub rates: Value,
+    pub totals: Value,
+    /// Frames the kernel dropped because we fell behind.
+    pub drops: u32,
+    #[serde(rename = "idCount")]
+    pub id_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ids: Option<Vec<IdRowJson>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Vec<Value>>,
+    pub jobs: Vec<Value>,
+    pub recording: Value,
 }
 
 pub fn to_out(f: &CanFrame) -> OutFrame {
@@ -187,7 +279,8 @@ pub struct Hub {
     /// Bumped on every open, so a stale reader's close callback is ignored.
     pub sock_gen: u64,
     pub open_err: String,
-    pub ids: IndexMap<String, IdRow>,
+    /// By (ext, id): frameKey() without building a string per frame.
+    pub ids: HashMap<(bool, u32), IdRow>,
     pub ring: Vec<OutFrame>,
     pub errors: Vec<(DecodedError, String)>,
     pub tot: Totals,
@@ -222,7 +315,7 @@ impl Hub {
             sock: None,
             sock_gen: 0,
             open_err: String::new(),
-            ids: IndexMap::new(),
+            ids: HashMap::new(),
             ring: Vec::new(),
             errors: Vec::new(),
             tot: Totals::default(),
@@ -313,7 +406,7 @@ impl Hub {
                         ws.dropped += 1;
                     }
                 } else if ws.client.buffered() < 1 << 20 {
-                    ws.client.send(serde_json::to_string(&o.into_obj(O::new().k("type", "frame")).v()).unwrap());
+                    ws.client.send(serde_json::to_string(&Tagged("frame", &o)).unwrap());
                 } else {
                     ws.dropped += 1;
                 }
@@ -328,7 +421,7 @@ impl Hub {
     }
 
     fn update_id(&mut self, f: &CanFrame, tx: bool, now: f64) {
-        let k = frame::frame_key(f.id, f.ext);
+        let k = (f.ext, f.id);
         let r = match self.ids.get_mut(&k) {
             Some(r) => {
                 let dt = f.ts - r.last;
@@ -351,7 +444,7 @@ impl Hub {
                     return; // fuzzing/random ids: the table stops growing, counters don't
                 }
                 self.ids.insert(
-                    k.clone(),
+                    k,
                     IdRow {
                         id: f.id,
                         ext: f.ext,
@@ -400,11 +493,11 @@ impl Hub {
         self.tot = Totals::default();
     }
 
-    /// (row, hot bits) sorted standard first, then by id.
-    pub fn id_rows(&self, limit: usize) -> Vec<Value> {
+    /// The per-ID table, standard ids first, then by id.
+    pub fn id_rows(&self, limit: usize) -> Vec<IdRowJson> {
         let now = now() as f64;
         let mut rows: Vec<&IdRow> = self.ids.values().collect();
-        rows.sort_by_key(|r| (r.ext, r.id));
+        rows.sort_unstable_by_key(|r| (r.ext, r.id));
         rows.into_iter()
             .take(limit)
             .map(|r| {
@@ -414,19 +507,19 @@ impl Hub {
                         hot |= 1 << b;
                     }
                 }
-                O::new()
-                    .k("id", r.id)
-                    .k("ext", r.ext)
-                    .k("fd", r.fd)
-                    .k("rtr", r.rtr)
-                    .k("len", r.len)
-                    .k("count", r.count)
-                    .n("period", (r.period * 10.0 + 0.5).floor() / 10.0)
-                    .k("data", frame::to_hex(&r.data))
-                    .k("hot", hot)
-                    .n("last", (r.last + 0.5).floor())
-                    .k("dir", if r.tx { "tx" } else { "rx" })
-                    .v()
+                IdRowJson {
+                    id: r.id,
+                    ext: r.ext,
+                    fd: r.fd,
+                    rtr: r.rtr,
+                    len: r.len,
+                    count: r.count,
+                    period: JsNum((r.period * 10.0 + 0.5).floor() / 10.0),
+                    data: frame::to_hex(&r.data),
+                    hot,
+                    last: JsNum((r.last + 0.5).floor()),
+                    dir: if r.tx { "tx" } else { "rx" },
+                }
             })
             .collect()
     }
@@ -438,24 +531,27 @@ impl Hub {
         }
     }
 
-    pub fn snapshot(&self, i: Option<&Iface>, full: bool) -> Value {
-        let mut o = O::new()
-            .k("iface", self.name.clone())
-            .k("up", i.is_some_and(|i| i.up))
-            .o("state", i.and_then(|i| i.state.clone()))
-            .o("berr", i.and_then(|i| i.berr.clone()).map(|(tx, rx)| O::new().k("tx", tx).k("rx", rx).v()))
-            .k("rates", self.rates.json())
-            .k("totals", self.tot.json())
-            // Frames the kernel dropped because we fell behind.
-            .k("drops", self.drops())
-            .k("idCount", self.ids.len());
-        if full {
-            let n = self.errors.len().saturating_sub(20);
-            o = o
-                .k("ids", self.id_rows(ID_ROWS_MAX))
-                .k("errors", self.errors[n..].iter().map(|(d, i)| decoded_json(d, i)).collect::<Vec<_>>());
+    pub fn snap<'a>(&'a self, i: Option<&'a Iface>, full: bool, ty: Option<&'static str>) -> Snap<'a> {
+        let n = self.errors.len().saturating_sub(20);
+        Snap {
+            ty,
+            iface: &self.name,
+            up: i.is_some_and(|i| i.up),
+            state: i.and_then(|i| i.state.as_ref()),
+            berr: i.and_then(|i| i.berr.as_ref()).map(|(tx, rx)| Berr { tx, rx }),
+            rates: self.rates.json(),
+            totals: self.tot.json(),
+            drops: self.drops(),
+            id_count: self.ids.len(),
+            ids: full.then(|| self.id_rows(ID_ROWS_MAX)),
+            errors: full.then(|| self.errors[n..].iter().map(|(d, i)| decoded_json(d, i)).collect()),
+            jobs: self.jobs.values().map(Job::json).collect(),
+            recording: self.rec_json(),
         }
-        o.k("jobs", self.jobs.values().map(Job::json).collect::<Vec<_>>()).k("recording", self.rec_json()).v()
+    }
+
+    pub fn snapshot(&self, i: Option<&Iface>, full: bool) -> Value {
+        serde_json::to_value(self.snap(i, full, None)).unwrap_or(Value::Null)
     }
 
     // ----- recording (candump -L format) -----

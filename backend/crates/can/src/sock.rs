@@ -3,7 +3,9 @@
 //!
 //! The TypeScript drained the socket with non-blocking recvmsg() on a 5–20 ms timer (Bun had
 //! no cheap way to wait on an fd). Here a tokio task waits for readiness and drains up to
-//! 8192 datagrams per wakeup, handing them over in one batch. recvmsg also gives the kernel
+//! 8192 datagrams per wakeup, handing them over in one batch; while traffic flows it then
+//! waits 5 ms before the next drain, so a busy bus costs one wakeup per 5 ms, not one per
+//! frame, and the first frame after a quiet spell still arrives at once. recvmsg also gives the kernel
 //! RX timestamp, the MSG_CONFIRM flag on our own echoed frames and the drop counter.
 //!
 //! Timestamps use SO_TIMESTAMP_NEW (Linux 5.1+: a 64-bit timeval on every architecture, so
@@ -32,6 +34,8 @@ const SO_RXQ_OVFL: libc::c_int = 40;
 const MSG_DONTROUTE: libc::c_int = 0x4;
 /// Set on our own frames echoed back (CAN_RAW_RECV_OWN_MSGS).
 const MSG_CONFIRM: libc::c_int = 0x800;
+/// How long the reader gathers frames once traffic flows (the TypeScript polled every 5 ms).
+const BATCH: std::time::Duration = std::time::Duration::from_millis(5);
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
@@ -191,6 +195,10 @@ impl CanSocket {
                 drop(guard);
                 if !frames.is_empty() {
                     on_frames(frames);
+                    // While traffic flows, collect for a few ms rather than waking per frame
+                    // (the kernel queues meanwhile; SO_RCVBUF is sized for it). The first
+                    // frame after a quiet spell is still delivered at once.
+                    tokio::time::sleep(BATCH).await;
                 }
             };
             if !sh.closed.swap(true, Ordering::SeqCst)
