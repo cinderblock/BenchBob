@@ -17,12 +17,24 @@ interface Sel {
   port: number;
 }
 
+/** The last power action on one target (a hub, or a hub port), shown where it was switched. */
+interface PowerStatus {
+  action: PowerArgs["action"];
+  state: "busy" | "ok" | "error";
+  msg?: string;
+  t: number;
+}
+
+// Keyed by hub location, plus ":port" for a single port.
+const powerKey = (hub: string, port?: number | null) => (port == null ? hub : `${hub}:${port}`);
+
 export default function Usb({ st }: PanelProps<UsbState>) {
   const b = useBob();
   const [sel, setSel] = useState<Sel | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [tlKind, setTlKind] = useState<"all" | "usb" | "kernel">("all");
   const [hist, setHist] = useState<DmesgLine[] | null>(null);
+  const [power, setPower] = useState<Record<string, PowerStatus>>({});
   if (!st?.devices) return null;
 
   // The name this dashboard reached the bob by is the one that resolves from the client's
@@ -35,7 +47,14 @@ export default function Usb({ st }: PanelProps<UsbState>) {
       n.has(busid) ? n.delete(busid) : n.add(busid);
       return n;
     });
-  const ctx: RowCtx = { st, sel, setSel, open, toggleMore, clientHost };
+  const setPowerStatus = (k: string, s: PowerStatus | null) =>
+    setPower((m) => {
+      const n = { ...m };
+      if (s) n[k] = s;
+      else delete n[k];
+      return n;
+    });
+  const ctx: RowCtx = { st, sel, setSel, open, toggleMore, clientHost, power, setPowerStatus };
 
   const shown = new Set<string>();
   const tree: ReactNode[] = [];
@@ -89,6 +108,8 @@ interface RowCtx {
   open: Set<string>;
   toggleMore(busid: string): void;
   clientHost: string;
+  power: Record<string, PowerStatus>;
+  setPowerStatus(k: string, s: PowerStatus | null): void;
 }
 
 function PanelLink({ p, dev = "" }: { p?: string; dev?: string }) {
@@ -116,23 +137,28 @@ function PanelLink({ p, dev = "" }: { p?: string; dev?: string }) {
   );
 }
 
-async function doPower(b: BobApi, args: PowerArgs) {
+// Progress and failures go to `report`, which shows them beside the buttons, not as toasts.
+async function doPower(b: BobApi, args: PowerArgs, report: (s: PowerStatus) => void) {
+  const status = (state: PowerStatus["state"], msg?: string) => report({ action: args.action, state, msg, t: Date.now() });
+  const fail = (e: unknown) => status("error", e instanceof TypeError ? "Request failed: " + e.message : (e as Error).message);
   let plan: PowerPlan;
   try {
-    plan = await b.api<PowerPlan>("GET", "/api/usb/power/plan?" + new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])));
-  } catch {
-    return;
+    plan = await b.conn.json<PowerPlan>("GET", "/api/usb/power/plan?" + new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])));
+  } catch (e) {
+    return fail(e);
   }
   if (plan.needs !== "none" || (args.action !== "on" && plan.devices.length)) {
     const level = await confirmPower(b, plan);
     if (!level) return;
     if (plan.needs !== "none") args.confirm = plan.needs;
   }
-  b.toast(`Power ${args.action}…`);
+  status("busy");
   try {
-    await b.api("POST", "/api/usb/power", args);
-    b.toast(`Power ${args.action} done`, "success");
-  } catch {}
+    await b.conn.json("POST", "/api/usb/power", args);
+    status("ok");
+  } catch (e) {
+    fail(e);
+  }
 }
 
 function confirmPower(b: BobApi, plan: PowerPlan): Promise<string | null> {
@@ -177,9 +203,13 @@ function PowerConfirm({ plan, resolve }: { plan: PowerPlan; resolve(v: string | 
   );
 }
 
-function PowerBtns({ t }: { t: { hub?: string; port?: number; busid?: string } }) {
+// `pk` is the powerKey of the hub or port these buttons switch (for a busid target, the port
+// it's plugged into), so the status shows wherever that port's buttons are.
+function PowerBtns({ t, pk, ctx }: { t: { hub?: string; port?: number; busid?: string }; pk: string; ctx: RowCtx }) {
   const b = useBob();
   const [delay, setDelay] = useState("2");
+  const s = ctx.power[pk];
+  const busy = s?.state === "busy";
   const go = (action: PowerArgs["action"]) => {
     const args: PowerArgs = { action };
     if (t.busid) args.busid = t.busid;
@@ -188,23 +218,40 @@ function PowerBtns({ t }: { t: { hub?: string; port?: number; busid?: string } }
       if (t.port != null) args.port = t.port;
     }
     args.delay = +delay || 2;
-    doPower(b, args);
+    doPower(b, args, (st) => ctx.setPowerStatus(pk, st));
   };
   return (
     <>
-      <button className="btn btn-sm" onClick={() => go("on")}>
+      <button className="btn btn-sm" disabled={busy} onClick={() => go("on")}>
         On
       </button>
-      <button className="btn btn-sm btn-warn" onClick={() => go("off")}>
+      <button className="btn btn-sm btn-warn" disabled={busy} onClick={() => go("off")}>
         Off
       </button>
-      <button className="btn btn-sm" onClick={() => go("cycle")}>
+      <button className="btn btn-sm" disabled={busy} onClick={() => go("cycle")}>
         Cycle
       </button>
       <label className="pr-note">
         off for <input type="number" min={1} max={30} value={delay} onInput={(e) => setDelay(e.currentTarget.value)} /> s
       </label>
+      {s && <PowerResult s={s} clear={() => ctx.setPowerStatus(pk, null)} />}
     </>
+  );
+}
+
+const POWER_BUSY = { on: "switching on", off: "switching off", cycle: "power cycling" };
+const POWER_DONE = { on: "Switched on", off: "Switched off", cycle: "Power cycled" };
+
+function PowerResult({ s, clear }: { s: PowerStatus; clear(): void }) {
+  if (s.state === "busy") return <span className="usb-pstat busy">{POWER_BUSY[s.action]}…</span>;
+  const at = new Date(s.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return (
+    <span className={`usb-pstat ${s.state}`}>
+      {s.state === "ok" ? `✓ ${POWER_DONE[s.action]} at ${at}` : `✗ Power ${s.action} failed: ${s.msg}`}
+      <button className="pr-x" aria-label="Dismiss" onClick={clear}>
+        &times;
+      </button>
+    </span>
   );
 }
 
@@ -226,7 +273,7 @@ function PortChips({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
     bar = (
       <div className="usb-bar">
         <span>⚠ {pw.group!.label}.</span>
-        <PowerBtns t={{ hub: pw.loc }} />
+        <PowerBtns t={{ hub: pw.loc }} pk={powerKey(pw.loc)} ctx={ctx} />
       </div>
     );
   else if (grouped) bar = <div className="usb-l2">Ganged with hub {pw.group!.hubs[0]}: same sockets, switched there.</div>;
@@ -238,7 +285,7 @@ function PortChips({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
           <b>
             Hub {pw.loc} port {p.port}
           </b>
-          <PowerBtns key={`${pw.loc}:${p.port}`} t={{ hub: pw.loc, port: p.port }} />
+          <PowerBtns key={`${pw.loc}:${p.port}`} t={{ hub: pw.loc, port: p.port }} pk={powerKey(pw.loc, p.port)} ctx={ctx} />
         </div>
       );
   }
@@ -251,9 +298,12 @@ function PortChips({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
           const cls = p.internal ? "int" : oc ? "oc" : p.power ? "on" : "off";
           const state = p.internal ? "internal" : oc ? "over-current" : p.power ? "on" : "off";
           const isSel = sel && sel.hub === pw.loc && sel.port === p.port;
+          // The port's own status, else a whole-hub switch (a ganged one is made on the group's first hub).
+          const ps = ctx.power[powerKey(pw.loc, p.port)] || ctx.power[powerKey(grouped ? pw.group!.hubs[0] : pw.loc)];
+          const mark = ps?.state === "busy" ? " busy" : ps?.state === "error" ? " err" : "";
           return (
-            <button key={p.port} className={`usb-chip ${cls}${isSel ? " sel" : ""}`} disabled={!!p.internal || grouped} onClick={() => ctx.setSel(isSel ? null : { hub: pw.loc, port: p.port })}>
-              P{p.port} {state}
+            <button key={p.port} className={`usb-chip ${cls}${isSel ? " sel" : ""}${mark}`} disabled={!!p.internal || grouped} onClick={() => ctx.setSel(isSel ? null : { hub: pw.loc, port: p.port })}>
+              P{p.port} {ps?.state === "busy" ? POWER_BUSY[ps.action] + "…" : state}
               {child ? " · used" : ""}
             </button>
           );
@@ -447,7 +497,7 @@ function More({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
       )}
       {d.upstream && (
         <div className="usb-cmd">
-          Port power (hub {d.upstream.hub} port {d.upstream.port}): <PowerBtns t={{ busid: d.busid }} />
+          Port power (hub {d.upstream.hub} port {d.upstream.port}): <PowerBtns t={{ busid: d.busid }} pk={powerKey(d.upstream.hub, d.upstream.port)} ctx={ctx} />
         </div>
       )}
     </div>
