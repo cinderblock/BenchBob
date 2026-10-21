@@ -5,6 +5,7 @@
 import { useState, type ReactNode } from "react";
 import { useBob } from "../../bob/context";
 import type { PanelProps } from "../../registry";
+import { ActionLine, useAction } from "../../ui/status";
 import type { Ups as UpsT, UpsState } from "./api";
 
 // Linear line sparkline, 0–100 scale (both series are percentages).
@@ -117,7 +118,9 @@ function Nut({ st }: { st: UpsState }) {
   // Local port while editing, so a status push doesn't overwrite what's typed.
   const [port, setPort] = useState<string | null>(null);
   const host = b.conn.hostname;
-  const share = (shared: boolean, p: number) => b.api("POST", "/api/ups/share", { share: shared, port: p }).catch(() => {});
+  // Sharing, the port and Restart all report on one line in this row.
+  const act = useAction();
+  const share = (shared: boolean, p: number) => act.run(() => b.api("POST", "/api/ups/share", { share: shared, port: p }), { busy: "Saving…" });
   const curPort = port ?? String(n.port);
   return (
     <div className="pr-card">
@@ -142,9 +145,10 @@ function Nut({ st }: { st: UpsState }) {
           }}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         />
-        <button className="btn btn-sm" onClick={() => b.api("POST", "/api/ups/restart").catch(() => {})}>
+        <button className="btn btn-sm" disabled={act.busy} onClick={() => act.run(() => b.api("POST", "/api/ups/restart"), { busy: "Restarting…", ok: "NUT restarted" })}>
           Restart NUT
         </button>
+        <ActionLine a={act} />
       </div>
       <div className="pr-note">
         {n.shared ? (

@@ -9,6 +9,7 @@ import type { PanelProps } from "../../registry";
 import { fmtAgo } from "../../lib/format";
 import { readLocal, writeLocal } from "../../lib/storage";
 import { AsyncButton, Hint } from "../../ui/common";
+import { ActionLine, useAction } from "../../ui/status";
 import type { AuthEntry, Checks, IperfForm, IperfRun, IperfServer, NdIface, NetdiagState, Neighbor, Preset } from "./api";
 
 const fmtBps = (b: number) => {
@@ -169,6 +170,8 @@ function Graph({ points, duration }: { points: { t: number; bps: number }[]; dur
 
 function Runs({ runs }: { runs: IperfRun[] }) {
   const b = useBob();
+  // Stop disappears when the run ends, so its status sits below the run, not beside it.
+  const stop = useAction();
   if (!runs.length) return <div className="pr-note">No client runs yet.</div>;
   const cur = runs[0];
   const last = cur.points[cur.points.length - 1];
@@ -183,7 +186,7 @@ function Runs({ runs }: { runs: IperfRun[] }) {
       {cur.status === "running" ? (
         <div className="pr-row">
           <Pill t="running" cls="on" /> {cur.host} {last ? fmtBps(last.bps) : "connecting…"}{" "}
-          <button className="btn btn-sm" onClick={() => b.api("POST", `/api/netdiag/iperf/${cur.id}/stop`).catch(() => {})}>
+          <button className="btn btn-sm" disabled={stop.busy} onClick={() => stop.run(() => b.api("POST", `/api/netdiag/iperf/${cur.id}/stop`), { busy: "Stopping…" })}>
             Stop
           </button>
         </div>
@@ -192,6 +195,7 @@ function Runs({ runs }: { runs: IperfRun[] }) {
           {cur.host}: {cur.error}
         </div>
       ) : null}
+      <ActionLine a={stop} />
       <Graph points={cur.points} duration={cur.duration} />
       <table className="pr-tbl" style={{ marginTop: 6 }}>
         <tbody>
@@ -372,25 +376,15 @@ function ChecksView({ c, targets }: { c: Checks; targets: Preset[] }) {
 
 /** A quick-pick host chip that pings (or fills a field) without clobbering its two-line label. */
 function PresetChip({ p, onClick }: { p: Preset; onClick(): Promise<unknown> | void }) {
-  const [busy, setBusy] = useState(false);
+  const a = useAction();
   return (
-    <button
-      className="pr-tool"
-      disabled={busy}
-      style={busy ? { opacity: 0.5 } : undefined}
-      onClick={async () => {
-        setBusy(true);
-        try {
-          await onClick();
-        } catch {
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      {p.label}
-      {p.label !== p.host && <small>{p.host}</small>}
-    </button>
+    <>
+      <button className="pr-tool" disabled={a.busy} style={a.busy ? { opacity: 0.5 } : undefined} onClick={() => a.run(async () => onClick(), { busy: "" })}>
+        {p.label}
+        {p.label !== p.host && <small>{p.host}</small>}
+      </button>
+      {a.status?.state === "error" && <ActionLine a={a} />}
+    </>
   );
 }
 
@@ -412,7 +406,10 @@ export default function Netdiag({ st }: PanelProps<NetdiagState>) {
     return b.api("POST", "/api/netdiag/iperf", { ...f, bitrate: f.bitrate || undefined });
   };
   const check = (kind: string) => b.api("POST", `/api/netdiag/${kind}`, kind === "ping" || kind === "mtu" ? { host: chost.trim() || undefined } : {});
-  const server = (on: boolean) => b.api("POST", "/api/netdiag/iperf/server", { enabled: on, port: Number(sport) }).catch(() => {});
+  // Start/Stop swap places, so the server's status belongs to the card.
+  const srv = useAction();
+  const server = (on: boolean) => srv.run(() => b.api("POST", "/api/netdiag/iperf/server", { enabled: on, port: Number(sport) }), { busy: on ? "Starting…" : "Stopping…" });
+  const lldp = useAction();
   const num = (v: string) => Number(v);
 
   return (
@@ -420,8 +417,9 @@ export default function Netdiag({ st }: PanelProps<NetdiagState>) {
       {st.ifaces.length ? st.ifaces.map((i) => <IfaceCard key={i.name} i={i} st={st} />) : <div className="pr-note">No wired interface found.</div>}
       <div className="pr-row">
         <label>
-          <input type="checkbox" checked={st.lldp.enabled} onChange={(e) => b.api("POST", "/api/netdiag/lldp", { enabled: e.currentTarget.checked }).catch(() => {})} /> Listen for switch info (LLDP/CDP, receive-only: BenchBob never announces itself)
+          <input type="checkbox" checked={st.lldp.enabled} disabled={lldp.busy} onChange={(e) => lldp.run(() => b.api("POST", "/api/netdiag/lldp", { enabled: e.currentTarget.checked }), { busy: "Saving…" })} /> Listen for switch info (LLDP/CDP, receive-only: BenchBob never announces itself)
         </label>
+        <ActionLine a={lldp} />
       </div>
       <div className="pr-card">
         <h4>
@@ -496,14 +494,15 @@ export default function Netdiag({ st }: PanelProps<NetdiagState>) {
             Port <input type="number" style={{ width: "5em" }} value={sport} onInput={(e) => setSport(e.currentTarget.value)} />
           </label>
           {st.iperf.server.running ? (
-            <button className="btn btn-sm" onClick={() => server(false)}>
+            <button className="btn btn-sm" disabled={srv.busy} onClick={() => server(false)}>
               Stop
             </button>
           ) : (
-            <button className="btn btn-sm" onClick={() => server(true)}>
+            <button className="btn btn-sm" disabled={srv.busy} onClick={() => server(true)}>
               Start
             </button>
           )}
+          <ActionLine a={srv} />
         </div>
         <Server s={st.iperf.server} />
       </div>
@@ -551,11 +550,9 @@ function PresetsDialog() {
   const fmt = (l: Preset[]) => l.map((p) => (p.label && p.label !== p.host ? `${p.host} ${p.label}` : p.host)).join("\n");
   const [iperf, setIperf] = useState(() => fmt(P.iperf));
   const [ping, setPing] = useState(() => fmt(P.ping));
+  const a = useAction();
   const save = async (body: unknown) => {
-    try {
-      await b.api("PUT", "/api/netdiag/presets", body);
-      b.closeModal();
-    } catch {}
+    if (await a.run(() => b.api("PUT", "/api/netdiag/presets", body), { busy: "Saving…" })) b.closeModal();
   };
   return (
     <>
@@ -571,14 +568,15 @@ function PresetsDialog() {
         Ping targets
       </label>
       <textarea id="nd-pp" spellCheck={false} style={TA} value={ping} onInput={(e) => setPing(e.currentTarget.value)} />
+      <ActionLine a={a} />
       <div className="modal-btns">
-        <button className="btn" onClick={() => save({ reset: true })}>
+        <button className="btn" disabled={a.busy} onClick={() => save({ reset: true })}>
           Restore defaults
         </button>
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
-        <button className="btn btn-primary" onClick={() => save({ iperf, ping })}>
+        <button className="btn btn-primary" disabled={a.busy} onClick={() => save({ iperf, ping })}>
           Save
         </button>
       </div>
@@ -596,11 +594,10 @@ function LoginsDialog() {
   const P = fresh || live;
   const auth = Object.fromEntries((P.auth || []).map((a) => [a.host, a]));
   const hosts = [...new Set([...P.iperf.map((p) => p.host), ...Object.keys(auth)])];
+  const load = useAction();
   const refresh = async () => {
-    try {
-      const s = await b.api<NetdiagState>("GET", "/api/netdiag");
-      setFresh(s.presets || null);
-    } catch {}
+    const s = await load.run(() => b.api<NetdiagState>("GET", "/api/netdiag"), { busy: "Refreshing…" });
+    if (s) setFresh(s.presets || null);
   };
   return (
     <>
@@ -609,6 +606,7 @@ function LoginsDialog() {
         For servers started with <span className="pr-endpoint">--authorized-users-path</span>. BenchBob keeps the password and never shows it again; put the users-file line on the server, and paste the server's public key here.
       </p>
       {hosts.length ? hosts.map((h) => <LoginCard key={h + (auth[h]?.usersLine || "") + (auth[h]?.hasKey ? "k" : "")} host={h} a={auth[h]} onSaved={refresh} />) : <p className="pr-note">No iperf3 hosts.</p>}
+      <ActionLine a={load} time={false} />
       <div className="modal-btns">
         <button className="btn" onClick={b.closeModal}>
           Close
@@ -625,19 +623,24 @@ function LoginCard({ host, a, onSaved }: { host: string; a?: AuthEntry; onSaved(
   const [pkcs1, setPkcs1] = useState(!!a?.pkcs1);
   const [key, setKey] = useState("");
   const inp = { background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 5, padding: "5px 8px", color: "var(--text)", fontSize: ".8rem" } as const;
+  // A save that changes the users line or key re-keys (remounts) the card, dropping this line;
+  // the card's new state shows the result then.
+  const st = useAction();
   const save = async (act: "save" | "gen" | "del") => {
-    try {
-      if (act === "del") await b.api("DELETE", "/api/netdiag/iperf/auth", { host });
-      else
-        await b.api("PUT", "/api/netdiag/iperf/auth", {
-          host,
-          username: user.trim(),
-          pkcs1,
-          ...(act === "gen" ? { generate: true } : pw.trim() ? { password: pw } : {}),
-          ...(key.trim() ? { publicKey: key.trim() } : {}),
-        });
-      onSaved();
-    } catch {}
+    const ok = await st.run(
+      () =>
+        act === "del"
+          ? b.api("DELETE", "/api/netdiag/iperf/auth", { host })
+          : b.api("PUT", "/api/netdiag/iperf/auth", {
+              host,
+              username: user.trim(),
+              pkcs1,
+              ...(act === "gen" ? { generate: true } : pw.trim() ? { password: pw } : {}),
+              ...(key.trim() ? { publicKey: key.trim() } : {}),
+            }),
+      { busy: act === "del" ? "Forgetting…" : "Saving…", ok: act === "del" ? "Forgotten" : "Saved" },
+    );
+    if (ok) onSaved();
   };
   const status = !a ? <span className="pr-pill">no login</span> : a.ready ? <span className="pr-pill on">ready</span> : <span className="pr-pill warn">needs {[!a.hasPassword && "password", !a.hasKey && "public key"].filter(Boolean).join(" + ")}</span>;
   return (
@@ -652,7 +655,7 @@ function LoginCard({ host, a, onSaved }: { host: string; a?: AuthEntry; onSaved(
         <label>
           Password <input type="password" autoComplete="new-password" placeholder={a?.hasPassword ? "(unchanged)" : ""} value={pw} onInput={(e) => setPw(e.currentTarget.value)} style={inp} size={14} />
         </label>
-        <button className="btn btn-sm" onClick={() => save("gen")}>
+        <button className="btn btn-sm" disabled={st.busy} onClick={() => save("gen")}>
           Generate
         </button>
         <label>
@@ -676,14 +679,15 @@ function LoginCard({ host, a, onSaved }: { host: string; a?: AuthEntry; onSaved(
         </div>
       )}
       <div className="pr-row">
-        <button className="btn btn-sm btn-primary" onClick={() => save("save")}>
+        <button className="btn btn-sm btn-primary" disabled={st.busy} onClick={() => save("save")}>
           Save
         </button>
         {a && (
-          <button className="btn btn-sm" onClick={() => save("del")}>
+          <button className="btn btn-sm" disabled={st.busy} onClick={() => save("del")}>
             Forget
           </button>
         )}
+        <ActionLine a={st} />
       </div>
     </div>
   );

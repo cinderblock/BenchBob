@@ -6,6 +6,7 @@ import { useBob } from "../../bob/context";
 import type { PanelProps } from "../../registry";
 import { fmtAgo } from "../../lib/format";
 import { AsyncButton } from "../../ui/common";
+import { errText } from "../../ui/status";
 import type { ModeRequest, Rtl433Result, SdrState } from "./api";
 
 const SR: [number, string][] = [
@@ -40,14 +41,19 @@ export default function Sdr({ st }: PanelProps<SdrState>) {
   const [msgs, setMsgs] = useState<Rtl433Result["messages"]>([]);
   const seq = useRef(0);
   const want = st.mode === "rtl_433" || (st.rtl433?.sensors ?? 0) > 0;
+  // The 2 s poll's last failure, as a quiet note; the next success clears it.
+  const [pollErr, setPollErr] = useState("");
 
   const refresh = async () => {
     try {
-      const r = await b.conn.json<Rtl433Result>("GET", "/api/sdr/rtl433?since=" + seq.current);
+      const r = await b.api<Rtl433Result>("GET", "/api/sdr/rtl433?since=" + seq.current);
       setMsgs((m) => (r.seq < seq.current ? [] : m).concat(r.messages).slice(-100));
       seq.current = r.seq;
       setData(r);
-    } catch {}
+      setPollErr("");
+    } catch (e) {
+      setPollErr(errText(e));
+    }
   };
   useEffect(() => {
     if (!want) {
@@ -59,7 +65,8 @@ export default function Sdr({ st }: PanelProps<SdrState>) {
     return () => clearInterval(t);
   }, [want]);
 
-  const mode = (req: ModeRequest) => b.api("POST", "/api/sdr/mode", req).catch(() => {});
+  // Only ever called from AsyncButtons, which show a failure beside themselves.
+  const mode = (req: ModeRequest) => b.api("POST", "/api/sdr/mode", req);
   const noStick = !(st.sticks || []).length;
   const [force, setForce] = useState(false);
 
@@ -178,8 +185,9 @@ export default function Sdr({ st }: PanelProps<SdrState>) {
         </div>
       )}
 
+      {want && pollErr && <div className="pr-note">Couldn’t refresh the rtl_433 readings: {pollErr}</div>}
       {data && <R433 data={data} msgs={msgs} onClear={async () => {
-        await b.api("DELETE", "/api/sdr/rtl433").catch(() => {});
+        await b.api("DELETE", "/api/sdr/rtl433");
         seq.current = 0;
         setMsgs([]);
         setData(null);
@@ -281,7 +289,7 @@ function fieldStr(k: string, v: any) {
   return `${k} ${typeof v === "object" ? JSON.stringify(v) : v}`;
 }
 
-function R433({ data, msgs, onClear }: { data: Rtl433Result; msgs: Rtl433Result["messages"]; onClear(): void }) {
+function R433({ data, msgs, onClear }: { data: Rtl433Result; msgs: Rtl433Result["messages"]; onClear(): Promise<unknown> }) {
   const logRef = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
   // Keep the raw log pinned to the bottom while the user hasn't scrolled up.
@@ -296,9 +304,7 @@ function R433({ data, msgs, onClear }: { data: Rtl433Result; msgs: Rtl433Result[
         <span className="pr-note">
           {data.devices.length} sensors · {data.seq} messages
         </span>
-        <button className="btn btn-sm" onClick={onClear}>
-          Clear
-        </button>
+        <AsyncButton onClick={onClear}>Clear</AsyncButton>
       </div>
       {!data.devices.length ? (
         <div className="pr-note">Nothing decoded yet. Most sensors transmit every 30–60 s.</div>

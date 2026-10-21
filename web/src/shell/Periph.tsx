@@ -2,7 +2,8 @@
 // present, something running) or after the user opens it from the Tools strip. Idle
 // sections fold away into that strip. A panel's code is only loaded once it is shown.
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
+import { ActionLine, useAction } from "../ui/status";
 import { useBob, useSnapshot } from "../bob/context";
 import type { Registry } from "../registry";
 import type { PeriphEntry, Status } from "../lib/types";
@@ -72,6 +73,9 @@ function PeriphSettingsButton() {
 function PeriphSettings() {
   const { api, closeModal } = useBob();
   const list = useSnapshot().status?.peripherals?.list || [];
+  // The last switch's outcome, under the one it was.
+  const act = useAction();
+  const [last, setLast] = useState("");
   return (
     <>
       <h3>Peripherals</h3>
@@ -79,13 +83,28 @@ function PeriphSettings() {
       <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "12px 0" }}>
         {list.map((d) => (
           <label key={d.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: ".85rem" }}>
-            <input type="checkbox" checked={!d.disabled} onChange={(e) => api("POST", "/api/periph/driver", { id: d.id, disabled: !e.currentTarget.checked }).catch(() => {})} />
+            <input
+              type="checkbox"
+              checked={!d.disabled}
+              disabled={act.busy}
+              onChange={(e) => {
+                const on = e.currentTarget.checked;
+                setLast(d.id);
+                act.run(() => api("POST", "/api/periph/driver", { id: d.id, disabled: !on }), { busy: on ? "Turning on…" : "Turning off…" });
+              }}
+            />
             <span>
               <b>{d.title}</b>
               {d.description && (
                 <>
                   <br />
                   <span className="pr-note">{d.description}</span>
+                </>
+              )}
+              {last === d.id && act.status && (
+                <>
+                  <br />
+                  <ActionLine a={act} />
                 </>
               )}
             </span>

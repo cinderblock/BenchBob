@@ -8,6 +8,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "
 import { useBob } from "../../bob/context";
 import type { PanelProps } from "../../registry";
 import { fmtAgo, wifiColor } from "../../lib/format";
+import { ActionLine, StatusLine, errText, useAction, type ActionStatus } from "../../ui/status";
 import type { Bss, Profile, Radio, RadiosResp, ScanResp, Step, TestResult, WifiState } from "./api";
 import { HistoryChart, OccupancyChart, WSpark, bandName, chOf, ssidColor } from "./charts";
 import "./style.css";
@@ -65,6 +66,8 @@ export default function Wifi({ st }: PanelProps<WifiState>) {
   const [group, setGroup] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState<Form>(EMPTY_FORM);
+  // Background fetches that failed, by what they load; cleared by the next success.
+  const [loadErr, setLoadErr] = useState<Record<string, string>>({});
 
   const load = async (what: "radios" | "scan" | "results" | "profiles") => {
     try {
@@ -75,7 +78,15 @@ export default function Wifi({ st }: PanelProps<WifiState>) {
       }
       if (what === "results") setResults((await b.api<{ results: TestResult[] }>("GET", "/api/wifi/results")).results);
       if (what === "profiles") setProfiles((await b.api<{ profiles: Profile[] }>("GET", "/api/wifi/profiles")).profiles);
-    } catch {}
+      setLoadErr((m) => {
+        if (!(what in m)) return m;
+        const n = { ...m };
+        delete n[what];
+        return n;
+      });
+    } catch (e) {
+      setLoadErr((m) => ({ ...m, [what]: errText(e) }));
+    }
   };
 
   useEffect(() => {
@@ -99,7 +110,7 @@ export default function Wifi({ st }: PanelProps<WifiState>) {
   }, [st.radiosSeq, st.scan.seq, st.resultsSeq, st.profilesCount]);
 
   // "Someone is looking": the driver scans on its own schedule while any viewer's lease is
-  // fresh. Plain fetch, not api(): a missed renewal isn't worth a toast.
+  // fresh. A missed renewal isn't worth reporting: the next one, 20 s later, retries.
   useEffect(() => {
     const id = Math.random().toString(36).slice(2);
     const send = (method: string) => b.conn.fetch("/api/wifi/watch", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }).catch(() => {});
@@ -121,6 +132,11 @@ export default function Wifi({ st }: PanelProps<WifiState>) {
 
   return (
     <>
+      {Object.entries(loadErr).map(([what, msg]) => (
+        <div key={what} className="pr-note" style={{ color: "var(--danger)" }}>
+          Couldn’t load {what}: {msg}
+        </div>
+      ))}
       <div className="wf-blk">
         <h4>Radios</h4>
         <div className="wf-radios">{radios ? <Radios R={radios} reload={() => load("radios")} /> : <div className="pr-note">Loading…</div>}</div>
@@ -152,7 +168,9 @@ function Radios({ R, reload }: { R: RadiosResp; reload(): void }) {
   const b = useBob();
   const [showChans, setShowChans] = useState<Set<string>>(new Set());
   const [country, setCountry] = useState("");
-  const [note, setNote] = useState("");
+  const reg = useAction();
+  // NetworkManager hand-over status per radio: its buttons swap when it works.
+  const [nm, setNm] = useState<Record<string, ActionStatus | null>>({});
   const g = R.reg;
   return (
     <>
@@ -175,20 +193,26 @@ function Radios({ R, reload }: { R: RadiosResp; reload(): void }) {
         );
         const kind = r.use.kind;
         const pill = kind === "primary" ? "warn" : kind === "backup" || kind === "connected" ? "on" : kind === "test" || kind === "scan" ? "warn" : "";
+        const put = (state: ActionStatus["state"], msg: string) => setNm((m) => ({ ...m, [r.phy]: { state, msg, t: Date.now() } }));
         const managed = async (v: boolean) => {
+          put("busy", "Saving…");
           try {
             await b.api("POST", `/api/wifi/radios/${r.phy}/managed`, { managed: v });
+            put("ok", v ? "Given back to NetworkManager" : "NetworkManager kept off it");
             reload();
-          } catch {}
+          } catch (e) {
+            put("error", errText(e));
+          }
         };
+        const nmBusy = nm[r.phy]?.state === "busy";
         const nmCtl =
           !r.onboard && r.nm.length && r.use.kind !== "test" ? (
             r.unmanagedByUs.length ? (
-              <button className="btn btn-sm" onClick={() => managed(true)}>
+              <button className="btn btn-sm" disabled={nmBusy} onClick={() => managed(true)}>
                 Give back to NetworkManager
               </button>
             ) : r.nm.some((n) => n.state === "connected") ? null : (
-              <button className="btn btn-sm" onClick={() => managed(false)}>
+              <button className="btn btn-sm" disabled={nmBusy} onClick={() => managed(false)}>
                 Keep NetworkManager off it
               </button>
             )
@@ -239,6 +263,7 @@ function Radios({ R, reload }: { R: RadiosResp; reload(): void }) {
                 {shown ? "Hide channels" : "Show channels"}
               </button>
               {nmCtl}
+              <StatusLine s={nm[r.phy] || null} onClear={() => setNm((m) => ({ ...m, [r.phy]: null }))} />
             </div>
             {shown &&
               r.bandInfo.map((x) => (
@@ -272,18 +297,18 @@ function Radios({ R, reload }: { R: RadiosResp; reload(): void }) {
         </label>
         <button
           className="btn btn-sm"
+          disabled={reg.busy}
           onClick={async () => {
-            try {
-              const r = await b.api<{ note?: string; country: string }>("POST", "/api/wifi/reg", { country: country.trim() });
-              setNote(r.note || `Regulatory domain is now ${r.country}.`);
-              reload();
-            } catch {}
+            const r = await reg.run(() => b.api<{ note?: string; country: string }>("POST", "/api/wifi/reg", { country: country.trim() }), { busy: "Setting…", ok: (r) => r.note || `Regulatory domain is now ${r.country}.` });
+            if (r) reload();
           }}
         >
           Set until reboot
         </button>
       </div>
-      <div className="pr-note wf-regnote">{note}</div>
+      <div className="pr-note wf-regnote">
+        <ActionLine a={reg} />
+      </div>
       {!R.ouiSource && (
         <div className="pr-note">
           No OUI vendor database installed, so the vendor column is empty (apt package <span className="wf-mono">ieee-data</span> provides one).
@@ -305,7 +330,9 @@ function ScanControls({ st, radios, band, setBand, group, setGroup, onClear }: {
   useEffect(() => {
     if (!busy) setClicked(false);
   }, [busy]);
-  const putAuto = (p: Record<string, unknown>) => b.api("PUT", "/api/wifi/autoscan", p).catch(() => {});
+  // Scan now, the auto-scan settings and Forget history all report on one line in this row.
+  const act = useAction();
+  const putAuto = (p: Record<string, unknown>) => act.run(() => b.api("PUT", "/api/wifi/autoscan", p), { busy: "Saving…" });
   return (
     <div className="pr-row wf-scanctl">
       <select className="wf-scanradio" value={cur} onChange={(e) => setRadio(e.currentTarget.value)}>
@@ -320,10 +347,12 @@ function ScanControls({ st, radios, band, setBand, group, setGroup, onClear }: {
         disabled={busy || clicked}
         onClick={async () => {
           setClicked(true);
+          act.clear();
           try {
             await b.api("POST", "/api/wifi/scan", { radio: cur || undefined });
-          } catch {
+          } catch (e) {
             setClicked(false);
+            act.fail(`Scan failed: ${errText(e)}`);
           }
         }}
       >
@@ -353,15 +382,14 @@ function ScanControls({ st, radios, band, setBand, group, setGroup, onClear }: {
       </select>
       <button
         className="btn btn-sm"
+        disabled={act.busy}
         onClick={async () => {
-          try {
-            await b.api("DELETE", "/api/wifi/scan");
-            onClear();
-          } catch {}
+          if (await act.run(() => b.api("DELETE", "/api/wifi/scan"), { busy: "Forgetting…", ok: "History forgotten" })) onClear();
         }}
       >
         Forget history
       </button>
+      <ActionLine a={act} />
     </div>
   );
 }
@@ -724,7 +752,7 @@ const EMPTY_FORM: Form = { radio: "", profile: "", ssid: "", security: "psk", ps
 
 function ClientTest({ form: f, setForm, radios, scan, profiles, reloadProfiles }: { form: Form; setForm(fn: (f: Form) => Form): void; radios: RadiosResp | null; scan: ScanResp | null; profiles: Profile[]; reloadProfiles(): void }) {
   const b = useBob();
-  const [busy, setBusy] = useState(false);
+  const act = useAction();
   const set = (p: Partial<Form>) => setForm((x) => ({ ...x, ...p }));
   const rs = radios?.radios || [];
   const radio = rs.some((r) => r.phy === f.radio) ? f.radio : (rs.find((r) => r.netns) || rs[0])?.phy || "";
@@ -783,14 +811,10 @@ function ClientTest({ form: f, setForm, radios, scan, profiles, reloadProfiles }
     return o;
   };
   const run = async () => {
-    setBusy(true);
     const o = readForm();
-    try {
-      await b.api("POST", "/api/wifi/test", o);
-      set({ psk: "", saveAs: "" });
-      if (o.saveAs) reloadProfiles();
-    } catch {}
-    setBusy(false);
+    if (!(await act.run(() => b.api("POST", "/api/wifi/test", o), { busy: "Starting…", ok: "Test started (below)" }))) return;
+    set({ psk: "", saveAs: "" });
+    if (o.saveAs) reloadProfiles();
   };
   const txt = (k: keyof Form, props: Record<string, unknown> = {}) => <input value={f[k] as string} onInput={(e) => set({ [k]: e.currentTarget.value } as Partial<Form>)} {...props} />;
   const chk = (k: keyof Form) => <input type="checkbox" checked={f[k] as boolean} onChange={(e) => set({ [k]: e.currentTarget.checked } as Partial<Form>)} />;
@@ -888,22 +912,22 @@ function ClientTest({ form: f, setForm, radios, scan, profiles, reloadProfiles }
         {warn}
       </div>
       <div className="pr-row">
-        <button className="btn btn-primary" disabled={busy} onClick={run}>
+        <button className="btn btn-primary" disabled={act.busy} onClick={run}>
           Run test
         </button>
         <button
           className="btn btn-sm"
+          disabled={act.busy}
           onClick={async () => {
-            if (!f.profile) return;
-            try {
-              await b.api("DELETE", `/api/wifi/profiles/${f.profile}`);
-              set({ profile: "" });
-              reloadProfiles();
-            } catch {}
+            if (!f.profile) return act.fail("Choose a profile first");
+            if (!(await act.run(() => b.api("DELETE", `/api/wifi/profiles/${f.profile}`), { busy: "Deleting…", ok: "Profile deleted" }))) return;
+            set({ profile: "" });
+            reloadProfiles();
           }}
         >
           Delete selected profile
         </button>
+        <ActionLine a={act} />
       </div>
     </>
   );
@@ -924,34 +948,43 @@ function Timeline({ steps }: { steps: Step[] }) {
 }
 
 function RunningTests({ st }: { st: WifiState }) {
-  const b = useBob();
   return (
     <div className="wf-running">
       {(st.running || []).map((t) => (
-        <div className="pr-card" key={t.id}>
-          <h4>
-            Testing {t.ssid} on {t.phy}{" "}
-            <small>
-              {t.stage} · started {fmtAgo(t.startedAt)}
-            </small>
-            {t.link?.signal != null && (
-              <small>
-                <WSpark hist={t.samples.map((x) => x.signal).filter((x): x is number => x != null)} /> <Sig dbm={t.link.signal} /> dBm · tx {t.link.txRate || "?"} · rx {t.link.rxRate || "?"}
-              </small>
-            )}
-            <button className="btn btn-sm btn-danger" onClick={() => b.api("POST", `/api/wifi/test/${t.id}/cancel`).catch(() => {})}>
-              Cancel
-            </button>
-          </h4>
-          <Timeline steps={t.timeline} />
-        </div>
+        <RunningTest key={t.id} t={t} />
       ))}
+    </div>
+  );
+}
+
+function RunningTest({ t }: { t: NonNullable<WifiState["running"]>[number] }) {
+  const b = useBob();
+  const cancel = useAction();
+  return (
+    <div className="pr-card">
+      <h4>
+        Testing {t.ssid} on {t.phy}{" "}
+        <small>
+          {t.stage} · started {fmtAgo(t.startedAt)}
+        </small>
+        {t.link?.signal != null && (
+          <small>
+            <WSpark hist={t.samples.map((x) => x.signal).filter((x): x is number => x != null)} /> <Sig dbm={t.link.signal} /> dBm · tx {t.link.txRate || "?"} · rx {t.link.rxRate || "?"}
+          </small>
+        )}
+        <button className="btn btn-sm btn-danger" disabled={cancel.busy} onClick={() => cancel.run(() => b.api("POST", `/api/wifi/test/${t.id}/cancel`), { busy: "Cancelling…" })}>
+          Cancel
+        </button>
+        <ActionLine a={cancel} />
+      </h4>
+      <Timeline steps={t.timeline} />
     </div>
   );
 }
 
 function Results({ results: R }: { results: TestResult[] }) {
   const b = useBob();
+  const clear = useAction();
   const [open, setOpen] = useState<Set<string>>(new Set());
   if (!R.length) return <div className="wf-results pr-note">No tests yet.</div>;
   return (
@@ -1030,9 +1063,10 @@ function Results({ results: R }: { results: TestResult[] }) {
         );
       })}
       <div className="pr-row">
-        <button className="btn btn-sm" onClick={() => b.api("DELETE", "/api/wifi/results").catch(() => {})}>
+        <button className="btn btn-sm" disabled={clear.busy} onClick={() => clear.run(() => b.api("DELETE", "/api/wifi/results"), { busy: "Clearing…" })}>
           Clear results
         </button>
+        <ActionLine a={clear} />
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBob } from "../../bob/context";
 import type { PanelProps } from "../../registry";
 import { readLocal, writeLocal } from "../../lib/storage";
+import { ActionLine, errText, useAction } from "../../ui/status";
 import { camPaths, type CameraControl, type CameraDetail, type CameraPublic, type CameraState, type StreamChoice } from "./api";
 
 const fmtStream = (s: StreamChoice | null) => (s ? `${s.fourcc} ${s.w}×${s.h} @ ${s.fps} fps` : "no streamable format");
@@ -80,6 +81,9 @@ function CamCard({ c, wanted, setWanted }: { c: CameraPublic; wanted: boolean; s
   const [snap, setSnap] = useState<{ url: string; at: Date } | { error: string } | "loading" | null>(null);
   const [detail, setDetail] = useState<CameraDetail | null>(null);
   const [detOpen, setDetOpen] = useState(false);
+  const det = useAction();
+  // Stop camera vanishes once it works, so its status belongs to the card.
+  const stop = useAction();
 
   // Stop pulling frames while the card is scrolled out of view.
   useEffect(() => {
@@ -96,9 +100,8 @@ function CamCard({ c, wanted, setWanted }: { c: CameraPublic; wanted: boolean; s
 
   const on = wanted && visible && pageVisible;
   const loadDetail = async () => {
-    try {
-      setDetail(await b.api<CameraDetail>("GET", camPaths.detail(c.id)));
-    } catch {}
+    const d = await det.run(() => b.api<CameraDetail>("GET", camPaths.detail(c.id)), { busy: "Loading…" });
+    if (d) setDetail(d);
   };
   const restartView = () => setStreamT(Date.now());
 
@@ -167,10 +170,11 @@ function CamCard({ c, wanted, setWanted }: { c: CameraPublic; wanted: boolean; s
           Download JPEG
         </a>
         {c.streaming && (
-          <button className="btn btn-sm cam-stop" onClick={() => b.api("POST", camPaths.stop(c.id)).catch(() => {})}>
+          <button className="btn btn-sm cam-stop" disabled={stop.busy} onClick={() => stop.run(() => b.api("POST", camPaths.stop(c.id)), { busy: "Stopping…", ok: "Camera stopped" })}>
             Stop camera
           </button>
         )}
+        <ActionLine a={stop} />
       </div>
       <div className="cam-view">
         {on && !ended ? (
@@ -222,6 +226,7 @@ function CamCard({ c, wanted, setWanted }: { c: CameraPublic; wanted: boolean; s
         <summary className="pr-note" style={{ cursor: "pointer", marginTop: 8 }}>
           Stream settings and image controls
         </summary>
+        <ActionLine a={det} />
         {detail && (
           <>
             <Settings
@@ -253,6 +258,8 @@ function Settings({ id, d, after }: { id: string; d: CameraDetail; after(): void
   const [pend, setPend] = useState<Partial<StreamChoice>>(cur);
   const [share, setShare] = useState(d.share);
   const portRef = useRef<HTMLInputElement>(null);
+  const applyA = useAction();
+  const shareA = useAction();
   useEffect(() => {
     setPend(d.stream || {});
     setShare(d.share);
@@ -267,13 +274,12 @@ function Settings({ id, d, after }: { id: string; d: CameraDetail; after(): void
 
   const apply = async () => {
     const [w, h] = sizeVal.split("x").map(Number);
-    await b.api("POST", camPaths.config(id), { fourcc: f.fourcc, w, h, fps: Number(fps) }).catch(() => {});
-    after();
+    if (await applyA.run(() => b.api("POST", camPaths.config(id), { fourcc: f.fourcc, w, h, fps: Number(fps) }), { busy: "Restarting the stream…", ok: "Applied" })) after();
   };
   const doShare = async (on: boolean) => {
     setShare(on);
-    await b.api("POST", camPaths.config(id), { share: on, sharePort: Number(portRef.current?.value) }).catch(() => {});
-    after();
+    if (await shareA.run(() => b.api("POST", camPaths.config(id), { share: on, sharePort: Number(portRef.current?.value) }), { busy: "Saving…" })) after();
+    else setShare(d.share);
   };
   return (
     <div className="cam-settings">
@@ -316,9 +322,10 @@ function Settings({ id, d, after }: { id: string; d: CameraDetail; after(): void
             {!fpsList.length && <option value={String(fps)}>{fps}</option>}
           </select>
         </label>
-        <button className="btn btn-sm" onClick={apply}>
+        <button className="btn btn-sm" disabled={applyA.busy} onClick={apply}>
           Apply
         </button>
+        <ActionLine a={applyA} />
       </div>
       <div className="pr-note">{!f.compressed ? "Uncompressed: the Pi JPEG-encodes every frame, so keep it modest." : "MJPEG is forwarded as the camera sends it."}</div>
       <div className="pr-row">
@@ -337,6 +344,7 @@ function Settings({ id, d, after }: { id: string; d: CameraDetail; after(): void
           onBlur={(e) => Number(e.currentTarget.value) !== d.sharePort && doShare(share)}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         />
+        <ActionLine a={shareA} />
       </div>
       <div className="pr-note">
         {d.share ? (
@@ -374,12 +382,19 @@ function Range({ c, send }: { c: CameraControl; send(v: number): void }) {
 
 function Controls({ id, controls, setControls }: { id: string; controls: CameraControl[]; setControls(c: CameraControl[]): void }) {
   const b = useBob();
+  // One line for every control and Reset: the last change's outcome.
+  const ctl = useAction();
   if (!controls.length) return <div className="pr-note">No adjustable controls.</div>;
   const set = async (name: string, value: number) => {
+    const label = name.replace(/_/g, " ");
+    ctl.progress(`Setting ${label}…`);
     try {
       const r = await b.api<{ controls: CameraControl[] }>("POST", camPaths.controls(id), { [name]: value });
       setControls(r.controls);
-    } catch {}
+      ctl.clear();
+    } catch (e) {
+      ctl.fail(`${label}: ${errText(e)}`);
+    }
   };
   return (
     <>
@@ -412,15 +427,15 @@ function Controls({ id, controls, setControls }: { id: string; controls: CameraC
       <div className="pr-row">
         <button
           className="btn btn-sm"
+          disabled={ctl.busy}
           onClick={async () => {
-            try {
-              const r = await b.api<{ controls: CameraControl[] }>("POST", camPaths.controlsReset(id));
-              setControls(r.controls);
-            } catch {}
+            const r = await ctl.run(() => b.api<{ controls: CameraControl[] }>("POST", camPaths.controlsReset(id)), { busy: "Resetting…", ok: "Reset to defaults" });
+            if (r) setControls(r.controls);
           }}
         >
           Reset to defaults
         </button>
+        <ActionLine a={ctl} />
         <span className="pr-note">Your values are saved and re-applied when the camera is plugged in again.</span>
       </div>
     </>

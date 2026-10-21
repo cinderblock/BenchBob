@@ -1,11 +1,12 @@
 // GPS panel: pick a receiver, run a temporary gpsd, show fix + sky plot. Everything comes
 // from the status stream (~2 s), which is plenty for a 1 Hz receiver.
 
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useBob } from "../../bob/context";
 import type { PanelProps } from "../../registry";
 import { fmtAgo } from "../../lib/format";
 import { AsyncButton } from "../../ui/common";
+import { ActionLine, useAction } from "../../ui/status";
 import type { GpsState, Sat } from "./api";
 
 const PFX: Record<string, string> = { GPS: "G", GLONASS: "R", Galileo: "E", BeiDou: "C", SBAS: "S", QZSS: "J", NavIC: "I" };
@@ -68,6 +69,9 @@ export default function Gps({ st }: PanelProps<GpsState>) {
   const o = (k: string) => opts.current?.querySelector<HTMLInputElement>(`[data-o="${k}"]`) || null;
   const startOpts = () => ({ port: +(o("port")?.value || 0) || undefined, share: !!o("share")?.checked, readOnly: !!o("ro")?.checked, pps: o("pps") ? o("pps")!.checked : undefined });
   const host = b.conn.hostname;
+  // "Use as GPS": the last one ticked reports in its own card.
+  const use = useAction();
+  const [useKey, setUseKey] = useState("");
 
   return (
     <>
@@ -89,9 +93,19 @@ export default function Gps({ st }: PanelProps<GpsState>) {
             <div className="pr-row">
               {c.kind !== "gps" && (
                 <label>
-                  <input type="checkbox" checked={!!c.chosen} onChange={(e) => b.api("POST", "/api/gps/use", { device: c.key, use: e.currentTarget.checked }).catch(() => {})} /> Use as GPS
+                  <input
+                    type="checkbox"
+                    checked={!!c.chosen}
+                    disabled={use.busy}
+                    onChange={(e) => {
+                      setUseKey(c.key);
+                      use.run(() => b.api("POST", "/api/gps/use", { device: c.key, use: e.currentTarget.checked }), { busy: "Saving…" });
+                    }}
+                  />{" "}
+                  Use as GPS
                 </label>
               )}
+              {useKey === c.key && <ActionLine a={use} />}
               {gps && !mine && (
                 <AsyncButton className="btn btn-sm btn-primary" disabled={c.holders.length > 0} onClick={() => b.api("POST", "/api/gps/start", { device: c.key, ...startOpts() })}>
                   Start gpsd
