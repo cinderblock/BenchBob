@@ -5,7 +5,7 @@ binary per architecture, the same API (paths, JSON shapes and key order, SSE and
 WebSocket messages, MCP tool names), the same settings files, so either the old dashboard
 or the new web UI works against either server.
 
-> **Status:** the foundation, the board layer and the GPIO panel are native. Everything
+> **Status:** the foundation, the board layer and the GPIO, I²C and 1-Wire panels are native. Everything
 > else is proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
 > own port 80 before it has every panel. The released `.deb` still runs Bun only.
 
@@ -16,6 +16,8 @@ or the new web UI works against either server.
 | `/api/update*` (release check, settings, install), `/mcp` (stateless Streamable HTTP), `/api/periph/driver`, `/api/periph/timeline` | yes |
 | `GET /api/boards`: the board files loaded, which one matched, files that failed (new) | yes |
 | GPIO panel: `/api/gpio*`, `/ws/gpio`, `gpio_*` MCP tools, plus `POST /api/gpio/line` (new) | yes |
+| I²C panel: `/api/i2c*`, `i2c_*` MCP tools | yes |
+| 1-Wire panel: `/api/onewire*`, `onewire_*` MCP tools | yes |
 | Drives, flashing, rpiboot, files, catalog, and every other panel | proxied |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
@@ -31,6 +33,9 @@ to any bob.
 | `crates/core` (`benchbob-core`) | The `Driver` trait (routes, WebSockets, MCP tools, status), the registry, `peripherals.json` settings (merged on write), udev hotplug, the event timeline, MCP, child processes, the state directory |
 | `crates/boards` (`benchbob-boards`) | The board file format, loading (`/usr/share/benchbob/boards`, then `/etc/benchbob/boards.d`) and detection |
 | `crates/gpio` (`benchbob-gpio`) | The GPIO driver: gpiochip v2 uAPI (with output requests), passive level readers (BCM2711 gpiomem, RP1), config.txt and boot-overlay editors, board scripts |
+| `crates/i2c-chips` (`benchbob-i2c-chips`) | I²C chip identification and decoders (~40 chips), the `I2cIo` bus trait and a FakeBus simulator; `no_std` + `alloc`, so the firmware nodes can use it too |
+| `crates/i2c` (`benchbob-i2c`) | The I²C driver: /dev/i2c-N ioctls, i2cdetect-style scans, polling, raw register tools |
+| `crates/onewire` (`benchbob-onewire`) | The 1-Wire driver: w1 sysfs masters and slaves, family decoders, DS2482 bridges, the iButton touch log, a fixture tree |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -87,6 +92,7 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_BOARD` | force a board id |
 | `BENCHBOB_BOARDS_DIR`, `BENCHBOB_BOARDS_D` | other board directories (shipped / user) |
 | `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port |
+| `BENCHBOB_W1_ROOT` | read 1-Wire from a fixture tree instead of /sys/bus/w1/devices (`BENCHBOB_W1_FIXTURE_OUT=<dir> cargo test -p benchbob-onewire write_fixture_tree` writes one) |
 | `BENCHBOB_CONFIG_TXT`, `BENCHBOB_CMDLINE_TXT`, `BENCHBOB_BOOT_ENV`, `BENCHBOB_OVERLAY_DIR` | point the boot-config editors at test copies (reboot is then refused) |
 | `RUST_LOG` | log filter (default `info`) |
 
@@ -128,3 +134,16 @@ bind-address setting).
   pinctrl, and has never run on hardware. `GET /api/gpio` reports it in `levelReader`
   (`tested: false`).
 - Consumers come from the uAPI, not from spawning `gpioinfo`.
+
+## I²C and 1-Wire notes
+
+- **I²C scans** use i2cdetect's auto mode (read-byte at 0x30–0x37 and 0x50–0x5F, quick-write
+  elsewhere) and skip addresses a kernel driver owns. Identification sends only register
+  pointers and read commands, in the chip table's order (pure reads first where a pointer
+  would be a command). Auto-polling runs read-only decoders; Measure and auto-measure may
+  write; raw writes and write transfers over REST need `confirm: true` (the MCP tools
+  don't ask; their descriptions say they change device state).
+- The chip table (`benchbob-i2c-chips`) builds without std; the firmware can implement
+  `I2cIo` over its own I²C peripheral and reuse every probe and decoder.
+- **1-Wire** root-only sysfs writes (search, bulk read, outputs, resolution, DS2482
+  bind/unbind) fall back to `sudo -n tee`, as the Bun server's do.
