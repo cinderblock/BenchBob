@@ -20,6 +20,19 @@ use crate::util::{Utf8Stream, base36, base64_decode, js_round, multipart};
 
 pub const FLASH_DIR: &str = "/var/tmp/benchbob-serial";
 
+/// Where firmware files are staged: FLASH_DIR, or BENCHBOB_FLASH_DIR (a side instance that
+/// can't write the packaged one's directory).
+pub fn flash_dir() -> String {
+    benchbob_core::paths::env("BENCHBOB_FLASH_DIR").unwrap_or_else(|| FLASH_DIR.into())
+}
+
+/// An io::Error as Node words a failed fs call: "EACCES: permission denied, mkdir '/x'".
+fn node_fs_error(e: &std::io::Error, op: &str, path: &str) -> String {
+    let what = e.to_string();
+    let what = what.split(" (os error").next().unwrap_or(&what).to_lowercase();
+    format!("{}: {what}, {op} '{path}'", crate::termios::io_code(e))
+}
+
 pub struct FlashJob {
     pub id: String,
     pub tool: String,
@@ -231,7 +244,7 @@ impl Inner {
             return Err(HttpError::bad_request("No firmware: upload a file or give files[] with url or base64"));
         }
         let id = format!("{}-{}", base36(now_ms()), self.job_seq.fetch_add(1, Ordering::SeqCst) + 1);
-        let dir = format!("{FLASH_DIR}/{id}");
+        let dir = format!("{}/{id}", flash_dir());
         let files: Vec<FlashFile> = srcs
             .iter()
             .enumerate()
@@ -305,7 +318,7 @@ impl Inner {
     }
 
     async fn run_flash(self: &Arc<Self>, p: &Arc<Port>, srcs: Vec<Source>, files: Vec<FlashFile>, dir: &str) -> Result<(), String> {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{dir}: {e}"))?;
+        std::fs::create_dir_all(dir).map_err(|e| node_fs_error(&e, "mkdir", dir))?;
         for (s, f) in srcs.iter().zip(&files) {
             let data = match (&s.data, &s.url) {
                 (Some(d), _) => d.clone(),
@@ -332,7 +345,7 @@ impl Inner {
             if data.is_empty() {
                 return Err(format!("{} is empty", f.name));
             }
-            std::fs::write(&f.path, &data).map_err(|e| format!("{}: {e}", f.path))?;
+            std::fs::write(&f.path, &data).map_err(|e| node_fs_error(&e, "open", &f.path))?;
         }
         let (cmd, tool, action, reopen, close) = {
             let mut st = p.lock();
@@ -514,6 +527,12 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fs_errors_read_like_node() {
+        let e = std::io::Error::from_raw_os_error(13);
+        assert_eq!(node_fs_error(&e, "mkdir", "/var/tmp/x"), "EACCES: permission denied, mkdir '/var/tmp/x'");
+    }
 
     #[test]
     fn offsets() {

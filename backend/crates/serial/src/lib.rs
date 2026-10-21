@@ -445,7 +445,7 @@ impl Driver for Serial {
     async fn init(&self, ctx: Ctx) -> anyhow::Result<()> {
         let _ = self.inner.ctx.set(ctx);
         *self.inner.cmdline.lock().unwrap() = benchbob_core::run::read_text("/boot/firmware/cmdline.txt");
-        let _ = std::fs::create_dir_all(flashjob::FLASH_DIR);
+        let _ = std::fs::create_dir_all(flashjob::flash_dir());
         self.inner.rescan();
         Ok(())
     }

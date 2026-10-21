@@ -90,6 +90,7 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_BOARDS_DIR`, `BENCHBOB_BOARDS_D` | other board directories (shipped / user) |
 | `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port |
 | `BENCHBOB_CONFIG_TXT`, `BENCHBOB_CMDLINE_TXT`, `BENCHBOB_BOOT_ENV`, `BENCHBOB_OVERLAY_DIR` | point the boot-config editors at test copies (reboot is then refused) |
+| `BENCHBOB_FLASH_DIR` | where the serial panel stages firmware files (default `/var/tmp/benchbob-serial`; a side instance can't write the packaged one's) |
 | `RUST_LOG` | log filter (default `info`) |
 
 The old `DESKYPI_*` names still work. `benchbob --native-drivers` prints the ids of the
