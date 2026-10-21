@@ -187,6 +187,7 @@ dependencies = [
  "axum",
  "benchbob-core",
  "benchbob-i2c-chips",
+ "indexmap",
  "libc",
  "regex",
  "serde_json",

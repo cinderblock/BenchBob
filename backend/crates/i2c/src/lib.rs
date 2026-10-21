@@ -160,7 +160,8 @@ pub(crate) struct Inner {
     pub ctx: OnceLock<Ctx>,
     /// "/sys", or a fixture tree in tests.
     pub sys: PathBuf,
-    pub buses: Mutex<BTreeMap<u32, Arc<Bus>>>,
+    /// In discovery (readdir) order, which `?all=1` lists them in, as the TypeScript does.
+    pub buses: Mutex<indexmap::IndexMap<u32, Arc<Bus>>>,
     pub running: AtomicBool,
     pub epoch: AtomicU64,
     pub udev_gen: AtomicU64,
@@ -188,7 +189,7 @@ impl I2c {
             inner: Arc::new(Inner {
                 ctx: OnceLock::new(),
                 sys,
-                buses: Mutex::new(BTreeMap::new()),
+                buses: Mutex::new(indexmap::IndexMap::new()),
                 running: AtomicBool::new(false),
                 epoch: AtomicU64::new(0),
                 udev_gen: AtomicU64::new(0),
@@ -435,7 +436,7 @@ impl Inner {
         let gone: Vec<Arc<Bus>> = {
             let mut buses = lock(&self.buses);
             let ids: Vec<u32> = buses.keys().filter(|k| !seen.contains(k)).copied().collect();
-            ids.iter().filter_map(|k| buses.remove(k)).collect()
+            ids.iter().filter_map(|k| buses.shift_remove(k)).collect()
         };
         for b in gone {
             if b.kind != "ddc" {
@@ -812,7 +813,9 @@ impl Inner {
     }
 
     pub(crate) fn user_buses(&self) -> Vec<Arc<Bus>> {
-        lock(&self.buses).values().filter(|b| b.kind != "ddc").cloned().collect()
+        let mut v: Vec<Arc<Bus>> = lock(&self.buses).values().filter(|b| b.kind != "ddc").cloned().collect();
+        v.sort_by_key(|b| b.bus);
+        v
     }
 
     pub(crate) fn all_buses(&self) -> Vec<Arc<Bus>> {
