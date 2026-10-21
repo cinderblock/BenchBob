@@ -105,6 +105,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "benchbob-ble",
  "benchbob-boards",
  "benchbob-can",
  "benchbob-core",
@@ -113,6 +114,7 @@ dependencies = [
  "benchbob-i2c",
  "benchbob-onewire",
  "benchbob-serial",
+ "benchbob-wifi",
  "bytes",
  "flate2",
  "futures-util",
@@ -129,6 +131,22 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xxhash-rust",
+]
+
+[[package]]
+name = "benchbob-ble"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -281,6 +299,24 @@ dependencies = [
  "regex",
  "serde_json",
  "socket2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "benchbob-wifi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
