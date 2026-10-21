@@ -7,6 +7,7 @@
 #   benchbob-drives  drives, flashing, rpiboot, bootloader cards, files, OS detection
 #   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
 #   benchbob-gps     the GPS panel: USB receivers through a temporary gpsd
+#   benchbob-probes  the debug probes panel: OpenOCD GDB servers, flashing, UF2/DFU bootloaders
 #   benchbob-sdr     the RTL-SDR panel: rtl_tcp, rtl_433, stick probing
 #   benchbob-serial  the serial panel: termios2 ports, bridges, auto-baud, flashing
 #   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
@@ -35,6 +36,7 @@ benchbob-can = { path = "crates/can" }
 benchbob-drives = { path = "crates/drives" }
 benchbob-gpio = { path = "crates/gpio" }
 benchbob-gps = { path = "crates/gps" }
+benchbob-probes = { path = "crates/probes" }
 benchbob-sdr = { path = "crates/sdr" }
 benchbob-serial = { path = "crates/serial" }
 benchbob-ups = { path = "crates/ups" }
