@@ -5,7 +5,7 @@
 use super::*;
 
 pub(crate) fn fx(name: &str) -> String {
-    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../peripherals/lib/wifi-fixtures").join(name);
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name);
     std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display())).replace("\r\n", "\n")
 }
 

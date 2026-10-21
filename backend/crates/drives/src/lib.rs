@@ -16,8 +16,8 @@
 //! It isn't a dashboard panel: it has no `peripherals` row and can't be disabled
 //! ([`Driver::listed`] is false), and its status fields are top-level ones the binary adds
 //! through [`Drives::status_fields`]. Every effect on the system goes through [`sys::Sys`],
-//! which is how the write paths are tested against the TypeScript server's (see
-//! fixtures/harness.ts) without a disk in sight.
+//! which is how the write paths are tested against what the TypeScript server did (see
+//! the note on the frozen fixtures in `scenario_tests.rs`) without a disk in sight.
 
 pub mod bootops;
 pub mod catalog;

@@ -15,7 +15,7 @@ use crate::model::*;
 
 macro_rules! fx {
     ($f:literal) => {
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../peripherals/lib/usb-fixtures/", $f))
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/", $f))
     };
 }
 

@@ -1,4 +1,4 @@
-// CAN (peripherals/drivers/can.ts): SocketCAN interfaces, SLCAN/vcan, recordings,
+// CAN (backend/crates/can): SocketCAN interfaces, SLCAN/vcan, recordings,
 // socketcand, and the /ws/can/:iface monitor stream.
 
 export interface CanIface {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseUf2, uf2Accepts } from "../../peripherals/lib/probes.ts";
+import { parseUf2, uf2Accepts } from "./uf2-parse.ts";
 import { elfToUf2 } from "./elf2uf2.ts";
 import { checkConfig, configUf2, crc32, decodeConfigUf2, PICO2W_CONFIG_ADDR, UF2 } from "./nodeconfig.ts";
 

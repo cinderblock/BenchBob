@@ -1,4 +1,4 @@
-// 1-Wire driver (peripherals/drivers/onewire.ts): status shapes the panel reads.
+// 1-Wire driver (backend/crates/onewire): status shapes the panel reads.
 
 export interface OwValue {
   k: string;

@@ -1,4 +1,4 @@
-// GPIO driver (peripherals/drivers/gpio.ts): types as the dashboard uses them.
+// GPIO driver (backend/crates/gpio): types as the dashboard uses them.
 
 import type { BoardInfo } from "../../lib/types";
 

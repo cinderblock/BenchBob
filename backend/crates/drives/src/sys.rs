@@ -294,9 +294,9 @@ impl Sys for Real {
 
 #[cfg(test)]
 pub mod mock {
-    //! A scripted system. Scenarios are JSON shared with the TypeScript harness
-    //! (fixtures/harness.ts), so both servers answer the same commands the same way, and
-    //! both logs are compared entry by entry.
+    //! A scripted system. The scenarios are the JSON the TypeScript harness ran server.ts
+    //! on, so this answers commands as that mock did, and the logs are compared entry by
+    //! entry with what it recorded (frozen; see `scenario_tests`).
 
     use std::collections::VecDeque;
     use std::sync::Mutex;

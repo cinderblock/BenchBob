@@ -13,7 +13,7 @@ fn fields(b: Option<Beacon>) -> Value {
 /// `BENCHBOB_BLE_CAPTURE` can point at a copy elsewhere.
 fn capture() -> Option<Vec<u8>> {
     let p = std::env::var("BENCHBOB_BLE_CAPTURE").map(std::path::PathBuf::from).unwrap_or_else(|_| {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../peripherals/lib/radios-fixtures/ble-scan.btsnoop")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/ble-scan.btsnoop")
     });
     std::fs::read(p).ok()
 }

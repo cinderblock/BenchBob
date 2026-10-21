@@ -1,4 +1,4 @@
-// Drives API types (server.ts, osinfo.ts): OS detection, the file browser, raw probes.
+// Drives API types (backend/crates/drives): OS detection, the file browser, raw probes.
 
 import type { BobConnection } from "../../lib/connection";
 import type { Drive } from "../../lib/types";

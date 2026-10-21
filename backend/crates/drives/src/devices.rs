@@ -217,7 +217,7 @@ mod tests {
     }
 
     /// desky's lsblk with a USB stick added: key order as lsblk gives it, rates and flags
-    /// appended/replaced as server.ts does (fixtures/harness.ts wrote the expected output).
+    /// appended/replaced as server.ts did (its harness recorded the expected output; frozen).
     #[tokio::test]
     async fn devices_from_lsblk_match_server_ts() {
         let scn: Value = serde_json::from_str(include_str!("../fixtures/devices-scenario.json")).unwrap();

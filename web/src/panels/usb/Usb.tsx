@@ -1,5 +1,5 @@
 // USB panel: device tree (controllers → buses → hubs → devices) with per-port power chips,
-// USB/IP and usbredir sharing, and the hardware timeline. Server: peripherals/drivers/usb.ts.
+// USB/IP and usbredir sharing, and the hardware timeline. Server: backend/crates/usb.
 
 import { useState, type ReactNode } from "react";
 import registry from "@registry";

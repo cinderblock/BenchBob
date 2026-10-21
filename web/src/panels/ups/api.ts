@@ -1,4 +1,4 @@
-// UPS driver (peripherals/drivers/ups.ts): status shapes the panel reads.
+// UPS driver (backend/crates/ups): status shapes the panel reads.
 
 export interface Ups {
   name: string;

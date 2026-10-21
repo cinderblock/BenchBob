@@ -1,4 +1,4 @@
-// The status a Linux bob pushes over SSE every ~2 s (server.ts getStatus()), and what a
+// The status a Linux bob pushes over SSE every ~2 s (GET /api/status), and what a
 // microcontroller node answers on GET /api/status (firmware/proto/src/api.rs). Written by
 // hand and kept in sync with the backends; there is no schema between them on purpose.
 
