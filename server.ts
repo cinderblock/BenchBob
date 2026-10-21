@@ -509,6 +509,13 @@ function isSysDev(name: string): boolean {
   return name.startsWith("mmcblk") || name.startsWith("zram") || name.startsWith("loop");
 }
 
+// A drive name from a client, before it goes anywhere near a command: probe and flash
+// build `sh -c` scripts with /dev/<name> (run under sudo), so anything but a plain kernel
+// disk name (sda, nvme0n1) is refused, as are the system disks.
+function badDevice(name: unknown): boolean {
+  return typeof name !== "string" || !/^[a-z][a-z0-9]*$/.test(name) || isSysDev(name);
+}
+
 async function prepareDevice(devName: string): Promise<void> {
   const { out } = await run(["lsblk", "-J", "-o", "NAME,MOUNTPOINT", `/dev/${devName}`]);
   const mps: string[] = [];
@@ -2195,14 +2202,14 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
 
     if (p === "/api/eject" && req.method === "POST") {
       const { device } = await req.json();
-      if (!device || isSysDev(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
+      if (badDevice(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
       if (isDeviceBusy(device)) return Response.json({ ok: false, message: "Device busy" }, { status: 409 });
       return Response.json(await ejectDevice(device));
     }
 
     if (p === "/api/erase" && req.method === "POST") {
       const { device, mode } = await req.json();
-      if (!device || isSysDev(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
+      if (badDevice(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
       if (isDeviceBusy(device)) return Response.json({ ok: false, message: "Device busy" }, { status: 409 });
       const op: Operation = { id: crypto.randomUUID(), type: "erase", device, status: "starting", progress: 0, message: "Starting...", mode: mode || "quick" };
       enqueue(op);
@@ -2211,8 +2218,13 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
 
     if (p === "/api/flash" && req.method === "POST") {
       const { imageUrl, imageName, extractSize, device, settings } = await req.json();
-      if (!device || isSysDev(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
+      if (badDevice(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
       if (!imageUrl) return Response.json({ ok: false, message: "No image URL" }, { status: 400 });
+      // Its last segment is the download's name inside a double-quoted `bash -c` pipeline:
+      // refuse what could break the quoting or leave FLASH_DIR (same rule as the Rust port).
+      const dlName = typeof imageUrl === "string" ? imageUrl.split("/").pop() || "" : "";
+      if (!dlName || dlName === "." || dlName === ".." || /["\\$`\0\n]/.test(dlName))
+        return Response.json({ ok: false, message: "Bad image URL" }, { status: 400 });
       // Allow queueing after erase, but not if already queued or non-erase is running
       const ops = getOpsForDevice(device);
       const nonEraseRunning = ops.some((o) => !["done", "error", "queued"].includes(o.status) && o.type !== "erase");
@@ -2228,19 +2240,19 @@ async function handle(req: Request, server: Parameters<typeof periph.route>[2]):
 
     if (p === "/api/scan" && req.method === "POST") {
       const { device } = await req.json();
-      if (!device || isSysDev(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
+      if (badDevice(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
       return Response.json(await scanDevice(device));
     }
 
     if (p === "/api/probe" && req.method === "POST") {
       const { device } = await req.json();
-      if (!device || isSysDev(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
+      if (badDevice(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
       return Response.json(await probeDevice(device));
     }
 
     if (p === "/api/deepscan" && req.method === "POST") {
       const { device } = await req.json();
-      if (!device || isSysDev(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
+      if (badDevice(device)) return Response.json({ ok: false, message: "Invalid device" }, { status: 400 });
       if (isDeviceBusy(device)) return Response.json({ ok: false, message: "Device busy" }, { status: 409 });
       const op: Operation = { id: crypto.randomUUID(), type: "deepscan", device, status: "starting", progress: 0, message: "Starting..." };
       enqueue(op);
