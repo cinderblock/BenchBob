@@ -1,7 +1,8 @@
 name: CI
 
-# Every push and PR: unit tests, both packages, and a real install of each on a matching
-# runner. A v* tag also publishes the packages as a GitHub Release.
+# Every push and PR: the server's tests, the web UI's, every package, a real install of
+# the amd64 and arm64 ones on matching runners, and an upgrade from the Bun-based 0.4.1.
+# A v* tag also publishes the packages as a GitHub Release.
 on:
   push:
     branches: [master]
@@ -14,18 +15,10 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-      - run: bun test peripherals/ ./update.test.ts
-
-  # ---- Rust backend (backend/): not shipped by default yet (packaging/build-deb.sh
-  # includes it only when given a binary). Tests and lint on x86-64 and arm64, then a
-  # static musl binary for every target. ----
+  # ---- The server (backend/): tests and lint on x86-64 and arm64, then a static musl
+  # binary for every target. The packages ship these binaries; nothing runs Bun on the box.
+  # (The runners' passwordless sudo lets core's test that a dropped `sudo` child's program
+  # dies run for real.) ----
 
   backend-test:
     strategy:
@@ -55,7 +48,7 @@ jobs:
           - { target: x86_64-unknown-linux-musl, arch: amd64 }
           - { target: aarch64-unknown-linux-musl, arch: arm64 }
           # ARMv7 hard-float (BeagleBone Black, Pi 2), and ARMv6 hard-float (Pi Zero W,
-          # Pi 1; also runs on ARMv7), which is the one an armhf package ships.
+          # Pi 1; also runs on ARMv7), which is the one the armhf package ships.
           - { target: armv7-unknown-linux-musleabihf, arch: armv7 }
           - { target: arm-unknown-linux-musleabihf, arch: armhf }
     runs-on: ubuntu-latest
@@ -91,7 +84,8 @@ jobs:
           for i in $(seq 30); do curl -fsS http://localhost:8099/api > api.json && break; sleep 1; done
           jq -e '.name == "BenchBob API"' api.json
           curl -fsS http://localhost:8099/api/status | jq -e '.board.id and .system.cores > 0'
-          curl -fsS http://localhost:8099/ | grep -q '<h1 id="title">BenchBob</h1>'
+          # No web build in this job: / says how to make one.
+          curl -fsS http://localhost:8099/ | grep -q "The dashboard isn't built"
           curl -fsS -X OPTIONS -H 'Origin: http://example.com' -H 'Access-Control-Request-Method: POST' -D - -o /dev/null http://localhost:8099/api/status | grep -qi '^access-control-allow-origin: \*'
           kill $pid
       - uses: actions/upload-artifact@v4
@@ -101,6 +95,7 @@ jobs:
 
   # The dashboard (web/): typecheck, component tests, and both builds (full and the
   # microcontroller-node one) with their size budget. The package jobs ship this build.
+  # Bun is only a build tool here; the packages don't contain it.
   web:
     runs-on: ubuntu-latest
     defaults:
@@ -202,15 +197,17 @@ jobs:
             --title "Node firmware ${GITHUB_REF_NAME#firmware-}" --generate-notes --latest=false \
             dist/benchbob-node-pico2w.uf2 dist/benchbob-node-esp32c6.bin dist/SHA256SUMS
 
+  # The .deb for each architecture: the server binary from backend-build, the web build,
+  # the board files and the system glue. amd64 and arm64 are installed and smoke-tested on
+  # matching runners; there is no armhf runner, so that one is built and inspected only.
   package:
-    needs: [test, web]
+    needs: [backend-build, web]
     strategy:
       matrix:
         include:
-          - arch: amd64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
+          - { arch: amd64, runner: ubuntu-24.04, install: true }
+          - { arch: arm64, runner: ubuntu-24.04-arm, install: true }
+          - { arch: armhf, runner: ubuntu-24.04, install: false }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -218,38 +215,63 @@ jobs:
           fetch-depth: 0 # git describe needs the tags
       - uses: actions/download-artifact@v4
         with:
+          name: benchbob-rust-${{ matrix.arch }}
+          path: server
+      - uses: actions/download-artifact@v4
+        with:
           name: web-dist
           path: web-dist
       - name: Build
         id: build
         env:
+          RUST_BIN: server/benchbob
           WEB_DIST: web-dist
-        run: echo "deb=$(packaging/build-deb.sh ${{ matrix.arch }})" >> "$GITHUB_OUTPUT"
+        run: |
+          chmod +x server/benchbob
+          echo "deb=$(packaging/build-deb.sh ${{ matrix.arch }})" >> "$GITHUB_OUTPUT"
+      - name: Contents
+        run: |
+          deb="${{ steps.build.outputs.deb }}"
+          dpkg-deb -I "$deb" | sed -n '/Package:/,/Recommends:/p'
+          dpkg-deb -c "$deb" > contents.txt
+          # The server alone: no Bun, no TypeScript, no old dashboard.
+          if grep -E '/bin/bun$|\.ts$|/usr/lib/benchbob/(ui|peripherals)/|/usr/lib/benchbob/index\.html$' contents.txt; then
+            echo "Bun-era files in the package" >&2; exit 1
+          fi
+          grep -q ' ./usr/lib/benchbob/bin/benchbob$' contents.txt
+          grep -q ' ./usr/lib/benchbob/web/dist/index.html$' contents.txt
+          grep -q ' ./usr/share/benchbob/boards/rpi.toml$' contents.txt
+          ls -l "$deb"
       - name: Install
+        if: matrix.install
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends "${{ steps.build.outputs.deb }}"
       - name: Smoke test
+        if: matrix.install
         run: |
           for i in $(seq 30); do curl -fsS http://localhost/api > api.json && break; sleep 2; done
-          jq -e '.name == "BenchBob API"' api.json
-          curl -fsS http://localhost/api/status | jq -e '.version != "dev"'
-          # The web UI at /, stamped with the build version, and its assets; the old page at /legacy.
+          jq -e '.name == "BenchBob API" and .backend.server == "benchbob (Rust)"' api.json
+          jq -e '.board.id and (.endpoints | has("POST /api/eject"))' api.json
+          curl -fsS http://localhost/api/status | jq -e '.version != "dev" and (.peripherals.list | map(.id) | index("gpio") != null)'
+          # The web UI at /, stamped with the build version, and its assets.
           curl -fsS http://localhost/ > index.html
           grep -q 'name="benchbob-build"' index.html
           if grep -q '__BUILD_VERSION__' index.html; then echo "index.html not stamped" >&2; exit 1; fi
           asset=$(grep -o 'assets/[^"]*\.js' index.html | head -1)
           curl -fsS "http://localhost/$asset" | head -c 100 > /dev/null
-          curl -fsS http://localhost/legacy | grep -q '<h1 id="title">BenchBob</h1>'
+          curl -fsS http://localhost/api/boards | jq -e '.dirs[0] == "/usr/share/benchbob/boards" and (.errors | length) == 0'
           # CORS: a UI served elsewhere can use this bob.
           curl -fsS -D - -o /dev/null http://localhost/api/status | grep -qi '^access-control-allow-origin: \*'
           systemctl is-active benchbob
+          test "$(readlink /proc/$(systemctl show -p MainPID --value benchbob)/exe)" = /usr/lib/benchbob/bin/benchbob
           sudo -u benchbob sudo -n true
           test -d /var/lib/benchbob
       - name: Service log
-        if: always()
+        if: always() && matrix.install
         run: sudo journalctl -u benchbob --no-pager -n 200
       - name: Remove and purge
+        if: matrix.install
         run: |
           sudo apt-get purge -y benchbob
           if systemctl is-active --quiet benchbob; then echo "still running" >&2; exit 1; fi
@@ -259,78 +281,33 @@ jobs:
           name: deb-${{ matrix.arch }}
           path: ${{ steps.build.outputs.deb }}
 
-  # The opt-in Rust packaging (RUST_BIN), installed and switched into Rust mode and back.
-  # Its .deb is a test artifact only: releases ship the plain package from `package`.
-  package-rust:
-    needs: [test, backend-build, web]
-    runs-on: ubuntu-24.04
+  # Boxes on the Bun-based 0.4.1 get this package through apt, through apt while in the old
+  # opt-in Rust mode, and through the dashboard's Update button: each must come up on the
+  # Rust server with its settings (packaging/test-upgrade.sh).
+  upgrade:
+    needs: package
+    strategy:
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
-          name: benchbob-rust-amd64
-          path: rust
-      - uses: actions/download-artifact@v4
-        with:
-          name: web-dist
-          path: web-dist
-      - name: Build
-        id: build
-        env:
-          WEB_DIST: web-dist
+          name: deb-${{ matrix.arch }}
+          path: debs
+      - run: sudo packaging/test-upgrade.sh debs/benchbob_*_${{ matrix.arch }}.deb
+      - name: Logs
+        if: failure()
         run: |
-          chmod +x rust/benchbob
-          echo "deb=$(RUST_BIN=rust/benchbob packaging/build-deb.sh amd64)" >> "$GITHUB_OUTPUT"
-      - name: Install (Bun on :80, as always)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "${{ steps.build.outputs.deb }}"
-          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && break; sleep 2; done
-          jq -e '.backend == null' api.json
-          test "$(sudo benchbob-setup rust status)" = off
-          ls /usr/share/benchbob/boards/rpi.toml
-      - name: Rust mode on
-        run: |
-          sudo benchbob-setup rust on
-          # Up once the Rust server answers and the Bun one behind it does too.
-          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && jq -e '.backend and (.endpoints | has("POST /api/eject"))' api.json > /dev/null && break; sleep 2; done
-          jq -e '.backend.server == "benchbob (Rust)" and .backend.legacy == "http://127.0.0.1:8081"' api.json
-          jq -e '.board.id == "x86" and (.endpoints | has("POST /api/eject"))' api.json
-          curl -fsS http://localhost/api/status | jq -e '.version != "dev" and (.peripherals.list | map(.id) | index("gpio") != null)'
-          curl -fsS -D - -o /dev/null http://localhost/api/gpio | grep -qi '^x-benchbob-backend: native'
-          curl -fsS -D - -o /dev/null http://localhost/api/quicklist | grep -qi '^x-benchbob-backend: legacy'
-          # The Rust server serves the web UI stamped like Bun does, and the old page at /legacy.
-          curl -fsS http://localhost/ > index.html
-          grep -q 'name="benchbob-build"' index.html
-          if grep -q '__BUILD_VERSION__' index.html; then echo "index.html not stamped" >&2; exit 1; fi
-          curl -fsS "http://localhost/$(grep -o 'assets/[^"]*\.js' index.html | head -1)" | head -c 100 > /dev/null
-          curl -fsS http://localhost/legacy | grep -q '<h1 id="title">BenchBob</h1>'
-          curl -fsS http://localhost/api/boards | jq -e '.dirs[0] == "/usr/share/benchbob/boards" and (.errors | length) == 0'
-          systemctl is-active benchbob benchbob-rust
-          # The Bun server behind it listens on loopback only.
-          ss -Hltn 'sport = :8081'
-          test "$(ss -Hltn 'sport = :8081' | awk '{print $4}' | sort -u)" = "127.0.0.1:8081"
-      - name: Rust mode off
-        run: |
-          sudo benchbob-setup rust off
-          for i in $(seq 30); do curl -fsS http://localhost/api > api.json && jq -e '.backend == null' api.json > /dev/null && break; sleep 2; done
-          jq -e '.backend == null' api.json
-          if systemctl is-active --quiet benchbob-rust; then echo "benchbob-rust still running" >&2; exit 1; fi
-      - name: Service logs
-        if: always()
-        run: sudo journalctl -u benchbob -u benchbob-rust --no-pager -n 200
-      - name: Remove and purge
-        run: |
-          sudo benchbob-setup rust on
-          sudo apt-get purge -y benchbob
-          if systemctl is-active --quiet benchbob-rust; then echo "benchbob-rust still running" >&2; exit 1; fi
-          test ! -e /etc/systemd/system/benchbob.service.d/50-rust-mode.conf
+          sudo journalctl -u benchbob -u benchbob-rust -u benchbob-update --no-pager -n 200
+          sudo cat /var/log/benchbob-update.log || true
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: package
+    needs: [package, upgrade]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -341,7 +318,7 @@ jobs:
           merge-multiple: true
       # Unversioned copies too, so README links can use releases/latest/download/.
       - run: |
-          for a in amd64 arm64; do cp benchbob_*_$a.deb benchbob_$a.deb; done
+          for a in amd64 arm64 armhf; do cp benchbob_*_$a.deb benchbob_$a.deb; done
           sha256sum *.deb > SHA256SUMS
       - env:
           GH_TOKEN: ${{ github.token }}

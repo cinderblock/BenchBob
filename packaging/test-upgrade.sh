@@ -78,6 +78,7 @@ purge() {
   systemctl daemon-reload
 }
 
+apt-get update -qq
 OLD_DEB=$WORK/benchbob_${OLD_VERSION}_$ARCH.deb
 step "download $OLD_VERSION ($ARCH)"
 curl -fsSL -o "$OLD_DEB" "https://github.com/cinderblock/BenchBob/releases/download/v$OLD_VERSION/benchbob_${OLD_VERSION}_$ARCH.deb"
