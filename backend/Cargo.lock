@@ -177,6 +177,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "benchbob-serial"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "benchbob-gpio",
+ "bytes",
+ "libc",
+ "regex",
+ "serde_json",
+ "socket2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
