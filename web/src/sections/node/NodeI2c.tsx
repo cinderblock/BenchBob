@@ -120,7 +120,7 @@ function RawRead({ bus, addr }: { bus: number; addr: number | null }) {
     try {
       const body: Record<string, unknown> = { size, length: Number(len) || 1 };
       if (size !== "raw") body.register = reg;
-      const r = await b.conn.json<NodeI2cRead>("POST", `/api/i2c/${bus}/${encodeURIComponent(a.trim())}/raw/read`, body);
+      const r = await b.api<NodeI2cRead>("POST", `/api/i2c/${bus}/${encodeURIComponent(a.trim())}/raw/read`, body);
       setOut(r.bytes.map((x) => fmtHex(x)).join(" ") + (r.wordBigEndian != null ? `\nword: ${fmtHex(r.word!, 4)} (LE)  ${fmtHex(r.wordBigEndian, 4)} (BE, as most sensors mean it)` : "") + (r.bytes.length > 1 ? "\n" + hexdump(r.bytes) : ""));
     } catch (e: any) {
       setOut(e?.message || "Request failed");

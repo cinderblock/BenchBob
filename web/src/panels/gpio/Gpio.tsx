@@ -14,6 +14,8 @@ import { readLocalStr, writeLocal } from "../../lib/storage";
 import type { Chip, ChipHeader, ChipLine, ChipPin, GpioState, HeaderPos, Level, OverlayInfo, PiPin, Staged, WsState } from "./api";
 import { openInterfaces } from "./IfaceButton";
 import { StagedChange, openReboot } from "./Stage";
+import { AsyncButton } from "../../ui/common";
+import { ActionLine, useAction } from "../../ui/status";
 
 const cls = (p?: PiPin) => (!p ? "gp-off" : p.fsel === "op" ? "gp-out" : p.fsel === "ip" ? "gp-in" : /^a\d/.test(p.fsel) ? "gp-alt" : "gp-off");
 const funcText = (p: { fsel: string; func: string }) => (p.fsel === "ip" ? "input" : p.fsel === "op" ? "output" : `${p.func} (${p.fsel.toUpperCase()})`);
@@ -77,6 +79,7 @@ export default function Gpio({ st }: PanelProps<GpioState>) {
   const [live, setLive] = useState(0);
   const [err, setErr] = useState("");
   const [, tick] = useState(0);
+  const outA = useAction();
 
   useEffect(() => {
     const sock = b.conn.ws("/ws/gpio", {
@@ -110,7 +113,7 @@ export default function Gpio({ st }: PanelProps<GpioState>) {
   const isLive = live && Date.now() - live < 4000;
   const livePill = <span className={`pr-pill ${isLive ? "on" : "warn"}`}>{isLive ? "live" : "connecting"}</span>;
   const lv = (chip: string, line: number) => levels[`${chip}:${line}`];
-  const watch = (chip: string, line: number, on: boolean) => b.api("POST", "/api/gpio/watch", { chip, line, watch: on }).catch(() => {});
+  const watch = (chip: string, line: number, on: boolean) => b.api("POST", "/api/gpio/watch", { chip, line, watch: on });
 
   if (st.mode === "gpiochip") {
     if (!gs) return <div className="pr-note">Waiting for the first reading…</div>;
@@ -121,9 +124,7 @@ export default function Gpio({ st }: PanelProps<GpioState>) {
         <div className="pr-row">
           {livePill}
           {st.bootConfig && (
-            <button className="btn btn-sm" onClick={() => openOverlays(b)}>
-              Boot overlays…
-            </button>
+            <AsyncButton onClick={() => openOverlays(b)}>Boot overlays…</AsyncButton>
           )}
           <span className="pr-note">
             {brd?.name || ""}
@@ -179,14 +180,12 @@ export default function Gpio({ st }: PanelProps<GpioState>) {
     if (p) b.openModal(<PinDialog p={p} />);
   };
   const outputToggle = async () => {
-    try {
-      if (outputEnabled) {
-        await b.api("POST", "/api/gpio/output-control", { enabled: false });
-        return;
-      }
-      if (!(await b.confirm("Enable GPIO output control", "This lets the dashboard, the REST API and MCP agents drive header pins (high/low/input/pulls). Pins used by the kernel or a peripheral stay refused.", "Setting is saved; turn it off here any time."))) return;
-      await b.api("POST", "/api/gpio/output-control", { enabled: true, confirm: true });
-    } catch {}
+    if (outputEnabled) {
+      await outA.run(() => b.api("POST", "/api/gpio/output-control", { enabled: false }), { busy: "Turning off…" });
+      return;
+    }
+    if (!(await b.confirm("Enable GPIO output control", "This lets the dashboard, the REST API and MCP agents drive header pins (high/low/input/pulls). Pins used by the kernel or a peripheral stay refused.", "Setting is saved; turn it off here any time."))) return;
+    await outA.run(() => b.api("POST", "/api/gpio/output-control", { enabled: true, confirm: true }), { busy: "Turning on…" });
   };
 
   return (
@@ -199,12 +198,11 @@ export default function Gpio({ st }: PanelProps<GpioState>) {
           Table
         </button>
         {livePill}
-        <button className={`btn btn-sm ${outputEnabled ? "btn-warn" : ""}`} onClick={outputToggle}>
+        <button className={`btn btn-sm ${outputEnabled ? "btn-warn" : ""}`} disabled={outA.busy} onClick={outputToggle}>
           {outputEnabled ? "Output control ON: turn off" : "Enable output control…"}
         </button>
-        <button className="btn btn-sm" onClick={() => openInterfaces(b).catch(() => {})}>
-          Interfaces (I²C, SPI, UART, 1-Wire)…
-        </button>
+        <ActionLine a={outA} />
+        <AsyncButton onClick={() => openInterfaces(b)}>Interfaces (I²C, SPI, UART, 1-Wire)…</AsyncButton>
       </div>
       {outputEnabled ? (
         <div className="pr-note" style={{ color: "var(--warning)" }}>
@@ -378,7 +376,7 @@ function PinDialog({ p }: { p: PiPin }) {
   const [res, setRes] = useState("");
   const act = async (body: object) => {
     try {
-      const r = await b.conn.json<PiPin>("POST", `/api/gpio/${p.gpio}`, body);
+      const r = await b.api<PiPin>("POST", `/api/gpio/${p.gpio}`, body);
       setRes(`Now ${funcText(r)}, ${r.level ? "high" : "low"}${pullText(r)}`);
     } catch (e: any) {
       setRes(e.message);
@@ -532,81 +530,92 @@ function ChipHeaderView({ h, lv, onPin }: { h: ChipHeader; lv(c: string, l: numb
   );
 }
 
-function Chips({ list, lv, watch }: { list: Chip[]; lv(c: string, l: number): Level | undefined; watch(chip: string, line: number, on: boolean): void }) {
+type Watch = (chip: string, line: number, on: boolean) => Promise<unknown>;
+
+function Chips({ list, lv, watch }: { list: Chip[]; lv(c: string, l: number): Level | undefined; watch: Watch }) {
   return (
     <>
       {list.map((c) => (
-        <div className="pr-card" key={c.name}>
-          <h4>
-            {c.name}{" "}
-            <small>
-              {c.label}
-              {c.device ? ` · ${c.device}` : ""}
-              {c.usb ? " · USB" : ""} · {c.count} lines
-            </small>
-          </h4>
-          {c.error ? (
-            <div className="pr-note" style={{ color: "var(--danger)" }}>
-              {c.error}
-            </div>
-          ) : (
-            <>
-              <div style={{ overflowX: "auto" }}>
-                <table className="pr-tbl">
-                  <tbody>
-                    <tr>
-                      <th>Line</th>
-                      <th>Name</th>
-                      <th>Used by</th>
-                      <th>State</th>
-                      <th>Level</th>
-                      <th></th>
-                    </tr>
-                    {c.lines.map((l: ChipLine) => {
-                      const x = lv(c.name, l.offset);
-                      return (
-                        <tr key={l.offset}>
-                          <td>{l.offset}</td>
-                          <td>{l.name || ""}</td>
-                          <td>{l.watched ? "benchbob (watching)" : l.consumer || ""}</td>
-                          <td>{l.flags.filter((f) => f !== "used").join(" ")}</td>
-                          <td>
-                            {x ? (
-                              x.error ? (
-                                <span className="pr-note">{x.error}</span>
-                              ) : (
-                                <>
-                                  <LvDot l={x} />
-                                  {x.level ? "high" : "low"}
-                                </>
-                              )
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                          <td>
-                            {l.watched ? (
-                              <button className="btn btn-sm" onClick={() => watch(c.name, l.offset, false)}>
-                                Stop
-                              </button>
-                            ) : l.used ? null : (
-                              <button className="btn btn-sm" onClick={() => watch(c.name, l.offset, true)}>
-                                Watch
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="pr-note">Watch requests the line as-is (direction, bias and drive unchanged) to read its level; it's released when you stop.</div>
-            </>
-          )}
-        </div>
+        <ChipCard key={c.name} c={c} lv={lv} watch={watch} />
       ))}
     </>
+  );
+}
+
+// Each chip's Watch/Stop buttons report on its own card.
+function ChipCard({ c, lv, watch }: { c: Chip; lv(c: string, l: number): Level | undefined; watch: Watch }) {
+  const a = useAction();
+  return (
+    <div className="pr-card">
+      <h4>
+        {c.name}{" "}
+        <small>
+          {c.label}
+          {c.device ? ` · ${c.device}` : ""}
+          {c.usb ? " · USB" : ""} · {c.count} lines
+        </small>
+      </h4>
+      {c.error ? (
+        <div className="pr-note" style={{ color: "var(--danger)" }}>
+          {c.error}
+        </div>
+      ) : (
+        <>
+          <div style={{ overflowX: "auto" }}>
+            <table className="pr-tbl">
+              <tbody>
+                <tr>
+                  <th>Line</th>
+                  <th>Name</th>
+                  <th>Used by</th>
+                  <th>State</th>
+                  <th>Level</th>
+                  <th></th>
+                </tr>
+                {c.lines.map((l: ChipLine) => {
+                  const x = lv(c.name, l.offset);
+                  return (
+                    <tr key={l.offset}>
+                      <td>{l.offset}</td>
+                      <td>{l.name || ""}</td>
+                      <td>{l.watched ? "benchbob (watching)" : l.consumer || ""}</td>
+                      <td>{l.flags.filter((f) => f !== "used").join(" ")}</td>
+                      <td>
+                        {x ? (
+                          x.error ? (
+                            <span className="pr-note">{x.error}</span>
+                          ) : (
+                            <>
+                              <LvDot l={x} />
+                              {x.level ? "high" : "low"}
+                            </>
+                          )
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td>
+                        {l.watched ? (
+                          <button className="btn btn-sm" disabled={a.busy} onClick={() => a.run(() => watch(c.name, l.offset, false), { busy: `Releasing line ${l.offset}…` })}>
+                            Stop
+                          </button>
+                        ) : l.used ? null : (
+                          <button className="btn btn-sm" disabled={a.busy} onClick={() => a.run(() => watch(c.name, l.offset, true), { busy: `Watching line ${l.offset}…` })}>
+                            Watch
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="pr-note">Watch requests the line as-is (direction, bias and drive unchanged) to read its level; it's released when you stop.</div>
+          <ActionLine a={a} />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -639,7 +648,7 @@ function LineDialog({ chip, l, line, p, x }: { chip: Chip; l: ChipLine; line: nu
             className="btn"
             onClick={async () => {
               try {
-                await b.conn.json("POST", "/api/gpio/watch", { chip: chip.name, line, watch: !l.watched });
+                await b.api("POST", "/api/gpio/watch", { chip: chip.name, line, watch: !l.watched });
                 b.closeModal();
               } catch (e: any) {
                 setRes(e.message);
@@ -659,13 +668,9 @@ function LineDialog({ chip, l, line, p, x }: { chip: Chip; l: ChipLine; line: nu
 
 // ---------- boot overlays (gpiochip boards) ----------
 
+// Throws when the overlay list can't be read; the button that opened it shows why.
 async function openOverlays(b: BobApi) {
-  let info: OverlayInfo;
-  try {
-    info = await b.api<OverlayInfo>("GET", "/api/gpio/overlays");
-  } catch {
-    return;
-  }
+  const info = await b.api<OverlayInfo>("GET", "/api/gpio/overlays");
   b.openModal(<Overlays info={info} />, { cls: "wide" });
 }
 

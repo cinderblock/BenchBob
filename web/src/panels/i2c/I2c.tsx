@@ -7,6 +7,7 @@ import type { PanelProps } from "../../registry";
 import { fmtAgo, fmtHex, hexdump } from "../../lib/format";
 import { Line } from "../../ui/spark";
 import { AsyncButton } from "../../ui/common";
+import { ActionLine, useAction } from "../../ui/status";
 import { IfaceButton, useIfaceAvailable } from "../gpio/IfaceButton";
 import type { I2cBus, I2cDevice, I2cState, RawReply, Reading } from "./api";
 
@@ -62,7 +63,8 @@ function DevCard({ bus, d }: { bus: I2cBus; d: I2cDevice }) {
   const b = useBob();
   const r = d.readout;
   const base = `/api/i2c/${bus.bus}/${d.addr}`;
-  const put = (body: object) => b.api("PUT", `${base}/settings`, body).catch(() => {});
+  const putA = useAction();
+  const put = (body: object) => putA.run(() => b.api("PUT", `${base}/settings`, body), { busy: "Saving…" });
   return (
     <div className="pr-card">
       <h4>
@@ -152,6 +154,7 @@ function DevCard({ bus, d }: { bus: I2cBus; d: I2cDevice }) {
             <input type="checkbox" checked={!!d.auto} onChange={(e) => put({ auto: e.currentTarget.checked })} /> auto-measure (writes)
           </label>
         )}
+        <ActionLine a={putA} time={false} />
         {d.chip === "at24" && (
           <button className="btn btn-sm" onClick={() => b.openModal(<EepromDialog bus={bus.bus} d={d} />, { cls: "wide" })}>
             EEPROM contents
@@ -265,6 +268,7 @@ function DevSettings({ bus, d }: { bus: number; d: I2cDevice }) {
   const [label, setLabel] = useState(d.label);
   const [iv, setIv] = useState(d.interval);
   const [opts, setOpts] = useState<Record<string, string>>(() => Object.fromEntries(d.opts.map((o) => [o.key, String(o.value)])));
+  const a = useAction();
   return (
     <>
       <h3>
@@ -311,20 +315,16 @@ function DevSettings({ bus, d }: { bus: number; d: I2cDevice }) {
       )}
       <p className="pr-note">Saved for this address on this bus, so it survives restarts and re-plugging.</p>
       <div className="modal-btns">
+        <ActionLine a={a} />
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
         <button
           className="btn btn-primary"
+          disabled={a.busy}
           onClick={async () => {
-            try {
-              await b.api("PUT", `/api/i2c/${bus}/${d.addr}/settings`, {
-                label,
-                interval: iv,
-                ...(d.opts.length ? { opts: Object.fromEntries(Object.entries(opts).map(([k, v]) => [k, Number(v)])) } : {}),
-              });
-              b.closeModal();
-            } catch {}
+            const body = { label, interval: iv, ...(d.opts.length ? { opts: Object.fromEntries(Object.entries(opts).map(([k, v]) => [k, Number(v)])) } : {}) };
+            if (await a.run(() => b.api("PUT", `/api/i2c/${bus}/${d.addr}/settings`, body), { busy: "Saving…" })) b.closeModal();
           }}
         >
           Save
@@ -337,6 +337,7 @@ function DevSettings({ bus, d }: { bus: number; d: I2cDevice }) {
 function BusSettings({ bus }: { bus: I2cBus }) {
   const b = useBob();
   const [as, setAs] = useState(bus.autoScan);
+  const a = useAction();
   return (
     <>
       <h3>i2c-{bus.bus} settings</h3>
@@ -354,16 +355,15 @@ function BusSettings({ bus }: { bus: I2cBus }) {
         </label>
       </div>
       <div className="modal-btns">
+        <ActionLine a={a} />
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
         <button
           className="btn btn-primary"
+          disabled={a.busy}
           onClick={async () => {
-            try {
-              await b.api("PUT", `/api/i2c/${bus.bus}/settings`, { autoScan: as });
-              b.closeModal();
-            } catch {}
+            if (await a.run(() => b.api("PUT", `/api/i2c/${bus.bus}/settings`, { autoScan: as }), { busy: "Saving…" })) b.closeModal();
           }}
         >
           Save
@@ -378,8 +378,7 @@ function EepromDialog({ bus, d }: { bus: number; d: I2cDevice }) {
   const size = Number(d.opts.find((o) => o.key === "size")?.value) || 256;
   const [text, setText] = useState("Reading…");
   useEffect(() => {
-    b.conn
-      .json<RawReply>("GET", `/api/i2c/${bus}/${d.addr}/eeprom?offset=0&length=${Math.min(size, 4096)}`)
+    b.api<RawReply>("GET", `/api/i2c/${bus}/${d.addr}/eeprom?offset=0&length=${Math.min(size, 4096)}`)
       .then((r) => setText(hexdump(r.bytes || [])))
       .catch((e) => setText(e.message));
   }, []);
@@ -428,21 +427,20 @@ function RawDialog({ bus, addr, d }: { bus: number; addr: number | null; d?: I2c
     const bytes = val.trim().split(/[\s,]+/).filter(Boolean);
     const confirm = wc;
     if (w && !confirm) return setOut("Tick the confirmation first: this writes to the device.");
-    const c = b.conn;
     try {
       let r: RawReply;
-      if (op === "rbyte") r = await c.json("POST", base + "/raw/read", { register: reg.trim(), size: "byte", force });
-      else if (op === "rword") r = await c.json("POST", base + "/raw/read", { register: reg.trim(), size: "word", force });
-      else if (op === "rblock") r = await c.json("POST", base + "/raw/read", { register: reg.trim(), size: "block", length: Math.min(32, n), force });
-      else if (op === "recv") r = await c.json("POST", base + "/raw/read", { size: "raw", length: n, force });
+      if (op === "rbyte") r = await b.api("POST", base + "/raw/read", { register: reg.trim(), size: "byte", force });
+      else if (op === "rword") r = await b.api("POST", base + "/raw/read", { register: reg.trim(), size: "word", force });
+      else if (op === "rblock") r = await b.api("POST", base + "/raw/read", { register: reg.trim(), size: "block", length: Math.min(32, n), force });
+      else if (op === "recv") r = await b.api("POST", base + "/raw/read", { size: "raw", length: n, force });
       else if (op === "dump") {
         const unsafe = !d || d.pointerUnsafe;
-        r = await c.json("GET", base + `/dump?${unsafe ? "confirm=1&" : ""}${force ? "force=1" : ""}`);
+        r = await b.api("GET", base + `/dump?${unsafe ? "confirm=1&" : ""}${force ? "force=1" : ""}`);
         return setOut("      " + [...Array(16).keys()].map((i) => " " + i.toString(16)).join(" ") + "\n" + hexdump(r.regs || []).replace(/^0{2}/gm, ""));
-      } else if (op === "wbyte") r = await c.json("POST", base + "/raw/write", { register: reg.trim(), size: "byte", value: val.trim(), confirm, force });
-      else if (op === "wword") r = await c.json("POST", base + "/raw/write", { register: reg.trim(), size: "word", value: val.trim(), confirm, force });
-      else if (op === "wblock") r = await c.json("POST", base + "/raw/write", { register: reg.trim(), size: "block", bytes, confirm, force });
-      else r = await c.json("POST", base + "/transfer", { write: bytes, read: n, confirm, force });
+      } else if (op === "wbyte") r = await b.api("POST", base + "/raw/write", { register: reg.trim(), size: "byte", value: val.trim(), confirm, force });
+      else if (op === "wword") r = await b.api("POST", base + "/raw/write", { register: reg.trim(), size: "word", value: val.trim(), confirm, force });
+      else if (op === "wblock") r = await b.api("POST", base + "/raw/write", { register: reg.trim(), size: "block", bytes, confirm, force });
+      else r = await b.api("POST", base + "/transfer", { write: bytes, read: n, confirm, force });
       const all = r.reads ? r.reads.flat() : r.bytes || r.wrote || [];
       setOut(
         (r.wrote ? "Wrote " : "") +

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode, 
 import { useBob, type BobApi } from "../../bob/context";
 import type { PanelProps } from "../../registry";
 import { fmtAgo } from "../../lib/format";
+import { ActionLine, errText, useAction } from "../../ui/status";
 import type { BootMcu, Clients, Probe, ProbeJob, ProbesState, Targets } from "./api";
 
 const enc = encodeURIComponent;
@@ -16,8 +17,9 @@ const Pill = ({ cls = "", children }: { cls?: string; children: ReactNode }) => 
 export default function Probes({ st }: PanelProps<ProbesState>) {
   const b = useBob();
   const [targets, setTargets] = useState<Targets | null>(null);
+  const [targetsErr, setTargetsErr] = useState("");
   useEffect(() => {
-    b.api<Targets>("GET", "/api/probes/targets").then(setTargets, () => {});
+    b.api<Targets>("GET", "/api/probes/targets").then(setTargets, (e) => setTargetsErr(errText(e)));
   }, []);
   const presets = new Set(targets?.presets.map((t) => t.cfg));
   const empty = !st.probes.length && !st.bootloaders.length;
@@ -26,6 +28,7 @@ export default function Probes({ st }: PanelProps<ProbesState>) {
       <div className="pr-note">
         {st.openocd.path ? `OpenOCD ${st.openocd.version}` : <span style={{ color: "var(--warning)" }}>OpenOCD isn't installed (apt package openocd); probes are detected but can't be used.</span>}
       </div>
+      {targetsErr && <div className="pr-note" style={{ color: "var(--danger)" }}>Couldn't load the target list: {targetsErr}</div>}
       {empty && (
         <div className="pr-note" style={{ marginTop: 8 }}>
           No debug probe or bootloader-mode MCU is connected. Plug in an ST-Link, J-Link, CMSIS-DAP (e.g. Raspberry Pi Debug Probe), ESP-Prog or Black Magic Probe, or hold BOOTSEL while plugging in a Pico.
@@ -129,7 +132,13 @@ function ProbeCard({ p }: { p: Probe }) {
   useEffect(() => setLiveJob(null), [JSON.stringify([p.job, p.lastJob])]);
   const [out, setOut] = useState("");
   const [clients, setClients] = useState<Clients | null>(null);
-  const [starting, setStarting] = useState(false);
+  const [clientsErr, setClientsErr] = useState("");
+  // Start/Stop swap places, so the server action's status lives on the card.
+  const server = useAction();
+  const cfgA = useAction();
+  const actA = useAction();
+  const flashA = useAction();
+  const readA = useAction();
   const fileRef = useRef<HTMLInputElement>(null);
   const [addr, setAddr] = useState("");
   const [verify, setVerify] = useState(true);
@@ -141,22 +150,24 @@ function ProbeCard({ p }: { p: Probe }) {
   const live = !!s && s.state !== "exited";
   const runningSince = s?.state === "running" ? s.since || 1 : 0;
   useEffect(() => {
+    setClientsErr("");
     if (!runningSince) return setClients(null);
-    b.conn
-      .json<Clients>("GET", `/api/probes/${enc(p.id)}/clients?host=${enc(b.conn.hostname)}&web=${enc(b.conn.baseUrl)}`)
-      .then(setClients, () => setClients(null));
+    b.api<Clients>("GET", `/api/probes/${enc(p.id)}/clients?host=${enc(b.conn.hostname)}&web=${enc(b.conn.baseUrl)}`).then(setClients, (e) => {
+      setClients(null);
+      setClientsErr(errText(e));
+    });
   }, [runningSince]);
 
   const meta = [p.model && p.model !== p.name ? p.model : "", p.serial ? "S/N " + p.serial : "", p.vidpid, p.usb ? "USB " + p.usb : ""].filter(Boolean).join(" · ");
-  const cfg = (body: unknown) => b.api("PUT", `/api/probes/${enc(p.id)}/config`, body).catch(() => {});
+  const cfg = (body: unknown) => cfgA.run(() => b.api("PUT", `/api/probes/${enc(p.id)}/config`, body), { busy: "Saving…" });
+  const ACT_BUSY: Record<string, string> = { examine: "Detecting…", reset: "Resetting…", halt: "Halting…", resume: "Resuming…", erase: "Erasing…" };
   const act = async (verb: string, body?: unknown) => {
-    try {
-      const r = await b.api<any>("POST", `/api/probes/${enc(p.id)}/${verb}`, body);
-      if (verb === "examine") setOut([r.cpus.length ? "Cores: " + r.cpus.join(", ") : "No core detected", r.targets].filter(Boolean).join("\n\n"));
-      else if (r.output) setOut(r.output);
-    } catch {}
+    const r = await actA.run(() => b.api<any>("POST", `/api/probes/${enc(p.id)}/${verb}`, body), { busy: ACT_BUSY[verb] || "Working…" });
+    if (!r) return;
+    if (verb === "examine") setOut([r.cpus.length ? "Cores: " + r.cpus.join(", ") : "No core detected", r.targets].filter(Boolean).join("\n\n"));
+    else if (r.output) setOut(r.output);
   };
-  const actDisabled = !!p.job || (!!s && s.state !== "running" && s.state !== "exited");
+  const actDisabled = !!p.job || (!!s && s.state !== "running" && s.state !== "exited") || actA.busy || flashA.busy || readA.busy;
 
   let pill: ReactNode;
   if (p.gdbBuiltIn) pill = <Pill cls="on">built-in GDB server</Pill>;
@@ -213,24 +224,17 @@ function ProbeCard({ p }: { p: Probe }) {
 
   const flash = async () => {
     const f = fileRef.current?.files?.[0];
-    if (!f) return b.toast("Choose a firmware file first", "error");
+    if (!f) return flashA.fail("Choose a firmware file first");
     const qs = new URLSearchParams({ name: f.name, verify: verify ? "1" : "0", reset: reset ? "1" : "0" });
     if (addr.trim()) qs.set("address", addr.trim());
     if (logBox.current) logBox.current.open = true;
-    try {
-      const r = await b.conn.upload<any>(`/api/probes/${enc(p.id)}/flash?${qs}`, f);
-      b.toast(r.message || "Flashed", "success");
-      setOut(r.output || "");
-    } catch (e: any) {
-      b.toast(e.message, "error");
-    }
+    const r = await flashA.run(() => b.conn.upload<any>(`/api/probes/${enc(p.id)}/flash?${qs}`, f), { busy: "Flashing…", ok: (r) => r.message || "Flashed" });
+    if (r) setOut(r.output || "");
   };
   const read = async () => {
     const qs = new URLSearchParams({ address: maddr.trim(), length: mlen });
-    try {
-      const r = await b.api<any>("GET", `/api/probes/${enc(p.id)}/memory?${qs}`);
-      setOut(r.dump || "(no data)");
-    } catch {}
+    const r = await readA.run(() => b.api<any>("GET", `/api/probes/${enc(p.id)}/memory?${qs}`), { busy: "Reading…" });
+    if (r) setOut(r.dump || "(no data)");
   };
   const erase = () =>
     b.openModal(
@@ -298,6 +302,7 @@ function ProbeCard({ p }: { p: Probe }) {
         <label>
           kHz <CfgInput type="number" min={1} max={100000} style={{ width: "6em" }} value={c.speed} disabled={live} onSave={(v) => cfg({ speed: +v })} />
         </label>
+        <ActionLine a={cfgA} time={false} />
       </div>
       <div className="pr-row">
         {(["gdb", "telnet", "tcl"] as const).map((k) => (
@@ -306,31 +311,22 @@ function ProbeCard({ p }: { p: Probe }) {
           </label>
         ))}
         {!live ? (
-          <button
-            className="btn btn-sm btn-primary"
-            disabled={starting}
-            onClick={async () => {
-              setStarting(true);
-              try {
-                await b.api("POST", `/api/probes/${enc(p.id)}/start`, {});
-                b.toast("GDB server running", "success");
-              } catch {}
-              setStarting(false);
-            }}
-          >
-            {starting ? "Starting…" : "Start GDB server"}
+          <button className="btn btn-sm btn-primary" disabled={server.busy} onClick={() => server.run(() => b.api("POST", `/api/probes/${enc(p.id)}/start`, {}), { busy: "Starting…", ok: "GDB server running" })}>
+            {server.busy ? "Starting…" : "Start GDB server"}
           </button>
         ) : (
-          <button className="btn btn-sm" onClick={() => b.api("POST", `/api/probes/${enc(p.id)}/stop`).catch(() => {})}>
+          <button className="btn btn-sm" disabled={server.busy} onClick={() => server.run(() => b.api("POST", `/api/probes/${enc(p.id)}/stop`), { busy: "Stopping…", ok: "GDB server stopped" })}>
             Stop
           </button>
         )}
+        <ActionLine a={server} />
       </div>
       {c.effectivePorts.gdb !== c.ports.gdb && (
         <div className="pr-note">
           This instance adds {c.effectivePorts.gdb - c.ports.gdb} to every port: GDB {c.effectivePorts.gdb}, telnet {c.effectivePorts.telnet}, TCL {c.effectivePorts.tcl}.
         </div>
       )}
+      {clientsErr && <div className="pr-note" style={{ color: "var(--danger)" }}>Couldn't load the client settings: {clientsErr}</div>}
       {clients && (
         <div>
           <div className="pr-row">
@@ -369,6 +365,7 @@ function ProbeCard({ p }: { p: Probe }) {
         <button className="btn btn-sm btn-danger" disabled={actDisabled} onClick={erase}>
           Mass erase
         </button>
+        <ActionLine a={actA} />
       </div>
       <div className="pr-row">
         <input ref={fileRef} type="file" accept=".elf,.hex,.bin,.srec,.s19,.axf,.out" style={{ maxWidth: "100%" }} />
@@ -384,6 +381,7 @@ function ProbeCard({ p }: { p: Probe }) {
         <button className="btn btn-sm btn-primary" disabled={actDisabled} onClick={flash}>
           Flash
         </button>
+        <ActionLine a={flashA} />
       </div>
       <div className="pr-row">
         <label>
@@ -395,6 +393,7 @@ function ProbeCard({ p }: { p: Probe }) {
         <button className="btn btn-sm" disabled={actDisabled} onClick={read}>
           Read
         </button>
+        <ActionLine a={readA} />
       </div>
       {out && <pre className="pr-log">{out}</pre>}
       <JobLine d={liveJob ?? p} />
@@ -417,18 +416,14 @@ function BootCard({ m }: { m: BootMcu }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [addr, setAddr] = useState("0x08000000");
   const meta = [m.serial ? "S/N " + m.serial : "", m.vidpid, m.usb ? "USB " + m.usb : ""].filter(Boolean).join(" · ");
-  const busy = !!m.job;
+  const flashA = useAction();
+  const busy = !!m.job || flashA.busy;
 
   const upload = async (url: string, okMsg: (r: any) => string, openLog: boolean) => {
     const f = fileRef.current?.files?.[0];
-    if (!f) return b.toast(m.kind === "rp2-bootsel" ? "Choose a .uf2 file first" : "Choose a .bin file first", "error");
+    if (!f) return flashA.fail(m.kind === "rp2-bootsel" ? "Choose a .uf2 file first" : "Choose a .bin file first");
     if (openLog && logBox.current) logBox.current.open = true;
-    try {
-      const r = await b.conn.upload<any>(url + (url.includes("?") ? "&" : "?") + "name=" + enc(f.name), f);
-      b.toast(okMsg(r), "success");
-    } catch (e: any) {
-      b.toast(e.message, "error");
-    }
+    await flashA.run(() => b.conn.upload<any>(url + (url.includes("?") ? "&" : "?") + "name=" + enc(f.name), f), { busy: "Flashing…", ok: okMsg });
   };
 
   return (
@@ -470,6 +465,7 @@ function BootCard({ m }: { m: BootMcu }) {
           <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => upload(`/api/probes/boot/${enc(m.id)}/uf2`, (r) => `${r.message} (${fmtBytes(r.payload)})`, false)}>
             Flash UF2
           </button>
+          <ActionLine a={flashA} />
         </div>
       )}
       {m.kind === "stm32-dfu" && m.tool.path && (
@@ -481,6 +477,7 @@ function BootCard({ m }: { m: BootMcu }) {
           <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => upload(`/api/probes/boot/${enc(m.id)}/dfu?address=${enc(addr.trim())}`, (r) => r.message, true)}>
             Flash .bin
           </button>
+          <ActionLine a={flashA} />
         </div>
       )}
       <JobLine d={liveJob ?? m} />

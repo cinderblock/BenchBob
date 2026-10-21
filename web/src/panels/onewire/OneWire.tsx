@@ -6,6 +6,7 @@ import { useBob } from "../../bob/context";
 import type { PanelProps } from "../../registry";
 import { fmtAgo, hexdump } from "../../lib/format";
 import { AsyncButton } from "../../ui/common";
+import { ActionLine, useAction } from "../../ui/status";
 import { IfaceButton } from "../gpio/IfaceButton";
 import type { OwSlave, OwState, OwValue } from "./api";
 
@@ -33,11 +34,12 @@ function SlaveCard({ s }: { s: OwSlave }) {
   const b = useBob();
   const big = s.values.filter((v) => !["res", "alarm", "power", "addr"].includes(v.k));
   const small = s.values.filter((v) => !big.includes(v));
+  const pinA = useAction();
   const pin = async (p: { name: string; out: boolean }) => {
     const name = p.name.replace("PIO-", "");
     const on = !p.out;
     if (!(await b.confirm("Switch 1-Wire output", `${on ? "Turn ON" : "Turn OFF"} PIO ${name} of ${s.id}?`, on ? "ON = output transistor conducts: the pin is pulled to GND." : "OFF = transistor released: the pin floats (or rises with a pull-up)."))) return;
-    await b.api("POST", `/api/onewire/${s.id}/output`, { pin: name, on, confirm: true }).catch(() => {});
+    await pinA.run(() => b.api("POST", `/api/onewire/${s.id}/output`, { pin: name, on, confirm: true }), { busy: `Switching PIO ${name} ${on ? "on" : "off"}…` });
   };
   return (
     <div className="pr-card" style={s.present ? undefined : { opacity: 0.55 }}>
@@ -66,11 +68,12 @@ function SlaveCard({ s }: { s: OwSlave }) {
         <>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
             {s.pins.map((p) => (
-              <button key={p.name} className={`pr-pill${p.out ? " warn" : p.level ? " on" : ""}`} style={{ border: "none", cursor: "pointer", fontFamily: "monospace" }} onClick={() => pin(p)}>
+              <button key={p.name} className={`pr-pill${p.out ? " warn" : p.level ? " on" : ""}`} style={{ border: "none", cursor: "pointer", fontFamily: "monospace" }} disabled={pinA.busy} onClick={() => pin(p)}>
                 {p.name}: {p.level ? "high" : "low"}
                 {p.out ? " · driven low" : ""}
               </button>
             ))}
+            <ActionLine a={pinA} />
           </div>
           <div className="pr-note">Tap a pin to toggle its output transistor (asks first). "Driven low" = transistor on.</div>
         </>
@@ -104,12 +107,37 @@ function SlaveCard({ s }: { s: OwSlave }) {
   );
 }
 
-export default function OneWire({ st }: PanelProps<OwState>) {
+// Bind and Unbind swap places when they work, so the status belongs to the row.
+function BridgeRow({ br }: { br: OwState["bridges"][number] }) {
   const b = useBob();
+  const a = useAction();
   const bridge = async (bind: boolean, bus: number, address: string) => {
     if (!(await b.confirm(bind ? "Bind DS2482" : "Unbind DS2482", bind ? "Load the kernel ds2482 driver for this bridge? It becomes a new 1-Wire master and its I²C address shows as claimed (UU)." : "Remove the ds2482 master? Devices on it disappear.", `i2c-${bus} ${address}`))) return;
-    await b.api("POST", "/api/onewire/bridge", { bus, address, bind }).catch(() => {});
+    await a.run(() => b.api("POST", "/api/onewire/bridge", { bus, address, bind }), { busy: bind ? "Binding…" : "Unbinding…", ok: bind ? "Bound" : "Unbound" });
   };
+  return (
+    <div className="pr-row">
+      <span>
+        {br.type} {br.bus != null ? `i2c-${br.bus} ${br.address}` : ""}
+      </span>
+      <span className="pr-note">{br.note}</span>
+      {br.type === "DS2482" && !br.bound && !/claimed/.test(br.note) && (
+        <button className="btn btn-sm btn-primary" disabled={a.busy} onClick={() => bridge(true, br.bus!, br.address)}>
+          Bind ds2482 driver
+        </button>
+      )}
+      {br.type === "DS2482" && br.bound && (
+        <button className="btn btn-sm" disabled={a.busy} onClick={() => bridge(false, br.bus!, br.address)}>
+          Unbind
+        </button>
+      )}
+      <ActionLine a={a} />
+    </div>
+  );
+}
+
+export default function OneWire({ st }: PanelProps<OwState>) {
+  const b = useBob();
   return (
     <>
       {!st.masters.length && (
@@ -140,13 +168,7 @@ export default function OneWire({ st }: PanelProps<OwState>) {
             </div>
           )}
           <div className="pr-row">
-            <AsyncButton
-              className="btn btn-sm btn-primary"
-              onClick={async () => {
-                await b.api("POST", "/api/onewire/search", { master: m.id });
-                b.toast("Search done", "success");
-              }}
-            >
+            <AsyncButton className="btn btn-sm btn-primary" busyText="Searching…" ok="Search done" onClick={() => b.api("POST", "/api/onewire/search", { master: m.id })}>
               Search now
             </AsyncButton>
             <button className="btn btn-sm" onClick={() => b.openModal(<SettingsDialog st={st} />)}>
@@ -195,22 +217,7 @@ export default function OneWire({ st }: PanelProps<OwState>) {
         <div className="pr-card">
           <h4>Bridges</h4>
           {st.bridges.map((br, i) => (
-            <div className="pr-row" key={i}>
-              <span>
-                {br.type} {br.bus != null ? `i2c-${br.bus} ${br.address}` : ""}
-              </span>
-              <span className="pr-note">{br.note}</span>
-              {br.type === "DS2482" && !br.bound && !/claimed/.test(br.note) && (
-                <button className="btn btn-sm btn-primary" onClick={() => bridge(true, br.bus!, br.address)}>
-                  Bind ds2482 driver
-                </button>
-              )}
-              {br.type === "DS2482" && br.bound && (
-                <button className="btn btn-sm" onClick={() => bridge(false, br.bus!, br.address)}>
-                  Unbind
-                </button>
-              )}
-            </div>
+            <BridgeRow key={i} br={br} />
           ))}
         </div>
       )}
@@ -226,6 +233,7 @@ function EditDialog({ s }: { s: OwSlave }) {
   const [res, setRes] = useState(curBits || "12");
   const [save, setSave] = useState(false);
   const [rs, setRs] = useState("");
+  const a = useAction();
   return (
     <>
       <h3>
@@ -264,17 +272,23 @@ function EditDialog({ s }: { s: OwSlave }) {
         </div>
       )}
       <div className="modal-btns">
+        <ActionLine a={a} />
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
         <button
           className="btn btn-primary"
+          disabled={a.busy}
           onClick={async () => {
-            try {
-              await b.api("PUT", `/api/onewire/${s.id}/label`, { label, ...(rs ? { rsens: Number(rs) } : {}) });
-              if (s.resolution && curBits !== res) await b.api("PUT", `/api/onewire/${s.id}/resolution`, { bits: Number(res), save });
-              b.closeModal();
-            } catch {}
+            const ok = await a.run(
+              async () => {
+                await b.api("PUT", `/api/onewire/${s.id}/label`, { label, ...(rs ? { rsens: Number(rs) } : {}) });
+                if (s.resolution && curBits !== res) await b.api("PUT", `/api/onewire/${s.id}/resolution`, { bits: Number(res), save });
+                return true;
+              },
+              { busy: "Saving…" },
+            );
+            if (ok) b.closeModal();
           }}
         >
           Save
@@ -288,6 +302,7 @@ function SettingsDialog({ st }: { st: OwState }) {
   const b = useBob();
   const [iv, setIv] = useState(st.interval);
   const [bulk, setBulk] = useState(st.bulk);
+  const a = useAction();
   return (
     <>
       <h3>1-Wire polling</h3>
@@ -309,16 +324,15 @@ function SettingsDialog({ st }: { st: OwState }) {
         </label>
       </div>
       <div className="modal-btns">
+        <ActionLine a={a} />
         <button className="btn" onClick={b.closeModal}>
           Cancel
         </button>
         <button
           className="btn btn-primary"
+          disabled={a.busy}
           onClick={async () => {
-            try {
-              await b.api("PUT", "/api/onewire/settings", { interval: iv, bulk });
-              b.closeModal();
-            } catch {}
+            if (await a.run(() => b.api("PUT", "/api/onewire/settings", { interval: iv, bulk }), { busy: "Saving…" })) b.closeModal();
           }}
         >
           Save

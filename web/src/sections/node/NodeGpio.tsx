@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useBob } from "../../bob/context";
 import { Note, Pill } from "../../ui/common";
+import { ActionLine, useAction } from "../../ui/status";
 import type { NodeGpio as Gpio, NodePin } from "./api";
 import { usePoll } from "./usePoll";
 import "./node.css";
@@ -13,12 +14,13 @@ const Dot = ({ p }: { p: NodePin }) => (p.level == null ? null : <span className
 export default function NodeGpio() {
   const b = useBob();
   const { data, error, reload } = usePoll<Gpio>("/api/gpio", 1000);
+  const outA = useAction();
   const toggle = async () => {
     if (!data) return;
-    if (data.outputEnabled) await b.api("POST", "/api/gpio/output-control", { enabled: false }).catch(() => {});
+    if (data.outputEnabled) await outA.run(() => b.api("POST", "/api/gpio/output-control", { enabled: false }), { busy: "Turning off…" });
     else {
       if (!(await b.confirm("Enable GPIO output control", "This lets the dashboard, the REST API and MCP agents drive this node's pins (high/low/input/pulls). Pins the firmware uses stay refused.", "Off again after the node resets; turn it off here any time."))) return;
-      await b.api("POST", "/api/gpio/output-control", { enabled: true, confirm: true }).catch(() => {});
+      await outA.run(() => b.api("POST", "/api/gpio/output-control", { enabled: true, confirm: true }), { busy: "Turning on…" });
     }
     reload();
   };
@@ -32,10 +34,11 @@ export default function NodeGpio() {
         <div className="pr-row">
           <Pill cls={data && !error ? "on" : "warn"}>{data && !error ? "live" : "connecting"}</Pill>
           {data && (
-            <button className={`btn btn-sm ${data.outputEnabled ? "btn-warn" : ""}`} onClick={toggle}>
+            <button className={`btn btn-sm ${data.outputEnabled ? "btn-warn" : ""}`} disabled={outA.busy} onClick={toggle}>
               {data.outputEnabled ? "Output control ON: turn off" : "Enable output control…"}
             </button>
           )}
+          <ActionLine a={outA} />
         </div>
         {data && (data.outputEnabled ? <Note color="warning">Output control is on: Set… drives a pin. Pins the firmware uses are refused.</Note> : <Note>Read-only view. Output control is off.</Note>)}
         {error && <Note color="danger">{error}</Note>}
@@ -101,7 +104,7 @@ function PinDialog({ gpio, onDone }: { gpio: number; onDone(): void }) {
   const [res, setRes] = useState("");
   const set = async (body: Record<string, string>) => {
     try {
-      const p = await b.conn.json<NodePin>("POST", `/api/gpio/${gpio}`, body);
+      const p = await b.api<NodePin>("POST", `/api/gpio/${gpio}`, body);
       setRes(`Now ${p.func}, ${p.level ? "high" : "low"}${p.pull && p.pull !== "none" ? ` · pull-${p.pull}` : ""}`);
       onDone();
     } catch (e: any) {

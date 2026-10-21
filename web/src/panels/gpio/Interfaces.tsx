@@ -8,18 +8,15 @@ import { useBob, useSnapshot, type BobApi } from "../../bob/context";
 import type { IfaceGroup } from "./IfaceButton";
 import type { HeaderPos, IfaceInfo, Staged } from "./api";
 import { StagedChange } from "./Stage";
+import { ActionLine, useAction } from "../../ui/status";
 
 const SPEEDS = [10000, 50000, 100000, 400000, 1000000];
 const GROUPS: Record<IfaceGroup, string> = { i2c: "I²C buses", spi: "SPI", uart: "UARTs", w1: "1-Wire" };
 const kHz = (hz?: number) => (hz ? `${hz / 1000} kHz` : "");
 
+// Throws when the settings can't be read; the caller shows why.
 export async function openInterfaces(b: BobApi, focus?: IfaceGroup) {
-  let info: IfaceInfo;
-  try {
-    info = await b.api<IfaceInfo>("GET", "/api/gpio/interfaces");
-  } catch {
-    return;
-  }
+  const info = await b.api<IfaceInfo>("GET", "/api/gpio/interfaces");
   b.openModal(<Interfaces info={info} focus={focus} />, { cls: "wide" });
 }
 
@@ -59,6 +56,7 @@ function Interfaces({ info, focus }: { info: IfaceInfo; focus?: IfaceGroup }) {
   const form = useRef<HTMLDivElement>(null);
   const [out, setOut] = useState<ReactNode>(null);
   const [applied, setApplied] = useState(false);
+  const all = useAction();
   const c = info.configured,
     L = info.live,
     cat = info.catalog;
@@ -124,11 +122,12 @@ function Interfaces({ info, focus }: { info: IfaceInfo; focus?: IfaceGroup }) {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                openInterfaces(b);
+                all.run(() => openInterfaces(b), { busy: "Loading…" });
               }}
             >
               All interfaces…
-            </a>
+            </a>{" "}
+            <ActionLine a={all} />
           </>
         )}
       </p>
