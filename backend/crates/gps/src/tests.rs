@@ -206,3 +206,56 @@ fn tty_paths() {
     );
     assert!(!path_ok("/dev/sda") && !path_ok("/dev/pts/x") && !path_ok("/dev/serial/by-id/../../sda"));
 }
+
+/// gpsd itself, when BENCHBOB_TEST_GPSD names one (a gpsd binary or a wrapper script),
+/// following the synthetic receiver in fixtures/nmea-feeder.py over a pty. Skipped otherwise.
+#[tokio::test]
+async fn real_gpsd_over_a_pty() {
+    let Some(gpsd) = std::env::var_os("BENCHBOB_TEST_GPSD") else {
+        eprintln!("BENCHBOB_TEST_GPSD unset: skipped");
+        return;
+    };
+    let feeder = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/nmea-feeder.py");
+    let mut f = tokio::process::Command::new("python3")
+        .arg(&feeder)
+        .args(["--pty", "--seconds", "60"])
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut out = tokio::io::BufReader::new(f.stdout.take().unwrap());
+    let mut pty_path = String::new();
+    tokio::io::AsyncBufReadExt::read_line(&mut out, &mut pty_path).await.unwrap();
+    let pty_path = pty_path.trim().to_string();
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = Config { gpsd: PathBuf::from(gpsd), port_offset: 0, proc_dir: "/proc".into(), dev_dir: dir.path().into() };
+    let d = Gps::with_config(cfg);
+    let ctx = test_ctx("gps", dir.path());
+    d.init(ctx.clone()).await.unwrap();
+    let t = T { d, ctx, dir };
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let v = call(&t, Method::POST, "/api/gps/start", json!({ "path": pty_path, "port": port, "readOnly": true })).await.unwrap();
+    assert_eq!(v["running"], true);
+    let mut s = Value::Null;
+    for _ in 0..100 {
+        s = call(&t, Method::GET, "/api/gps", Value::Null).await.unwrap();
+        if s["fix"]["fix"] == "3D" && s["fix"]["satsVisible"] == 19 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    println!("{}", serde_json::to_string_pretty(&s).unwrap());
+    assert_eq!(s["fix"]["fix"], "3D");
+    assert_eq!(s["fix"]["satsVisible"], 19);
+    assert_eq!(s["fix"]["satsUsed"], 14);
+    assert!(s["gpsd"]["version"].as_str().unwrap().starts_with("3."));
+    assert_eq!(s["gpsd"]["devices"][0]["path"], pty_path);
+    assert!((s["fix"]["lat"].as_f64().unwrap() - 37.3861).abs() < 0.001);
+    assert!(s["fix"]["nmeaOffset_ms"].is_number());
+    call(&t, Method::POST, "/api/gps/stop", Value::Null).await.unwrap();
+    let s = call(&t, Method::GET, "/api/gps", Value::Null).await.unwrap();
+    assert_eq!(s["running"], false);
+    println!("lastExit: {}", s["lastExit"]);
+    let _ = f.kill().await;
+}

@@ -6,9 +6,9 @@ WebSocket messages, MCP tool names), the same settings files, so either the old 
 or the new web UI works against either server.
 
 > **Status:** the foundation, the board layer and the drives (with flashing, rpiboot, the
-> file browser, OS detection and the catalog), GPIO, serial, CAN, I²C and 1-Wire panels are
-> native. USB, wired network, Wi-Fi, BLE, camera, debug probes, RTL-SDR, GPS and UPS are
-> still proxied to the Bun server (see [Proxy mode](#proxy-mode)), which goes away once
+> file browser, OS detection and the catalog), GPIO, serial, CAN, I²C, 1-Wire, camera, debug
+> probes, RTL-SDR, GPS and UPS panels are native. USB, wired network, Wi-Fi and BLE are still
+> proxied to the Bun server (see [Proxy mode](#proxy-mode)), which goes away once
 > they're ported: the goal is this binary alone, with no Bun at runtime. Until then the
 > released `.deb` runs Bun, and releases are on hold until the Rust-only package is ready.
 
@@ -24,7 +24,12 @@ or the new web UI works against either server.
 | CAN panel: `/api/can*`, `/ws/can/:iface`, `can_*` MCP tools, the socketcand server and its UDP beacon | yes |
 | I²C panel: `/api/i2c*`, `i2c_*` MCP tools | yes |
 | 1-Wire panel: `/api/onewire*`, `onewire_*` MCP tools | yes |
-| USB, wired network, Wi-Fi, BLE, camera, probes, RTL-SDR, GPS, UPS | proxied (being ported) |
+| Camera panel: `/api/camera*` (the MJPEG stream proxied, snapshots), `camera_*` MCP tools, on-demand ustreamer per camera | yes |
+| Debug probes panel: `/api/probes*`, `/ws/probes/:id`, `probes_*` MCP tools, OpenOCD GDB servers and one-shot sessions, UF2 and DFU flashing | yes |
+| RTL-SDR panel: `/api/sdr*`, `sdr_*` MCP tools, rtl_tcp and rtl_433 | yes |
+| GPS panel: `/api/gps*`, `gps_*` MCP tools, a temporary gpsd | yes |
+| UPS panel: `/api/ups*`, `ups_status`, a private NUT | yes |
+| USB, wired network, Wi-Fi, BLE | proxied (being ported) |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
 `backend` block listing the native routes. Every response carries permissive CORS
@@ -45,6 +50,11 @@ to any bob.
 | `crates/i2c-chips` (`benchbob-i2c-chips`) | I²C chip identification and decoders (~40 chips), the `I2cIo` bus trait and a FakeBus simulator; `no_std` + `alloc`, so the firmware nodes can use it too |
 | `crates/i2c` (`benchbob-i2c`) | The I²C driver: /dev/i2c-N ioctls, i2cdetect-style scans, polling, raw register tools |
 | `crates/onewire` (`benchbob-onewire`) | The 1-Wire driver: w1 sysfs masters and slaves, family decoders, DS2482 bridges, the iButton touch log, a fixture tree |
+| `crates/camera` (`benchbob-camera`) | The camera driver: UVC capture nodes, v4l2-ctl formats and controls, one ustreamer per camera on demand, the MJPEG proxy over its unix socket, libcamera's CSI list |
+| `crates/probes` (`benchbob-probes`) | The debug probes driver: the probe/bootloader table, OpenOCD command lines, log parsing and hints, the TCL RPC client, GDB servers and one-shot sessions, UF2 and dfu-util flashing |
+| `crates/sdr` (`benchbob-sdr`) | The RTL-SDR driver: stick table, DVB-driver check, rtl_tcp / rtl_433 state machine, rtl_433 sensor table, rtl_test/rtl_eeprom probing |
+| `crates/gps` (`benchbob-gps`) | The GPS driver: candidate ttys and their holders, gpsd as a child, the JSON watch client and fix/sky/PPS fold |
+| `crates/ups` (`benchbob-ups`) | The UPS driver: NUT's udev table, HID Power Device detection, private NUT driver + upsd, upsc polling, status decoding and power events |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -94,6 +104,9 @@ harness after changing the TypeScript it covers.
 The CAN tests that need a bus run on a vcan named by `BENCHBOB_CAN_TEST_VCAN` (create it once
 as root: `ip link add dev vcanbbtest0 type vcan && ip link set vcanbbtest0 mtu 72 up`;
 the tests themselves need no privileges) and are skipped without it.
+The GPS driver's test against gpsd itself runs when `BENCHBOB_TEST_GPSD` names a gpsd
+binary (or a wrapper script), with `crates/gps/fixtures/nmea-feeder.py` as the receiver on a
+pty; the probes tests that drive the stand-in OpenOCD need python3.
 
 CI runs those on x86-64 and arm64, builds every target, smoke-tests the x86-64 binary,
 and installs a `.deb` built with it to switch Rust mode on and off.
@@ -118,6 +131,9 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_W1_ROOT` | read 1-Wire from a fixture tree instead of /sys/bus/w1/devices (`BENCHBOB_W1_FIXTURE_OUT=<dir> cargo test -p benchbob-onewire write_fixture_tree` writes one) |
 | `BENCHBOB_CONFIG_TXT`, `BENCHBOB_CMDLINE_TXT`, `BENCHBOB_BOOT_ENV`, `BENCHBOB_OVERLAY_DIR` | point the boot-config editors at test copies (reboot is then refused) |
 | `BENCHBOB_FLASH_DIR` | where the serial panel stages firmware files (default `/var/tmp/benchbob-serial`; a side instance can't write the packaged one's) |
+| `BENCHBOB_CAMERA_SIMULATE` | add a simulated MJPEG camera "sim" on this device path (ustreamer serves its NO SIGNAL frame when it can't open it) |
+| `BENCHBOB_PROBES_SIM` | add simulated probes and bootloaders (one is OpenOCD's dummy adapter; the RP2 BOOTSEL drive is a directory under this scratch path) |
+| `BENCHBOB_UPS_SIMULATE` | run NUT's dummy-ups on this `.dev` file as a UPS (edit `ups.status:` in it to drive OL → OB → LB) |
 | `RUST_LOG` | log filter (default `info`) |
 
 The old `DESKYPI_*` names still work. `benchbob --native-drivers` prints the ids of the
@@ -175,11 +191,31 @@ bind-address setting).
 - Reads and writes go through tokio's `AsyncFd` on the O_NONBLOCK tty, so a full
   transmit buffer waits for the tty to drain instead of polling every 5 ms.
 - `wait` in `POST /api/serial/:id/write` and `serial_write` is compiled with the `regex`
-  crate (flags i, m, s; `$` in multi-line mode also ends a line before ``). Lookaround
+  crate (flags i, m, s; `$` in multi-line mode also ends a line before `
+`). Lookaround
   and backreferences aren't supported and answer 400 "Bad wait regex".
 - Firmware given by URL is fetched with `curl`, like the update check.
 - When the flash tool can't be started at all, the port is reopened (the TypeScript left it
   closed).
+## Camera, probes, RTL-SDR, GPS and UPS notes
+
+- Each starts its tool only when asked and stops it when done: ustreamer per camera (idle
+  stop after a minute unless shared), OpenOCD per probe (GDB server, or a throwaway loopback
+  one for a single action), rtl_tcp or rtl_433, gpsd, and NUT's driver + upsd as root via
+  `sudo -n` with config in `/tmp/benchbob-nut-<PORT>`. Their ports shift with
+  `BENCHBOB_PORT_OFFSET`: camera sharing 8080+, OpenOCD 3333/4444/6666 (+10 per probe), rtl_tcp
+  1234, gpsd 2947, upsd 3493.
+- Children are `benchbob_core::proc::Proc`: their output is read line by line, and an exit
+  is handled only after the last line has been read, so "exited: why" messages are complete.
+- ustreamer's HTTP API is spoken over its unix socket with hyper; a viewer leaving drops the
+  upstream connection, which is what lets the idle stop see the camera unused.
+- Native route bodies may be up to 64 MB (the probes' firmware upload limit); larger ones
+  answer 413.
+- The tests use stand-ins where the tool would need hardware: a script plus the test
+  answering ustreamer's HTTP API, stand-in rtl_* and gpsd scripts with the captured
+  fixtures, and `crates/probes/fixtures/fake-openocd.py` for OpenOCD's output and TCL RPC
+  (skipped without python3).
+
 ## I²C and 1-Wire notes
 
 - **I²C scans** use i2cdetect's auto mode (read-byte at 0x30–0x37 and 0x50–0x5F, quick-write
