@@ -121,7 +121,12 @@ impl Inner {
                 return Err(http(409, "Auto-baud already running"));
             }
         }
-        let given: Vec<f64> = o.get("rates").and_then(Value::as_array).filter(|a| !a.is_empty()).map(|a| a.iter().map(js_number).collect()).unwrap_or_default();
+        let given: Vec<f64> = o
+            .get("rates")
+            .and_then(Value::as_array)
+            .filter(|a| !a.is_empty())
+            .map(|a| a.iter().map(js_number).collect())
+            .unwrap_or_default();
         let rates: Vec<u32> = if given.is_empty() {
             AUTOBAUD_RATES.to_vec()
         } else {

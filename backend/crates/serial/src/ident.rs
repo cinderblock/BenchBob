@@ -120,9 +120,20 @@ pub fn reset_seq(name: &str) -> &'static [Step] {
         // esptool HardReset
         "esp" => &[Dtr(false), Rts(true), Ms(100), Rts(false)],
         // esptool USBJTAGSerialReset: the built-in USB-Serial/JTAG peripheral decodes line states, not pins.
-        "esp-boot-usbjtag" => {
-            &[Rts(false), Dtr(false), Ms(100), Dtr(true), Rts(false), Ms(100), Rts(true), Dtr(false), Rts(true), Ms(100), Dtr(false), Rts(false)]
-        }
+        "esp-boot-usbjtag" => &[
+            Rts(false),
+            Dtr(false),
+            Ms(100),
+            Dtr(true),
+            Rts(false),
+            Ms(100),
+            Rts(true),
+            Dtr(false),
+            Rts(true),
+            Ms(100),
+            Dtr(false),
+            Rts(false),
+        ],
         "esp-usbjtag" => &[Dtr(false), Rts(true), Ms(200), Rts(false), Ms(200)],
         // avrdude's arduino programmer: drop DTR/RTS, then raise them; the board's capacitor
         // turns the edge into a reset pulse.
@@ -238,7 +249,10 @@ mod tests {
     #[test]
     fn stable_ids() {
         assert_eq!(stable_id(&props(&[("ID_PATH", "platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.3:1.0")])), "usb-0-1.3-1.0");
-        assert_eq!(stable_id(&props(&[("ID_SERIAL", "Silicon_Labs_CP2102_0001"), ("ID_USB_INTERFACE_NUM", "00")])), "sn-Silicon-Labs-CP2102-0001-00");
+        assert_eq!(
+            stable_id(&props(&[("ID_SERIAL", "Silicon_Labs_CP2102_0001"), ("ID_USB_INTERFACE_NUM", "00")])),
+            "sn-Silicon-Labs-CP2102-0001-00"
+        );
         assert_eq!(stable_id(&props(&[("DEVNAME", "/dev/ttyACM0")])), "ttyACM0");
         assert_eq!(stable_id(&props(&[("ID_PATH", "platform-fe201000.serial")])), "fe201000.serial");
         assert_eq!(manual_id("/dev/pts/3"), "path-dev-pts-3");

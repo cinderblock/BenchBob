@@ -10,18 +10,18 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
 use std::time::Duration;
 
-use benchbob_core::{HttpError, WsClient};
 use benchbob_core::timeline::now_ms;
+use benchbob_core::{HttpError, WsClient};
 use bytes::Bytes;
 use serde_json::{Value, json};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::watch;
 
+use crate::Inner;
 use crate::bridge::{Bridge, BridgeKind};
 use crate::flashjob::FlashJob;
 use crate::ring::Ring;
 use crate::termios::{self as T, ModemLines, SerialConfig};
-use crate::Inner;
 
 pub const TXQ_MAX: usize = 1 << 20;
 /// A browser tab that can't keep up is skipped rather than buffered without bound.
@@ -408,7 +408,13 @@ impl Inner {
         self.write_locked(p, &mut st, data, token)
     }
 
-    pub(crate) fn write_locked(self: &Arc<Self>, p: &Arc<Port>, st: &mut PortState, data: Vec<u8>, token: Option<&str>) -> Result<(), HttpError> {
+    pub(crate) fn write_locked(
+        self: &Arc<Self>,
+        p: &Arc<Port>,
+        st: &mut PortState,
+        data: Vec<u8>,
+        token: Option<&str>,
+    ) -> Result<(), HttpError> {
         ensure_writable(st)?;
         Self::lock_check(st, token)?;
         if !st.open() {

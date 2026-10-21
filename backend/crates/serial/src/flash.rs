@@ -88,8 +88,17 @@ pub fn flash_command(port: &str, o: &FlashOpts) -> Result<Vec<String>, HttpError
                     AVR_PRESETS.iter().map(|p| p.key).collect::<Vec<_>>().join(", ")
                 )));
             };
-            let mut base =
-                vec![s("/usr/bin/avrdude"), s("-p"), s(pr.part), s("-c"), s(pr.programmer), s("-P"), s(port), s("-b"), baud_str(o.baud, pr.baud)];
+            let mut base = vec![
+                s("/usr/bin/avrdude"),
+                s("-p"),
+                s(pr.part),
+                s("-c"),
+                s(pr.programmer),
+                s("-P"),
+                s(port),
+                s("-b"),
+                baud_str(o.baud, pr.baud),
+            ];
             match o.action.as_str() {
                 "info" => {} // connects and reads the signature
                 "erase" => base.push(s("-e")),
@@ -352,14 +361,30 @@ mod tests {
         };
         assert_eq!(
             flash_command("/dev/ttyUSB0", &o).unwrap()[1..],
-            ["--chip", "esp32", "--port", "/dev/ttyUSB0", "--baud", "460800", "write_flash", "-z", "0x01000", "/t/b.bin", "0x10000", "/t/a.bin"]
+            [
+                "--chip",
+                "esp32",
+                "--port",
+                "/dev/ttyUSB0",
+                "--baud",
+                "460800",
+                "write_flash",
+                "-z",
+                "0x01000",
+                "/t/b.bin",
+                "0x10000",
+                "/t/a.bin"
+            ]
         );
         let o = FlashOpts { baud: Some(921600.0), ..opts("esptool", "erase") };
         assert_eq!(flash_command("/dev/ttyACM0", &o).unwrap()[6..], ["921600", "erase_flash"]);
         let o = FlashOpts { chip: Some("z80".into()), ..opts("esptool", "info") };
         assert!(flash_command("/dev/x", &o).unwrap_err().message.contains("Unknown chip"));
         assert!(flash_command("/dev/x", &opts("esptool", "write")).unwrap_err().message.contains("No firmware"));
-        assert_eq!(flash_command("/dev/x", &opts("stm32flash", "info")).unwrap_err().message, "Unknown flash tool \"stm32flash\" (esptool or avrdude)");
+        assert_eq!(
+            flash_command("/dev/x", &opts("stm32flash", "info")).unwrap_err().message,
+            "Unknown flash tool \"stm32flash\" (esptool or avrdude)"
+        );
     }
 
     #[test]
@@ -368,7 +393,20 @@ mod tests {
         let o = FlashOpts { preset: Some("uno".into()), files: f.clone(), ..opts("avrdude", "write") };
         assert_eq!(
             flash_command("/dev/ttyUSB0", &o).unwrap(),
-            ["/usr/bin/avrdude", "-p", "atmega328p", "-c", "arduino", "-P", "/dev/ttyUSB0", "-b", "115200", "-D", "-U", "flash:w:/t/0-blink.hex:i"]
+            [
+                "/usr/bin/avrdude",
+                "-p",
+                "atmega328p",
+                "-c",
+                "arduino",
+                "-P",
+                "/dev/ttyUSB0",
+                "-b",
+                "115200",
+                "-D",
+                "-U",
+                "flash:w:/t/0-blink.hex:i"
+            ]
         );
         let o = FlashOpts { preset: Some("nano-old".into()), files: f.clone(), ..opts("avrdude", "write") };
         assert_eq!(flash_command("/dev/ttyUSB0", &o).unwrap()[7..9], ["-b", "57600"]);
@@ -414,7 +452,9 @@ Writing at 0x00010000... (3 %)
         assert_eq!(fp.info["verified"], "yes");
         assert_eq!(fp.phase, "writing");
         assert!((fp.progress - 51.5).abs() < 0.05);
-        fp.feed("Writing at 0x000f0000... (100 %)\nWrote 1000000 bytes\nHash of data verified.\n\nLeaving...\nHard resetting via RTS pin...\n");
+        fp.feed(
+            "Writing at 0x000f0000... (100 %)\nWrote 1000000 bytes\nHash of data verified.\n\nLeaving...\nHard resetting via RTS pin...\n",
+        );
         assert_eq!(fp.progress, 100.0);
         assert_eq!(fp.phase, "resetting");
         assert_eq!(fp.error, "");
@@ -456,7 +496,9 @@ Writing at 0x00010000... (3 %)
         fp.feed("######################### | 100% 0.15 s\n\navrdude: 924 bytes of flash written\n\nReading | ##########");
         assert_eq!(fp.phase, "verifying");
         assert!((fp.progress - 80.0).abs() < 0.5);
-        fp.feed("######################################## | 100% 0.12 s\n\navrdude: 924 bytes of flash verified\n\navrdude done.  Thank you.\n");
+        fp.feed(
+            "######################################## | 100% 0.12 s\n\navrdude: 924 bytes of flash verified\n\navrdude done.  Thank you.\n",
+        );
         assert_eq!(fp.progress, 100.0);
         assert_eq!(fp.error, "");
     }

@@ -280,145 +280,191 @@ fn id_arg(a: &Value) -> String {
 pub(crate) fn tools(inner: &Arc<Inner>) -> Vec<Tool> {
     let id_prop = || j!({ "type": "string", "description": "Port id from serial_list" });
     vec![
-        tool(inner, "serial_list", "List serial ports on BenchBob (USB-serial adapters, dev boards, the onboard UART) with id, device path, chip/board name, open state, line settings, modem lines, bridge ports and any flash job. Call this first to get port ids.", j!({ "type": "object", "properties": {} }), |i, _| async move {
-            Ok(j!({ "ports": i.list_ports(None) }))
-        }),
-        tool(inner, "serial_configure", "Open, close or reconfigure a serial port: baud (any rate), data bits, parity, stop bits, flow control; set DTR/RTS; send a break; or reset the target (esp, esp-boot, dtr, touch1200). Settings are saved as the port's default unless save=false.", j!({
-            "type": "object",
-            "properties": {
-                "id": id_prop(),
-                "open": { "type": "boolean", "description": "true opens (and keeps open), false closes" },
-                "baud": { "type": "integer" },
-                "dataBits": { "type": "integer", "enum": [5, 6, 7, 8] },
-                "parity": { "type": "string", "enum": ["none", "even", "odd", "mark", "space"] },
-                "stopBits": { "type": "integer", "enum": [1, 2] },
-                "flow": { "type": "string", "enum": ["none", "rtscts", "xonxoff"] },
-                "save": { "type": "boolean", "default": true },
-                "dtr": { "type": "boolean" },
-                "rts": { "type": "boolean" },
-                "break_ms": { "type": "integer", "description": "Send a break of this length" },
-                "reset": { "type": "string", "enum": ["esp", "esp-boot", "dtr", "touch1200"] },
-                "open_on_plug": { "type": "boolean" },
-            },
-            "required": ["id"],
-        }), |i, a| async move {
-            let p = i.get_port(&id_arg(&a))?;
-            let mut cfg = Map::new();
-            for k in ["baud", "dataBits", "parity", "stopBits", "flow"] {
-                if let Some(v) = a.get(k) {
-                    cfg.insert(k.into(), v.clone());
+        tool(
+            inner,
+            "serial_list",
+            "List serial ports on BenchBob (USB-serial adapters, dev boards, the onboard UART) with id, device path, chip/board name, open state, line settings, modem lines, bridge ports and any flash job. Call this first to get port ids.",
+            j!({ "type": "object", "properties": {} }),
+            |i, _| async move { Ok(j!({ "ports": i.list_ports(None) })) },
+        ),
+        tool(
+            inner,
+            "serial_configure",
+            "Open, close or reconfigure a serial port: baud (any rate), data bits, parity, stop bits, flow control; set DTR/RTS; send a break; or reset the target (esp, esp-boot, dtr, touch1200). Settings are saved as the port's default unless save=false.",
+            j!({
+                "type": "object",
+                "properties": {
+                    "id": id_prop(),
+                    "open": { "type": "boolean", "description": "true opens (and keeps open), false closes" },
+                    "baud": { "type": "integer" },
+                    "dataBits": { "type": "integer", "enum": [5, 6, 7, 8] },
+                    "parity": { "type": "string", "enum": ["none", "even", "odd", "mark", "space"] },
+                    "stopBits": { "type": "integer", "enum": [1, 2] },
+                    "flow": { "type": "string", "enum": ["none", "rtscts", "xonxoff"] },
+                    "save": { "type": "boolean", "default": true },
+                    "dtr": { "type": "boolean" },
+                    "rts": { "type": "boolean" },
+                    "break_ms": { "type": "integer", "description": "Send a break of this length" },
+                    "reset": { "type": "string", "enum": ["esp", "esp-boot", "dtr", "touch1200"] },
+                    "open_on_plug": { "type": "boolean" },
+                },
+                "required": ["id"],
+            }),
+            |i, a| async move {
+                let p = i.get_port(&id_arg(&a))?;
+                let mut cfg = Map::new();
+                for k in ["baud", "dataBits", "parity", "stopBits", "flow"] {
+                    if let Some(v) = a.get(k) {
+                        cfg.insert(k.into(), v.clone());
+                    }
                 }
-            }
-            if !cfg.is_empty() {
-                i.apply_config(&p, &Value::Object(cfg), a.get("save") != Some(&Value::Bool(false)))?;
-            }
-            match a.get("open") {
-                Some(Value::Bool(true)) => {
-                    p.lock().want = true;
-                    i.ensure_open(&p)?;
+                if !cfg.is_empty() {
+                    i.apply_config(&p, &Value::Object(cfg), a.get("save") != Some(&Value::Bool(false)))?;
                 }
-                Some(Value::Bool(false)) => {
-                    let mut st = p.lock();
-                    st.want = false;
-                    i.close_fd_locked(&p, &mut st, "closed");
+                match a.get("open") {
+                    Some(Value::Bool(true)) => {
+                        p.lock().want = true;
+                        i.ensure_open(&p)?;
+                    }
+                    Some(Value::Bool(false)) => {
+                        let mut st = p.lock();
+                        st.want = false;
+                        i.close_fd_locked(&p, &mut st, "closed");
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-            if let Some(v) = a.get("open_on_plug") {
-                i.save_port_settings(&p.id, &[("openOnPlug", j!(truthy(v)))]);
-            }
-            if a.get("dtr").is_some() || a.get("rts").is_some() {
-                if !p.lock().open() {
-                    p.lock().want = true;
-                    i.ensure_open(&p)?;
+                if let Some(v) = a.get("open_on_plug") {
+                    i.save_port_settings(&p.id, &[("openOnPlug", j!(truthy(v)))]);
                 }
-                i.set_lines(&p, line_arg(a.get("dtr")), line_arg(a.get("rts")))?;
-            }
-            if let Some(ms) = a.get("break_ms").filter(|v| truthy(v)) {
-                i.send_break(&p, js_number(ms)).await?;
-            }
-            if let Some(m) = a.get("reset").filter(|v| truthy(v)) {
-                i.reset(&p, Some(m)).await?;
-            }
-            let st = p.lock();
-            Ok(i.port_status(&p, &st, None))
-        }),
-        tool(inner, "serial_write", "Write to a serial port and optionally wait for a reply. Opens the port if needed (and leaves it open). Give text (use eol to append a line ending) or hex. With wait (a JavaScript regex), returns the output received after the write up to the first match, or whatever arrived by timeout_ms (max 60000). Without wait, timeout_ms just collects output for that long. ANSI escapes are stripped unless raw. Example: {id, text:'help', eol:'crlf', wait:'\\\\n> ?$'}.", j!({
-            "type": "object",
-            "properties": {
-                "id": id_prop(),
-                "text": { "type": "string" },
-                "hex": { "type": "string", "description": "Bytes as hex, e.g. 'de ad be ef'" },
-                "eol": { "type": "string", "enum": ["none", "cr", "lf", "crlf"], "default": "none" },
-                "wait": { "type": "string", "description": "Regex to wait for in the output" },
-                "flags": { "type": "string", "default": "m" },
-                "timeout_ms": { "type": "integer", "default": 3000, "maximum": 60000 },
-                "raw": { "type": "boolean", "default": false },
+                if a.get("dtr").is_some() || a.get("rts").is_some() {
+                    if !p.lock().open() {
+                        p.lock().want = true;
+                        i.ensure_open(&p)?;
+                    }
+                    i.set_lines(&p, line_arg(a.get("dtr")), line_arg(a.get("rts")))?;
+                }
+                if let Some(ms) = a.get("break_ms").filter(|v| truthy(v)) {
+                    i.send_break(&p, js_number(ms)).await?;
+                }
+                if let Some(m) = a.get("reset").filter(|v| truthy(v)) {
+                    i.reset(&p, Some(m)).await?;
+                }
+                let st = p.lock();
+                Ok(i.port_status(&p, &st, None))
             },
-            "required": ["id"],
-        }), |i, a| async move {
-            let p = i.get_port(&id_arg(&a))?;
-            i.write_and_wait(&p, &a).await
-        }),
-        tool(inner, "serial_read", "Read received serial data from BenchBob's ring buffer (~256 KB of history, kept while the port is open). Pass the cursor from a previous call to get only newer data; omit it for the most recent output. wait_ms long-polls for new data. Returns {data, cursor, more, truncated}.", j!({
-            "type": "object",
-            "properties": {
-                "id": id_prop(),
-                "cursor": { "type": "integer" },
-                "max_bytes": { "type": "integer", "default": 16384 },
-                "wait_ms": { "type": "integer", "maximum": 60000 },
-                "format": { "type": "string", "enum": ["text", "hex", "base64"], "default": "text" },
-                "raw": { "type": "boolean", "default": false },
+        ),
+        tool(
+            inner,
+            "serial_write",
+            "Write to a serial port and optionally wait for a reply. Opens the port if needed (and leaves it open). Give text (use eol to append a line ending) or hex. With wait (a JavaScript regex), returns the output received after the write up to the first match, or whatever arrived by timeout_ms (max 60000). Without wait, timeout_ms just collects output for that long. ANSI escapes are stripped unless raw. Example: {id, text:'help', eol:'crlf', wait:'\\\\n> ?$'}.",
+            j!({
+                "type": "object",
+                "properties": {
+                    "id": id_prop(),
+                    "text": { "type": "string" },
+                    "hex": { "type": "string", "description": "Bytes as hex, e.g. 'de ad be ef'" },
+                    "eol": { "type": "string", "enum": ["none", "cr", "lf", "crlf"], "default": "none" },
+                    "wait": { "type": "string", "description": "Regex to wait for in the output" },
+                    "flags": { "type": "string", "default": "m" },
+                    "timeout_ms": { "type": "integer", "default": 3000, "maximum": 60000 },
+                    "raw": { "type": "boolean", "default": false },
+                },
+                "required": ["id"],
+            }),
+            |i, a| async move {
+                let p = i.get_port(&id_arg(&a))?;
+                i.write_and_wait(&p, &a).await
             },
-            "required": ["id"],
-        }), |i, a| async move {
-            let p = i.get_port(&id_arg(&a))?;
-            i.read_since(&p, &a).await
-        }),
-        tool(inner, "serial_autobaud", "Guess a port's baud rate by listening only (never transmits): tries common rates ~400 ms each and scores how much the data looks like text. The target must be sending something (reset it first if it only talks at boot). apply=true sets the winner when confidence >= 0.5.", j!({ "type": "object", "properties": { "id": id_prop(), "rates": { "type": "array", "items": { "type": "integer" } }, "ms": { "type": "integer" }, "apply": { "type": "boolean" } }, "required": ["id"] }), |i, a| async move {
-            let p = i.get_port(&id_arg(&a))?;
-            i.autobaud(&p, &a).await
-        }),
-        tool(inner, "serial_bridge", "Turn a port's network bridge on or off. kind=tcp is a raw byte socket (nc host port). kind=rfc2217 is RFC 2217 (pyserial rfc2217://host:port, esptool --port rfc2217://..., remote baud and DTR/RTS changes). Returns the port number and client commands.", j!({ "type": "object", "properties": { "id": id_prop(), "kind": { "type": "string", "enum": ["tcp", "rfc2217"] }, "enabled": { "type": "boolean" }, "port": { "type": "integer" } }, "required": ["id", "kind", "enabled"] }), |i, a| async move {
-            let p = i.get_port(&id_arg(&a))?;
-            let kind = a.get("kind").and_then(Value::as_str).and_then(BridgeKind::parse);
-            let host = i.hostname();
-            i.set_bridge(&p, kind, a.get("enabled").is_some_and(truthy), a.get("port"), &host)
-        }),
-        tool(inner, "serial_flash", "Flash a board through its serial port. tool=esptool (ESP8266/ESP32 family): action write (files at offsets, e.g. bootloader 0x1000 / partitions 0x8000 / app 0x10000 for ESP32, or one merged image at 0x0), erase, or info (chip, MAC, flash size). tool=avrdude with preset uno | nano | nano-old | mega: write (.hex or .bin) or info. Files come from url or base64. Returns at once; poll serial_flash_status.", j!({
-            "type": "object",
-            "properties": {
-                "id": id_prop(),
-                "tool": { "type": "string", "enum": ["esptool", "avrdude"] },
-                "action": { "type": "string", "enum": ["write", "erase", "info"] },
-                "files": { "type": "array", "items": { "type": "object", "properties": { "offset": { "type": ["integer", "string"], "description": "e.g. 65536 or '0x10000'" }, "url": { "type": "string" }, "base64": { "type": "string" }, "name": { "type": "string" } } } },
-                "chip": { "type": "string", "enum": ESP_CHIPS },
-                "baud": { "type": "integer" },
-                "preset": { "type": "string", "enum": AVR_PRESETS.iter().map(|p| p.key).collect::<Vec<_>>() },
+        ),
+        tool(
+            inner,
+            "serial_read",
+            "Read received serial data from BenchBob's ring buffer (~256 KB of history, kept while the port is open). Pass the cursor from a previous call to get only newer data; omit it for the most recent output. wait_ms long-polls for new data. Returns {data, cursor, more, truncated}.",
+            j!({
+                "type": "object",
+                "properties": {
+                    "id": id_prop(),
+                    "cursor": { "type": "integer" },
+                    "max_bytes": { "type": "integer", "default": 16384 },
+                    "wait_ms": { "type": "integer", "maximum": 60000 },
+                    "format": { "type": "string", "enum": ["text", "hex", "base64"], "default": "text" },
+                    "raw": { "type": "boolean", "default": false },
+                },
+                "required": ["id"],
+            }),
+            |i, a| async move {
+                let p = i.get_port(&id_arg(&a))?;
+                i.read_since(&p, &a).await
             },
-            "required": ["id", "tool", "action"],
-        }), |i, a| async move {
-            let sources = json_sources(a.get("files"))?;
-            let p = i.get_port(&id_arg(&a))?;
-            let s = |k: &str| a.get(k).filter(|v| !v.is_null()).map(js_string);
-            let opts = FlashOpts {
-                tool: s("tool").unwrap_or_default(),
-                action: s("action").unwrap_or_default(),
-                files: vec![],
-                baud: a.get("baud").filter(|v| !v.is_null()).map(js_number),
-                chip: s("chip"),
-                preset: s("preset"),
-            };
-            Ok(j!({ "job": i.start_flash(&p, FlashRequest { opts, sources })? }))
-        }),
-        tool(inner, "serial_flash_status", "Progress and log of the current or last flash job on a port (state preparing/running/done/error/cancelled, percent, phase, chip info, error message).", j!({ "type": "object", "properties": { "id": id_prop(), "log_lines": { "type": "integer", "default": 40 } }, "required": ["id"] }), |i, a| async move {
-            let p = i.get_port(&id_arg(&a))?;
-            let n = a.get("log_lines").map(js_number).filter(|n| *n != 0.0 && !n.is_nan()).unwrap_or(40.0);
-            let st = p.lock();
-            let log = st.flash.as_ref().map(|f| f.log.clone()).unwrap_or_default();
-            // log.slice(-n)
-            let from = if n > 0.0 { log.len().saturating_sub(n as usize) } else { (-n as usize).min(log.len()) };
-            Ok(j!({ "job": job_view(st.flash.as_ref()), "log": log[from..] }))
-        }),
+        ),
+        tool(
+            inner,
+            "serial_autobaud",
+            "Guess a port's baud rate by listening only (never transmits): tries common rates ~400 ms each and scores how much the data looks like text. The target must be sending something (reset it first if it only talks at boot). apply=true sets the winner when confidence >= 0.5.",
+            j!({ "type": "object", "properties": { "id": id_prop(), "rates": { "type": "array", "items": { "type": "integer" } }, "ms": { "type": "integer" }, "apply": { "type": "boolean" } }, "required": ["id"] }),
+            |i, a| async move {
+                let p = i.get_port(&id_arg(&a))?;
+                i.autobaud(&p, &a).await
+            },
+        ),
+        tool(
+            inner,
+            "serial_bridge",
+            "Turn a port's network bridge on or off. kind=tcp is a raw byte socket (nc host port). kind=rfc2217 is RFC 2217 (pyserial rfc2217://host:port, esptool --port rfc2217://..., remote baud and DTR/RTS changes). Returns the port number and client commands.",
+            j!({ "type": "object", "properties": { "id": id_prop(), "kind": { "type": "string", "enum": ["tcp", "rfc2217"] }, "enabled": { "type": "boolean" }, "port": { "type": "integer" } }, "required": ["id", "kind", "enabled"] }),
+            |i, a| async move {
+                let p = i.get_port(&id_arg(&a))?;
+                let kind = a.get("kind").and_then(Value::as_str).and_then(BridgeKind::parse);
+                let host = i.hostname();
+                i.set_bridge(&p, kind, a.get("enabled").is_some_and(truthy), a.get("port"), &host)
+            },
+        ),
+        tool(
+            inner,
+            "serial_flash",
+            "Flash a board through its serial port. tool=esptool (ESP8266/ESP32 family): action write (files at offsets, e.g. bootloader 0x1000 / partitions 0x8000 / app 0x10000 for ESP32, or one merged image at 0x0), erase, or info (chip, MAC, flash size). tool=avrdude with preset uno | nano | nano-old | mega: write (.hex or .bin) or info. Files come from url or base64. Returns at once; poll serial_flash_status.",
+            j!({
+                "type": "object",
+                "properties": {
+                    "id": id_prop(),
+                    "tool": { "type": "string", "enum": ["esptool", "avrdude"] },
+                    "action": { "type": "string", "enum": ["write", "erase", "info"] },
+                    "files": { "type": "array", "items": { "type": "object", "properties": { "offset": { "type": ["integer", "string"], "description": "e.g. 65536 or '0x10000'" }, "url": { "type": "string" }, "base64": { "type": "string" }, "name": { "type": "string" } } } },
+                    "chip": { "type": "string", "enum": ESP_CHIPS },
+                    "baud": { "type": "integer" },
+                    "preset": { "type": "string", "enum": AVR_PRESETS.iter().map(|p| p.key).collect::<Vec<_>>() },
+                },
+                "required": ["id", "tool", "action"],
+            }),
+            |i, a| async move {
+                let sources = json_sources(a.get("files"))?;
+                let p = i.get_port(&id_arg(&a))?;
+                let s = |k: &str| a.get(k).filter(|v| !v.is_null()).map(js_string);
+                let opts = FlashOpts {
+                    tool: s("tool").unwrap_or_default(),
+                    action: s("action").unwrap_or_default(),
+                    files: vec![],
+                    baud: a.get("baud").filter(|v| !v.is_null()).map(js_number),
+                    chip: s("chip"),
+                    preset: s("preset"),
+                };
+                Ok(j!({ "job": i.start_flash(&p, FlashRequest { opts, sources })? }))
+            },
+        ),
+        tool(
+            inner,
+            "serial_flash_status",
+            "Progress and log of the current or last flash job on a port (state preparing/running/done/error/cancelled, percent, phase, chip info, error message).",
+            j!({ "type": "object", "properties": { "id": id_prop(), "log_lines": { "type": "integer", "default": 40 } }, "required": ["id"] }),
+            |i, a| async move {
+                let p = i.get_port(&id_arg(&a))?;
+                let n = a.get("log_lines").map(js_number).filter(|n| *n != 0.0 && !n.is_nan()).unwrap_or(40.0);
+                let st = p.lock();
+                let log = st.flash.as_ref().map(|f| f.log.clone()).unwrap_or_default();
+                // log.slice(-n)
+                let from = if n > 0.0 { log.len().saturating_sub(n as usize) } else { (-n as usize).min(log.len()) };
+                Ok(j!({ "job": job_view(st.flash.as_ref()), "log": log[from..] }))
+            },
+        ),
     ]
 }

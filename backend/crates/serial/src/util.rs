@@ -26,7 +26,7 @@ pub fn parse_hex(s: &str) -> Result<Vec<u8>, HttpError> {
     static OX: OnceLock<Regex> = OnceLock::new();
     let s = OX.get_or_init(|| Regex::new("(?i)0x").unwrap()).replace_all(s, "");
     let clean: String = s.chars().filter(|c| !(c.is_whitespace() || *c == ',' || *c == ':')).collect();
-    if clean.len() % 2 != 0 || !clean.bytes().all(|c| c.is_ascii_hexdigit()) {
+    if !clean.len().is_multiple_of(2) || !clean.bytes().all(|c| c.is_ascii_hexdigit()) {
         return Err(HttpError::bad_request("hex must be pairs of hex digits (spaces, commas, colons and 0x prefixes are ignored)"));
     }
     Ok((0..clean.len()).step_by(2).map(|i| u8::from_str_radix(&clean[i..i + 2], 16).unwrap()).collect())

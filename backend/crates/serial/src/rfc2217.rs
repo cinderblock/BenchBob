@@ -104,7 +104,10 @@ pub fn escape_iac(data: &[u8]) -> Vec<u8> {
 
 pub fn modem_byte(l: Option<ModemLines>) -> u8 {
     let Some(l) = l else { return 0 };
-    (if l.cts { MODEM_CTS } else { 0 }) | (if l.dsr { MODEM_DSR } else { 0 }) | (if l.ri { MODEM_RI } else { 0 }) | (if l.dcd { MODEM_CD } else { 0 })
+    (if l.cts { MODEM_CTS } else { 0 })
+        | (if l.dsr { MODEM_DSR } else { 0 })
+        | (if l.ri { MODEM_RI } else { 0 })
+        | (if l.dcd { MODEM_CD } else { 0 })
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -250,11 +253,8 @@ impl Rfc2217Session {
     }
 
     fn negotiate(&mut self, cmd: u8, opt: u8, port: &mut dyn PortHooks) {
-        let (map, ok_set, yes, no): (&mut HashMap<u8, bool>, &[u8], u8, u8) = if cmd == DO || cmd == DONT {
-            (&mut self.we, &WE_OK, WILL, WONT)
-        } else {
-            (&mut self.they, &THEY_OK, DO, DONT)
-        };
+        let (map, ok_set, yes, no): (&mut HashMap<u8, bool>, &[u8], u8, u8) =
+            if cmd == DO || cmd == DONT { (&mut self.we, &WE_OK, WILL, WONT) } else { (&mut self.they, &THEY_OK, DO, DONT) };
         let want = cmd == DO || cmd == WILL;
         let ok = want && ok_set.contains(&opt);
         let prev = map.get(&opt).copied();
@@ -265,10 +265,7 @@ impl Rfc2217Session {
             // Only answer on a state change (or the first refusal), never re-acknowledge.
             self.send(vec![IAC, if ok { yes } else { no }, opt]);
         }
-        if opt == OPT_COM_PORT
-            && (self.we.get(&opt) == Some(&true) || self.they.get(&opt) == Some(&true))
-            && !self.rfc2217
-        {
+        if opt == OPT_COM_PORT && (self.we.get(&opt) == Some(&true) || self.they.get(&opt) == Some(&true)) && !self.rfc2217 {
             self.rfc2217 = true;
             port.log("client speaks RFC 2217");
             self.notify_modem(true, port);
@@ -550,7 +547,13 @@ mod tests {
         s.start();
         assert_eq!(
             s.take_sent(),
-            vec![vec![IAC, WILL, OPT_SGA], vec![IAC, WILL, OPT_ECHO], vec![IAC, WILL, OPT_BINARY], vec![IAC, DO, OPT_BINARY], vec![IAC, WILL, OPT_COM_PORT]]
+            vec![
+                vec![IAC, WILL, OPT_SGA],
+                vec![IAC, WILL, OPT_ECHO],
+                vec![IAC, WILL, OPT_BINARY],
+                vec![IAC, DO, OPT_BINARY],
+                vec![IAC, WILL, OPT_COM_PORT]
+            ]
         );
     }
 
@@ -561,7 +564,29 @@ mod tests {
         s.take_sent();
         // pyserial: DO ECHO, WILL SGA, DO SGA, WILL COM-PORT, DO COM-PORT, then WILL BINARY / DO BINARY in reply to our offers
         let data = s.feed(
-            &[IAC, DO, OPT_ECHO, IAC, WILL, OPT_SGA, IAC, DO, OPT_SGA, IAC, WILL, OPT_COM_PORT, IAC, DO, OPT_COM_PORT, IAC, WILL, OPT_BINARY, IAC, DO, OPT_BINARY],
+            &[
+                IAC,
+                DO,
+                OPT_ECHO,
+                IAC,
+                WILL,
+                OPT_SGA,
+                IAC,
+                DO,
+                OPT_SGA,
+                IAC,
+                WILL,
+                OPT_COM_PORT,
+                IAC,
+                DO,
+                OPT_COM_PORT,
+                IAC,
+                WILL,
+                OPT_BINARY,
+                IAC,
+                DO,
+                OPT_BINARY,
+            ],
             &mut p,
         );
         assert!(data.is_empty());

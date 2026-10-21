@@ -47,7 +47,8 @@ impl BridgeKind {
 
 #[derive(Default)]
 pub struct Bridge {
-    pub listener: Option<tokio::task::JoinHandle<()>>,
+    /// The accept loop and its listening socket's fd.
+    pub listener: Option<(tokio::task::JoinHandle<()>, i32)>,
     pub clients: Vec<Arc<NetClient>>,
     pub error: String,
     pub port: u16,
@@ -202,7 +203,8 @@ impl Inner {
     /// The listening port: an explicit (persisted) one, else base + the device's slot.
     pub(crate) fn bridge_port(&self, id: &str, kind: BridgeKind) -> u16 {
         let off = self.offset as u32;
-        let explicit = self.port_settings(id).get("bridgePorts").and_then(|b| b.get(kind.as_str())).and_then(Value::as_u64).filter(|n| *n != 0);
+        let explicit =
+            self.port_settings(id).get("bridgePorts").and_then(|b| b.get(kind.as_str())).and_then(Value::as_u64).filter(|n| *n != 0);
         if let Some(e) = explicit {
             return (e as u32 + off) as u16;
         }
@@ -222,6 +224,7 @@ impl Inner {
         let l = bind(port).and_then(TcpListener::from_std);
         match l {
             Ok(l) => {
+                let fd = std::os::fd::AsRawFd::as_raw_fd(&l);
                 let (me, pp) = (self.clone(), p.clone());
                 let h = tokio::spawn(async move {
                     loop {
@@ -232,7 +235,7 @@ impl Inner {
                     }
                 });
                 let br = st.bridge_mut(kind);
-                br.listener = Some(h);
+                br.listener = Some((h, fd));
                 br.error.clear();
                 self.log(&format!("{}: {} bridge on :{port}", p.id, kind.as_str()));
             }
@@ -252,7 +255,13 @@ impl Inner {
             st.leases = st.leases.saturating_sub(1);
             c.end();
         }
-        if let Some(h) = st.bridge_mut(kind).listener.take() {
+        if let Some((h, fd)) = st.bridge_mut(kind).listener.take() {
+            // Refuse connections now, as Bun's listener.stop() does; the task (which owns the
+            // socket, so the fd is still ours) closes it when the abort lands.
+            // SAFETY: shutdown(2) on the listening socket the accept loop still holds.
+            unsafe {
+                libc::shutdown(fd, libc::SHUT_RDWR);
+            }
             h.abort();
         }
     }
@@ -350,7 +359,14 @@ impl Inner {
         self.notify(&p, &st);
     }
 
-    pub(crate) fn set_bridge(self: &Arc<Self>, p: &Arc<Port>, kind: Option<BridgeKind>, enabled: bool, port: Option<&Value>, host: &str) -> Result<Value, HttpError> {
+    pub(crate) fn set_bridge(
+        self: &Arc<Self>,
+        p: &Arc<Port>,
+        kind: Option<BridgeKind>,
+        enabled: bool,
+        port: Option<&Value>,
+        host: &str,
+    ) -> Result<Value, HttpError> {
         let Some(kind) = kind else { return Err(HttpError::bad_request("kind must be \"tcp\" or \"rfc2217\"")) };
         let mut st = p.lock();
         if let Some(v) = port.filter(|v| !v.is_null()) {
@@ -403,7 +419,12 @@ impl Inner {
     }
 }
 
-async fn writer(c: Arc<NetClient>, mut wr: tokio::net::tcp::OwnedWriteHalf, mut ctrl: mpsc::UnboundedReceiver<Vec<u8>>, mut data: mpsc::UnboundedReceiver<Bytes>) {
+async fn writer(
+    c: Arc<NetClient>,
+    mut wr: tokio::net::tcp::OwnedWriteHalf,
+    mut ctrl: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut data: mpsc::UnboundedReceiver<Bytes>,
+) {
     let mut closing = c.closing.subscribe();
     loop {
         let paused = c.suspended.load(Ordering::SeqCst);

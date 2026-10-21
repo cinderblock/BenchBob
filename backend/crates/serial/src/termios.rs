@@ -146,8 +146,7 @@ pub struct SerialConfig {
     pub flow: Flow,
 }
 
-pub const DEFAULT_CONFIG: SerialConfig =
-    SerialConfig { baud: 115200, data_bits: 8, parity: Parity::None, stop_bits: 1, flow: Flow::None };
+pub const DEFAULT_CONFIG: SerialConfig = SerialConfig { baud: 115200, data_bits: 8, parity: Parity::None, stop_bits: 1, flow: Flow::None };
 
 impl Default for SerialConfig {
     fn default() -> Self {

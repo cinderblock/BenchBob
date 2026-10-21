@@ -131,7 +131,11 @@ pub fn flash_request(content_type: &str, query: &[(String, String)], body: &[u8]
         for p in parts.iter().filter(|p| p.filename.is_none() && p.name != "offset") {
             o.insert(p.name.clone(), Value::String(String::from_utf8_lossy(&p.data).into_owned()));
         }
-        let offsets: Vec<String> = parts.iter().filter(|p| p.filename.is_none() && p.name == "offset").map(|p| String::from_utf8_lossy(&p.data).into_owned()).collect();
+        let offsets: Vec<String> = parts
+            .iter()
+            .filter(|p| p.filename.is_none() && p.name == "offset")
+            .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+            .collect();
         let mut i = 0;
         for p in parts.iter().filter(|p| p.filename.is_some()) {
             // A file field named like an offset ("0x10000") carries its own; otherwise
@@ -166,7 +170,12 @@ pub fn flash_request(content_type: &str, query: &[(String, String)], body: &[u8]
     } else if !body.is_empty() {
         let q = |k: &str| query.iter().rev().find(|(x, _)| x == k).map(|(_, v)| v.clone());
         let name = q("name").filter(|n| !n.is_empty()).unwrap_or_else(|| "firmware.bin".into());
-        sources.push(Source { offset: parse_offset(q("offset").map(Value::String).as_ref(), 0)?, name, data: Some(body.to_vec()), url: None });
+        sources.push(Source {
+            offset: parse_offset(q("offset").map(Value::String).as_ref(), 0)?,
+            name,
+            data: Some(body.to_vec()),
+            url: None,
+        });
     }
     let s = |k: &str| o.get(k).filter(|v| truthy(v)).map(js_string);
     let opts = FlashOpts {
@@ -229,7 +238,11 @@ impl Inner {
             .map(|(i, s)| {
                 let base = if s.name.is_empty() { "fw.bin".to_string() } else { s.name.clone() };
                 let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || "._-".contains(c) { c } else { '_' }).collect();
-                FlashFile { offset: s.offset, name: if s.name.is_empty() { format!("fw{i}.bin") } else { s.name.clone() }, path: format!("{dir}/{i}-{safe}") }
+                FlashFile {
+                    offset: s.offset,
+                    name: if s.name.is_empty() { format!("fw{i}.bin") } else { s.name.clone() },
+                    path: format!("{dir}/{i}-{safe}"),
+                }
             })
             .collect();
         // Validate the command now so a bad preset/chip is a 400, not a failed job.
@@ -350,7 +363,21 @@ impl Inner {
         let mut c = tokio::process::Command::new(&cmd[0]);
         let path = format!("{SYSTEM_PATH}:{}", std::env::var("PATH").unwrap_or_default());
         c.args(&cmd[1..]).env("PATH", path).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        let mut child = self.ctx().spawn(&mut c).map_err(|e| format!("{}: {e}", cmd[0]))?;
+        let mut child = match self.ctx().spawn(&mut c) {
+            Ok(c) => c,
+            Err(e) => {
+                // The tool isn't there: say so, and give the port back (the TypeScript left it closed).
+                let mut st = p.lock();
+                self.finish_job(p, &mut st, "error", &format!("{}: {e}", cmd[0]));
+                st.state = "closed";
+                self.notify(p, &st);
+                drop(st);
+                if reopen {
+                    self.reopen_after_flash(p.clone(), 8);
+                }
+                return Ok(());
+            }
+        };
         {
             let mut st = p.lock();
             if let Some(j) = st.flash.as_mut() {
@@ -504,9 +531,15 @@ mod tests {
         let r = flash_request("multipart/form-data; boundary=b", &[], body).unwrap();
         assert_eq!((r.opts.tool.as_str(), r.opts.action.as_str()), ("avrdude", "write"));
         assert_eq!(r.sources.iter().map(|s| (s.offset, s.name.as_str())).collect::<Vec<_>>(), [(0x1000, "boot.bin"), (0x10000, "app.bin")]);
-        let r = flash_request("application/octet-stream", &[("offset".into(), "0x8000".into()), ("chip".into(), "esp32".into())], b"xyz").unwrap();
+        let r = flash_request("application/octet-stream", &[("offset".into(), "0x8000".into()), ("chip".into(), "esp32".into())], b"xyz")
+            .unwrap();
         assert_eq!((r.sources[0].offset, r.sources[0].name.as_str(), r.opts.chip.as_deref()), (0x8000, "firmware.bin", Some("esp32")));
-        let r = flash_request("application/json", &[], br#"{"action":"write","files":[{"offset":"0x0","url":"https://x/y/fw.bin?raw=1"}],"baud":"921600"}"#).unwrap();
+        let r = flash_request(
+            "application/json",
+            &[],
+            br#"{"action":"write","files":[{"offset":"0x0","url":"https://x/y/fw.bin?raw=1"}],"baud":"921600"}"#,
+        )
+        .unwrap();
         assert_eq!((r.sources[0].name.as_str(), r.opts.baud), ("fw.bin", Some(921600.0)));
         assert!(flash_request("application/json", &[], br#"{"files":[{"offset":0}]}"#).unwrap_err().message.contains("url or base64"));
         let r = flash_request("", &[], b"").unwrap();
@@ -537,7 +570,10 @@ mod tests {
         assert!(v.get("ended").is_none());
         j.ended = Some(2);
         let keys: Vec<String> = job_view(Some(&j)).as_object().unwrap().keys().cloned().collect();
-        assert_eq!(keys, ["id", "tool", "action", "label", "state", "phase", "progress", "info", "message", "started", "cmd", "ended", "logTail"]);
+        assert_eq!(
+            keys,
+            ["id", "tool", "action", "label", "state", "phase", "progress", "info", "message", "started", "cmd", "ended", "logTail"]
+        );
         j.info.insert("chip".into(), json!("ESP32-C3"));
         j.info.insert("mac".into(), json!("aa"));
         assert_eq!(info_summary(&j), "ESP32-C3 · MAC aa");

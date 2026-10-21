@@ -49,7 +49,15 @@ pub fn score_sample(b: &[u8]) -> f64 {
 fn printable_sample(b: &[u8], n: usize) -> String {
     b.iter()
         .take(n)
-        .map(|&x| if (0x20..0x7f).contains(&x) { x as char } else if x == 10 { '⏎' } else { '·' })
+        .map(|&x| {
+            if (0x20..0x7f).contains(&x) {
+                x as char
+            } else if x == 10 {
+                '⏎'
+            } else {
+                '·'
+            }
+        })
         .collect()
 }
 
@@ -86,7 +94,12 @@ impl AutobaudResult {
 pub fn pick_baud(samples: &[(u32, Vec<u8>)]) -> AutobaudResult {
     let results: Vec<Rate> = samples
         .iter()
-        .map(|(baud, data)| Rate { baud: *baud, bytes: data.len(), score: to_fixed(score_sample(data), 3), sample: printable_sample(data, 48) })
+        .map(|(baud, data)| Rate {
+            baud: *baud,
+            bytes: data.len(),
+            score: to_fixed(score_sample(data), 3),
+            sample: printable_sample(data, 48),
+        })
         .collect();
     let mut ranked: Vec<&Rate> = results.iter().collect();
     // Stable, like Array.prototype.sort.

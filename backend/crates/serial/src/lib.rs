@@ -249,7 +249,8 @@ impl Inner {
         let (vendor, model) = ident::usb_name(&merged);
         let usb_driver = g("ID_USB_DRIVER");
         let devlinks = g("DEVLINKS");
-        let mut family = known.map(|k| k.family).unwrap_or(if !usb_driver.is_empty() && usb_driver != "cdc_acm" { "bridge" } else { "other" });
+        let mut family =
+            known.map(|k| k.family).unwrap_or(if !usb_driver.is_empty() && usb_driver != "cdc_acm" { "bridge" } else { "other" });
         // A generic Arduino-vendor id with an 8xxx pid is a native-USB board (Leonardo, SAMD…).
         if vid == "2341" && known.is_none_or(|k| k.pid.is_none()) && pid.starts_with('8') {
             family = "arduino-native";
@@ -335,7 +336,10 @@ impl Inner {
             if !port::exists(path) {
                 continue;
             }
-            found.push((ident::manual_id(path), Info { path: path.into(), kind: "manual", name: path.into(), family: "other", ..Default::default() }));
+            found.push((
+                ident::manual_id(path),
+                Info { path: path.into(), kind: "manual", name: path.into(), family: "other", ..Default::default() },
+            ));
         }
 
         let mut seen = Vec::new();

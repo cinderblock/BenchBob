@@ -98,7 +98,9 @@ pub(crate) async fn session(inner: Arc<Inner>, mut s: WsSession) {
         };
         let r: Result<(), HttpError> = match ty.as_str() {
             "write" => crate::util::payload(&m).and_then(|d| inner.write(&p, d, Some(&token()))),
-            "config" => inner.apply_config(&p, &m, m.get("save") != Some(&Value::Bool(false))).map(|c| ok(json!({ "config": c.to_json() }))),
+            "config" => {
+                inner.apply_config(&p, &m, m.get("save") != Some(&Value::Bool(false))).map(|c| ok(json!({ "config": c.to_json() })))
+            }
             "lines" => inner.set_lines(&p, line_arg(m.get("dtr")), line_arg(m.get("rts"))),
             "break" | "reset" => {
                 // These take a while: run them aside so the byte stream keeps flowing.

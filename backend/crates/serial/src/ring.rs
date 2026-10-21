@@ -47,9 +47,7 @@ impl Ring {
         let end = self.end;
         match self.chunks.back_mut() {
             // Coalesce a trickle (a byte per keystroke) so the chunk count stays bounded.
-            Some(last) if last.data.len() + data.len() <= 4096 && (t as i64 - last.t as i64) < 50 => {
-                last.data.extend_from_slice(data)
-            }
+            Some(last) if last.data.len() + data.len() <= 4096 && (t as i64 - last.t as i64) < 50 => last.data.extend_from_slice(data),
             _ => self.chunks.push_back(Chunk { t, pos: end, data: data.to_vec() }),
         }
         self.size += data.len();
