@@ -62,7 +62,9 @@ on eth0 while the live one ran. Afterwards `ip maddr show dev eth0` no longer li
 `01:80:c2:00:00:0e` and the live lldpd reported "no neighbor" until netdiag was restarted
 (disable/enable in Peripherals…). Only happens with two BenchBob instances on one Pi, but
 netdiag could notice "listening for minutes, link up, no LLDP multicast address" and
-restart lldpd itself.
+restart lldpd itself. The Rust server's netdiag now does (`benchbob-netdiag`, `lldp_heal`:
+no `0180c200000e` for a linked port in /proc/net/dev_mcast after two minutes); the Bun
+server still doesn't.
 
 ## Full status refresh spawns ~12 processes every 2 s while a dashboard is open
 

@@ -227,6 +227,21 @@ fn lldpcli_json_parsing() {
     assert!(parse_lldp_neighbors(&json!({ "lldp": {} })).is_empty());
 }
 
+/// The live lldpd on desky queried with lldpcli (2026-10-21), and what the Bun server's
+/// /api/netdiag/neighbors answered a second later: the same objects, byte for byte, apart
+/// from the age ticking.
+#[test]
+fn lldpcli_capture_matches_the_bun_server() {
+    let raw: Value = serde_json::from_str(include_str!("../fixtures/lldpcli-neighbors-desky.json")).unwrap();
+    let api: Value = serde_json::from_str(include_str!("../fixtures/neighbors-api-desky.json")).unwrap();
+    let mut got = parse_lldp_neighbors(&raw);
+    let mut want = api["neighbors"].as_array().unwrap().clone();
+    for n in got.iter_mut().chain(want.iter_mut()) {
+        n["age"] = json!("<age>");
+    }
+    assert_eq!(serde_json::to_string(&got).unwrap(), serde_json::to_string(&want).unwrap());
+}
+
 #[test]
 fn ping_parsing() {
     let ok = parse_ping(

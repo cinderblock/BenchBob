@@ -1,0 +1,54 @@
+{
+  "lldp": {
+    "interface": {
+      "eth0": {
+        "via": "LLDP",
+        "rid": "1",
+        "age": "0 day, 05:41:40",
+        "chassis": {
+          "USW-Lite-16-PoE": {
+            "id": {
+              "type": "mac",
+              "value": "74:ac:b9:e3:99:6f"
+            },
+            "descr": "UBNT-USL16L",
+            "mgmt-ip": [
+              "10.255.0.226",
+              "fe80::76ac:b9ff:fee3:996f"
+            ],
+            "capability": {
+              "type": "Bridge",
+              "enabled": true
+            }
+          }
+        },
+        "port": {
+          "id": {
+            "type": "local",
+            "value": "Port 15"
+          },
+          "descr": "Port 15",
+          "ttl": "120"
+        },
+        "vlan": {
+          "vlan-id": "1",
+          "pvid": true
+        },
+        "lldp-med": {
+          "device-type": "Network Connectivity Device",
+          "capability": [
+            {
+              "type": "Capabilities",
+              "available": true
+            },
+            {
+              "type": "Policy",
+              "available": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+

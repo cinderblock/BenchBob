@@ -6,8 +6,8 @@ WebSocket messages, MCP tool names), the same settings files, so either the old 
 or the new web UI works against either server.
 
 > **Status:** the foundation, the board layer and the drives (with flashing, rpiboot, the
-> file browser, OS detection and the catalog), GPIO, serial, CAN, I²C and 1-Wire panels are
-> native. USB, wired network, Wi-Fi, BLE, camera, debug probes, RTL-SDR, GPS and UPS are
+> file browser, OS detection and the catalog), GPIO, serial, CAN, I²C, 1-Wire, USB and wired
+> network panels are native. Wi-Fi, BLE, camera, debug probes, RTL-SDR, GPS and UPS are
 > still proxied to the Bun server (see [Proxy mode](#proxy-mode)), which goes away once
 > they're ported: the goal is this binary alone, with no Bun at runtime. Until then the
 > released `.deb` runs Bun, and releases are on hold until the Rust-only package is ready.
@@ -24,7 +24,9 @@ or the new web UI works against either server.
 | CAN panel: `/api/can*`, `/ws/can/:iface`, `can_*` MCP tools, the socketcand server and its UDP beacon | yes |
 | I²C panel: `/api/i2c*`, `i2c_*` MCP tools | yes |
 | 1-Wire panel: `/api/onewire*`, `onewire_*` MCP tools | yes |
-| USB, wired network, Wi-Fi, BLE, camera, probes, RTL-SDR, GPS, UPS | proxied (being ported) |
+| USB panel: `/api/usb*`, `usb_*` MCP tools (device tree, hotplug and kernel timeline, uhubctl port power, USB/IP and usbredir sharing) | yes |
+| Wired network panel: `/api/netdiag*`, `net_*` MCP tools (ethtool link, receive-only LLDP, iperf3, ping/DNS/HTTP/MTU checks) | yes |
+| Wi-Fi, BLE, camera, probes, RTL-SDR, GPS, UPS | proxied (being ported) |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
 `backend` block listing the native routes. Every response carries permissive CORS
@@ -45,6 +47,8 @@ to any bob.
 | `crates/i2c-chips` (`benchbob-i2c-chips`) | I²C chip identification and decoders (~40 chips), the `I2cIo` bus trait and a FakeBus simulator; `no_std` + `alloc`, so the firmware nodes can use it too |
 | `crates/i2c` (`benchbob-i2c`) | The I²C driver: /dev/i2c-N ioctls, i2cdetect-style scans, polling, raw register tools |
 | `crates/onewire` (`benchbob-onewire`) | The 1-Wire driver: w1 sysfs masters and slaves, family decoders, DS2482 bridges, the iButton touch log, a fixture tree |
+| `crates/usb` (`benchbob-usb`) | The USB driver: the sysfs device tree with udev nodes and panel hints, hotplug and `dmesg -W` events, uhubctl power with the ganged/internal-link/protection planner, USB/IP (usbipd) and usbredir sharing, auto-share rules |
+| `crates/netdiag` (`benchbob-netdiag`) | The wired-network driver: ethtool link/EEE/error counters, a private receive-only lldpd, the iperf3 server and client with presets and logins, ping, a small DNS client for per-resolver timing, HTTP (curl) and path-MTU checks |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -112,7 +116,7 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_LEGACY_PORT` | proxy every route this server doesn't have to the Bun server on `127.0.0.1:<port>` |
 | `BENCHBOB_BOARD` | force a board id |
 | `BENCHBOB_BOARDS_DIR`, `BENCHBOB_BOARDS_D` | other board directories (shipped / user) |
-| `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port (socketcand: 29536 + offset) |
+| `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port (socketcand: 29536 + offset; usbipd 3240, usbredir 4200 + n and the default iperf3 server port 5201, each + offset) |
 | `BENCHBOB_CAN_REC_DIR` | where CAN recordings go (default `/var/tmp/benchbob-can`, capped at 256 MB each) |
 | `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port |
 | `BENCHBOB_W1_ROOT` | read 1-Wire from a fixture tree instead of /sys/bus/w1/devices (`BENCHBOB_W1_FIXTURE_OUT=<dir> cargo test -p benchbob-onewire write_fixture_tree` writes one) |
@@ -192,3 +196,27 @@ bind-address setting).
   `I2cIo` over its own I²C peripheral and reuse every probe and decoder.
 - **1-Wire** root-only sysfs writes (search, bulk read, outputs, resolution, DS2482
   bind/unbind) fall back to `sudo -n tee`, as the Bun server's do.
+
+## USB notes
+
+- **Shares survive a restart:** a service stop leaves devices bound to usbip-host (the kernel
+  keeps established attachments) and the next start adopts every binding and starts usbipd
+  again. Only turning the USB panel off unshares. Power switching and sharing refuse, or ask
+  for `confirm: "ganged" | "unsafe"`, exactly as the Bun server does.
+- usbipd, usbredirect and the `dmesg -W` follower run through `sudo -n` and are stopped with
+  SIGTERM, which sudo passes on (a SIGKILL would orphan them).
+- In proxy mode `GET /api/usb/timeline` and the panel's timeline hold this server's events
+  only; `GET /api/periph/timeline` merges both servers'.
+
+## Wired network notes
+
+- lldpd runs receive-only with its control socket in `/tmp/benchbob-lldpd-<PORT>`, so a side
+  instance never touches the live one's. Don't run two on one NIC anyway: lldpd joins the
+  LLDP multicast group with SIOCADDMULTI, and when the second one exits it drops the group
+  for both. This server notices (lldpd up two minutes, a linked port without
+  `01:80:c2:00:00:0e` in `/proc/net/dev_mcast`) and restarts its lldpd, at most every ten
+  minutes.
+- The DNS check sends its own A queries to each resolver (UDP, TCP when truncated) with
+  c-ares's error codes; the HTTP check uses `curl` and stops it once the headers arrive.
+- Slow checks (ping, DNS, HTTP, MTU, `iperf` with `wait`) answer at once and send a space
+  every 4 s until the JSON follows, as the Bun server's `slowJson` does.
