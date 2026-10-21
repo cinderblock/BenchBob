@@ -146,6 +146,8 @@ struct State {
     peers: Vec<Peer>,
     redir: IndexMap<String, Proc>,
     dmesg_error: String,
+    /// The kernel log follower's sudo, while it runs.
+    dmesg_pid: Option<u32>,
 }
 
 struct View {
@@ -662,7 +664,11 @@ impl Inner {
                         return;
                     }
                 };
-                me.st.lock().unwrap().dmesg_error.clear();
+                {
+                    let mut st = me.st.lock().unwrap();
+                    st.dmesg_error.clear();
+                    st.dmesg_pid = child.child.id();
+                }
                 let out = child.child.stdout.take();
                 let errs = child.child.stderr.take();
                 let last_err = Arc::new(Mutex::new(String::new()));
@@ -681,6 +687,7 @@ impl Inner {
                     lines(errs, |l| *le.lock().unwrap() = l),
                 );
                 let code = child.child.wait().await.ok().and_then(|s| s.code());
+                me.st.lock().unwrap().dmesg_pid = None;
                 if me.epoch.load(Ordering::SeqCst) != epoch || me.st.lock().unwrap().stopped {
                     return;
                 }
@@ -700,7 +707,9 @@ impl Inner {
                 tokio::time::sleep(Duration::from_millis(5000 * (fails as u64 + 1))).await;
             }
         });
-        self.loops.lock().unwrap().push(Task(t));
+        // Detached on purpose: aborting this task would drop the child handle, which
+        // SIGKILLs sudo and leaves dmesg running as root. stop() SIGTERMs it instead.
+        drop(t);
     }
 
     // ---------- USB/IP ----------
@@ -1427,14 +1436,15 @@ impl Driver for Usb {
         if reason == StopReason::Disable {
             i.unshare_all().await;
         }
-        let (usbipd, redirs, unload) = {
+        let (usbipd, redirs, dmesg, unload) = {
             let mut st = i.st.lock().unwrap();
             let u = st.usbipd.take();
             let r: Vec<Proc> = st.redir.drain(..).map(|(_, p)| p).collect();
             let unload = st.loaded_usbip_host && Inner::bound_count(&st) == 0;
-            (u, r, unload)
+            (u, r, st.dmesg_pid, unload)
         };
-        // Core kills our children after this returns; SIGTERM them now so sudo passes it on.
+        // SIGTERM our sudo children so sudo passes it on (and their tasks reap them).
+        term(dmesg);
         term(usbipd.and_then(|u| u.pid));
         for r in redirs {
             term(r.pid);
