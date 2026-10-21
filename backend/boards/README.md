@@ -250,6 +250,8 @@ Converted from the TypeScript board layer (`peripherals/boards/*.ts`), with thei
 citations: `rpi` (every 40-pin Raspberry Pi; tested on a Pi 4), `orangepi-5`, `orangepi-5b`,
 `orangepi-5-plus`, `orangepi-5-other`, `orangepi-3b`, `orangepi-zero3`, `orangepi-zero2w`,
 `rock-5b`, `rock-5b-plus`, `beagley-ai`, `beaglebone-ai64`, `le-potato`, `roc-rk3328-cc`,
-`x86` and `generic`. The tests in `crates/boards/tests/boards.rs` hold every file to the
+`x86` and `generic`; and `beaglebone-black` (BeagleBone Black / Green and their Wireless
+versions: P8 + P9 from the mainline device tree's line names, uEnv.txt overlays; untested),
+which the TypeScript layer never had. The tests in `crates/boards/tests/boards.rs` hold every file to the
 same checks the TypeScript tests did (detection fixtures, pins 1..N, unique lines, overlay
 pins on GPIO pins, sources cited, untested boards marked).

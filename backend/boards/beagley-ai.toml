@@ -4,9 +4,8 @@
 # kernel's; what hasn't been checked is BenchBob running on the hardware.
 #
 # The classic BeagleBone Black / Green (TI AM335x, 32-bit) never ran the Bun server, which
-# has no 32-bit ARM build. The Rust server does run there, but it has no board file yet
-# (no sourced P8/P9 map), so it comes up as the generic board. These files cover the
-# 64-bit boards:
+# has no 32-bit ARM build; the Rust server does, with its own board file
+# (beaglebone-black.toml, P8/P9). These files cover the 64-bit boards:
 #
 #  - BeagleY-AI (TI AM67A / J722S): a Raspberry Pi-style 40-pin header, fully mapped.
 #    Sources, cross-checked: the kernel's gpio-line-names (each line is named after the

@@ -13,6 +13,10 @@ fn arm(compatible: &[&str], model: &str) -> DetectInput {
     }
 }
 
+fn armv7(compatible: &[&str], model: &str) -> DetectInput {
+    DetectInput { arch: "arm".into(), ..arm(compatible, model) }
+}
+
 fn pc(f: impl FnOnce(&mut Dmi), wsl: bool) -> DetectInput {
     let mut dmi = Dmi::default();
     f(&mut dmi);
@@ -56,6 +60,36 @@ fn fixtures() -> Vec<(&'static str, DetectInput, &'static str)> {
             arm(&["beagle,j721e-beagleboneai64", "ti,j721e"], "BeagleBoard.org BeagleBone AI-64"),
             "BeagleBoard.org BeagleBone AI-64",
         ),
+        // BeagleBone Black / Green: compatibles and models from the mainline am335x-bone*.dts.
+        (
+            "beaglebone-black",
+            armv7(&["ti,am335x-bone-black", "ti,am335x-bone", "ti,am33xx"], "TI AM335x BeagleBone Black"),
+            "TI AM335x BeagleBone Black",
+        ),
+        (
+            "beaglebone-black",
+            armv7(
+                &["ti,am335x-bone-black-wireless", "ti,am335x-bone-black", "ti,am335x-bone", "ti,am33xx"],
+                "TI AM335x BeagleBone Black Wireless",
+            ),
+            "TI AM335x BeagleBone Black Wireless",
+        ),
+        (
+            "beaglebone-black",
+            armv7(&["ti,am335x-bone-green", "ti,am335x-bone-black", "ti,am335x-bone", "ti,am33xx"], "TI AM335x BeagleBone Green"),
+            "TI AM335x BeagleBone Green",
+        ),
+        (
+            "beaglebone-black",
+            armv7(
+                &["ti,am335x-bone-green-wireless", "ti,am335x-bone-green", "ti,am335x-bone-black", "ti,am335x-bone", "ti,am33xx"],
+                "TI AM335x BeagleBone Green Wireless",
+            ),
+            "TI AM335x BeagleBone Green Wireless",
+        ),
+        // Other AM335x Beagles have other headers: not this file.
+        ("generic", armv7(&["ti,am335x-pocketbeagle", "ti,am335x-bone", "ti,am33xx"], "TI AM335x PocketBeagle"), "TI AM335x PocketBeagle"),
+        ("generic", armv7(&["ti,am335x-bone", "ti,am33xx"], "TI AM335x BeagleBone"), "TI AM335x BeagleBone"),
         (
             "le-potato",
             arm(&["libretech,aml-s905x-cc", "amlogic,s905x", "amlogic,meson-gxl"], "Libre Computer AML-S905X-CC"),
@@ -168,8 +202,8 @@ fn ids_are_unique_and_generic_is_the_fallback() {
     ids.dedup();
     assert_eq!(ids.len(), n);
     assert_eq!(b.detect(&arm(&[], "")).id, "generic");
-    // Every TypeScript board was converted.
-    assert_eq!(n, 16);
+    // Every TypeScript board was converted, plus the BeagleBone Black/Green.
+    assert_eq!(n, 17);
 }
 
 #[test]
@@ -371,7 +405,7 @@ files = [{ kind = "script", path = "/usr/local/lib/my-board-boot" }]
     assert_eq!(info["capabilities"]["bootConfig"]["kind"], "script");
     assert_eq!(b.get("rock-5b").unwrap().name, "Local ROCK");
     assert!(b.get("rock-5b").unwrap().headers.is_empty());
-    assert_eq!(b.defs.len(), 17);
+    assert_eq!(b.defs.len(), 18);
 }
 
 /// The README's worked example is a board file that loads and matches.
@@ -402,4 +436,52 @@ fn bad_files_are_refused_with_a_reason() {
         parse("id = \"x\"\nname = \"x\"\nhealth = \"sysfs\"\n[detect]\npriority = 1\ncompatible = ['(']\n[gpio]\npanel = \"gpiochip\"\n")
             .is_err()
     );
+}
+
+#[test]
+fn beaglebone_black_p8_p9_map() {
+    let b = boards();
+    let d = b.get("beaglebone-black").unwrap();
+    assert!(!d.tested);
+    let ids: Vec<&str> = d.headers.iter().map(|h| h.id.as_str()).collect();
+    assert_eq!(ids, ["p9", "p8"]);
+    let pin = |h: usize, n: u32| d.headers[h].pins.iter().find(|p| p.pin == n).unwrap();
+    // The mainline gpio-line-names: "P9_22 [spi0_sclk]" is gpio0 line 2, "P8_46" gpio2 line 7.
+    assert_eq!((pin(0, 22).chip.as_deref(), pin(0, 22).line), (Some("gpio0"), Some(2)));
+    assert!(pin(0, 22).funcs.contains(&"SPI0_SCLK".to_string()));
+    assert_eq!((pin(1, 46).chip.as_deref(), pin(1, 46).line), (Some("gpio2"), Some(7)));
+    assert_eq!(pin(0, 3).kind, PinKind::V3v3);
+    assert_eq!(pin(0, 34).kind, PinKind::Gnd);
+    assert_eq!(pin(0, 39).label.as_deref(), Some("AIN0"));
+    // 23 GPIOs on P9, 44 on P8; no line twice across both headers.
+    let gpio: Vec<String> = d
+        .headers
+        .iter()
+        .flat_map(|h| h.pins.iter())
+        .filter(|p| p.kind == PinKind::Gpio)
+        .map(|p| format!("{}:{}", p.chip.as_ref().unwrap(), p.line.unwrap()))
+        .collect();
+    assert_eq!(gpio.len(), 23 + 44);
+    let mut u = gpio.clone();
+    u.sort();
+    u.dedup();
+    assert_eq!(u.len(), gpio.len());
+    // Chips resolve by the gpio-omap device names, whatever their gpiochipN numbers.
+    let chips = [
+        ("gpiochip3", "gpio-96-127", "481ae000.gpio"),
+        ("gpiochip0", "gpio-0-31", "44e07000.gpio"),
+        ("gpiochip1", "gpio-32-63", "4804c000.gpio"),
+        ("gpiochip2", "gpio-64-95", "481ac000.gpio"),
+    ];
+    let m = resolve_chips(d, &chips, |c| c.1, |c| c.2);
+    assert_eq!(m["gpio0"].0, "gpiochip0");
+    assert_eq!(m["gpio3"].0, "gpiochip3");
+    // uEnv.txt boot config with the bb.org overlays.
+    let i = armv7(&["ti,am335x-bone-green", "ti,am335x-bone-black"], "TI AM335x BeagleBone Green");
+    let info = describe(&b.detect(&i), &i, false).info_with(&|p| p == "/boot/uEnv.txt");
+    assert_eq!(info["capabilities"]["bootConfig"]["kind"], "uEnv");
+    assert_eq!(info["capabilities"]["health"], "sysfs");
+    let boot = d.boot.as_ref().unwrap();
+    assert_eq!(boot.overlay_ref.as_deref(), Some("/lib/firmware/"));
+    assert_eq!(boot.overlays.iter().find(|o| o.name == "BB-UART1-00A0").unwrap().pins, vec![24, 26]);
 }
