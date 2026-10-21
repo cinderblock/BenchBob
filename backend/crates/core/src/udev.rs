@@ -88,7 +88,8 @@ impl UdevDb {
         None
     }
 
-    fn apply(&self, p: &Props) {
+    /// Apply one monitor event (ACTION + DEVPATH + properties); tests feed fixtures this way.
+    pub fn apply(&self, p: &Props) {
         let (Some(action), Some(devpath)) = (p.get("ACTION"), p.get("DEVPATH")) else { return };
         let mut db = self.devices.write().unwrap();
         if action == "remove" {

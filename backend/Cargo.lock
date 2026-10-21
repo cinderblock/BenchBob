@@ -107,15 +107,21 @@ dependencies = [
  "axum",
  "benchbob-ble",
  "benchbob-boards",
+ "benchbob-camera",
  "benchbob-can",
  "benchbob-core",
  "benchbob-drives",
  "benchbob-gpio",
+ "benchbob-gps",
  "benchbob-i2c",
  "benchbob-netdiag",
  "benchbob-onewire",
+ "benchbob-probes",
+ "benchbob-sdr",
  "benchbob-serial",
+ "benchbob-ups",
  "benchbob-usb",
+ "benchbob-wifi",
  "bytes",
  "flate2",
  "futures-util",
@@ -161,6 +167,26 @@ dependencies = [
  "tempfile",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "benchbob-camera"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "bytes",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "indexmap",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -244,6 +270,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "benchbob-gps"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "libc",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "benchbob-i2c"
 version = "0.1.0"
 dependencies = [
@@ -307,6 +347,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "benchbob-probes"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "futures-util",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "benchbob-sdr"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "benchbob-serial"
 version = "0.1.0"
 dependencies = [
@@ -327,6 +401,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "benchbob-ups"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "futures-util",
+ "indexmap",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "benchbob-usb"
 version = "0.1.0"
 dependencies = [
@@ -341,6 +432,24 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "benchbob-wifi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

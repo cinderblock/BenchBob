@@ -4,13 +4,18 @@
 #   benchbob-core    driver registry, settings, udev hotplug, MCP, HTTP helpers
 #   benchbob-ble     the Bluetooth LE panel: btmon capture, advertisers, beacon decoders
 #   benchbob-boards  board definitions (TOML data files), loading and detection
+#   benchbob-camera  the camera panel: UVC cameras through on-demand ustreamer children
 #   benchbob-drives  drives, flashing, rpiboot, bootloader cards, files, OS detection
 #   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
+#   benchbob-gps     the GPS panel: USB receivers through a temporary gpsd
+#   benchbob-probes  the debug probes panel: OpenOCD GDB servers, flashing, UF2/DFU bootloaders
+#   benchbob-sdr     the RTL-SDR panel: rtl_tcp, rtl_433, stick probing
 #   benchbob-serial  the serial panel: termios2 ports, bridges, auto-baud, flashing
 #   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
 #   benchbob-i2c-chips  I²C chip identification + decoders (no_std, shared with firmware)
 #   benchbob-netdiag the wired-network panel: ethtool, receive-only LLDP, iperf3, quick checks
 #   benchbob-onewire the 1-Wire panel: w1 sysfs masters/slaves, family decoders, DS2482 bridges
+#   benchbob-ups     the UPS panel: USB UPSes through a private NUT
 #   benchbob-usb     the USB panel: device tree, hotplug timeline, uhubctl power, USB/IP, usbredir
 #   benchbob-wifi    the Wi-Fi panel: radios, regulatory channels, scanner, netns client tests
 #   benchbob         the server binary: HTTP, UI, status, SSE, update, legacy proxy
@@ -31,10 +36,15 @@ publish = false
 benchbob-core = { path = "crates/core" }
 benchbob-ble = { path = "crates/ble" }
 benchbob-boards = { path = "crates/boards" }
+benchbob-camera = { path = "crates/camera" }
 benchbob-can = { path = "crates/can" }
 benchbob-drives = { path = "crates/drives" }
 benchbob-gpio = { path = "crates/gpio" }
+benchbob-gps = { path = "crates/gps" }
+benchbob-probes = { path = "crates/probes" }
+benchbob-sdr = { path = "crates/sdr" }
 benchbob-serial = { path = "crates/serial" }
+benchbob-ups = { path = "crates/ups" }
 benchbob-i2c = { path = "crates/i2c" }
 benchbob-i2c-chips = { path = "crates/i2c-chips" }
 benchbob-netdiag = { path = "crates/netdiag" }

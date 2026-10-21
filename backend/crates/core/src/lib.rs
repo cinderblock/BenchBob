@@ -9,7 +9,9 @@
 //!   in proxy mode) can keep its own drivers' entries in the same file;
 //! - [`udev`]: the udev device database, kept live from `udevadm monitor`;
 //! - [`mcp`]: the stateless Streamable HTTP JSON-RPC endpoint;
-//! - [`http`], [`run`], [`paths`]: request/response helpers, child processes, state dir.
+//! - [`http`], [`run`], [`paths`]: request/response helpers, child processes, state dir;
+//! - [`proc`]: long-running children read line by line (the on-demand tools' servers);
+//! - [`util`]: udev strings and USB names, JavaScript numbers and dates, base64.
 //!
 //! Contract every driver keeps (as in the TypeScript server): `status()` is called every
 //! ~2 s for the SSE stream and must be cheap (cached state, never a process); anything
@@ -20,11 +22,13 @@ pub mod driver;
 pub mod http;
 pub mod mcp;
 pub mod paths;
+pub mod proc;
 pub mod registry;
 pub mod run;
 pub mod settings;
 pub mod timeline;
 pub mod udev;
+pub mod util;
 
 pub use driver::{Child, Ctx, Driver, Route, Socket, StopReason, Tool, ToolResult, WsClient, WsIn, WsSession};
 pub use http::{HttpError, Reply, Request, RouteResult, json};

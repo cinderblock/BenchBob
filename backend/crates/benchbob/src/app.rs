@@ -35,8 +35,9 @@ use crate::status::Sampler;
 use crate::ui::{Ui, accepts_gzip, gzip};
 use crate::update::Update;
 
-/// Request bodies a native route reads in full.
-const BODY_LIMIT: usize = 16 << 20;
+/// Request bodies a native route reads in full: up to 64 MB, the debug probes' firmware
+/// upload limit (Bun's own default was 128 MB).
+const BODY_LIMIT: usize = 64 << 20;
 
 pub struct App {
     pub registry: Registry,
@@ -252,6 +253,12 @@ impl App {
             let (parts, body) = req.into_parts();
             let body = match crate::legacy::read_body(body, BODY_LIMIT).await {
                 Ok(b) => b,
+                Err(e) if e.contains("length limit") => {
+                    return (
+                        Who::Native,
+                        HttpError::new(413, format!("Request body too large (max {} MB)", BODY_LIMIT >> 20)).into_response(),
+                    );
+                }
                 Err(e) => return (Who::Native, HttpError::bad_request(e).into_response()),
             };
             let r = benchbob_core::Request { method, path, params: m.params.clone(), query, headers: parts.headers, body };
