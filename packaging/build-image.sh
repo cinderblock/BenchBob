@@ -13,7 +13,7 @@ set -euo pipefail
 DEB=$(realpath "${1:?usage: build-image.sh <benchbob arm64 .deb> <output .img.xz>}")
 OUT=$(realpath -m "${2:?usage: build-image.sh <benchbob arm64 .deb> <output .img.xz>}")
 BASE_URL=https://downloads.raspberrypi.com/raspios_lite_arm64_latest
-GROW_MB=1536 # BenchBob, Bun and the panels' tools, with room to spare
+GROW_MB=1536 # BenchBob and the panels' tools (its Recommends), with room to spare
 
 [ "$EUID" -eq 0 ] || { echo "run as root" >&2; exit 1; }
 [ "$(uname -m)" = aarch64 ] || { echo "build on arm64: the chroot runs the image's binaries" >&2; exit 1; }

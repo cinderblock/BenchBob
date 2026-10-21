@@ -1,33 +1,34 @@
 #!/bin/bash
 # Build the BenchBob .deb for one architecture:
 #
-#   packaging/build-deb.sh arm64|amd64 [version]
+#   packaging/build-deb.sh amd64|arm64|armhf [version]
 #
-# The package carries the sources, the built web UI and a pinned Bun runtime; nothing is
-# fetched at install time. The version defaults to one derived from the newest v* tag (`git
-# describe`). Needs bash, curl, unzip, sha256sum and dpkg-deb: CI, any Debian box, or WSL;
-# plus Bun to build web/, unless WEB_DIST=<dir> passes in a build made elsewhere.
+# The package is the server (one static Rust binary), the built web UI, the board files
+# and the system glue (unit, udev rules, sudoers, setup scripts). No runtime, nothing
+# fetched at install time. The version defaults to one derived from the newest v* tag
+# (`git describe`). Needs bash, od and dpkg-deb (CI, any Debian box, or WSL), plus:
 #
-# Opt-in, for testing the Rust server: RUST_BIN=<static benchbob binary for ARCH> adds it
-# as /usr/lib/benchbob/bin/benchbob, the board files in /usr/share/benchbob/boards and
-# benchbob-rust.service. Nothing changes until `sudo benchbob-setup rust on`; without
-# RUST_BIN the package has no Rust server in it.
+# - the server for ARCH: RUST_BIN=<file>, else backend's cargo output for the arch's
+#   target (in $CARGO_TARGET_DIR or backend/target), built here first when cargo is on
+#   PATH (`rustup target add <target>` once);
+# - the web UI: WEB_DIST=<dir>, else web/ built here with Bun (a build tool only: nothing
+#   in the package runs it).
 set -euo pipefail
 
-BUN_VERSION=1.4.2
-
-ARCH=${1:?usage: build-deb.sh arm64|amd64 [version]}
+ARCH=${1:?usage: build-deb.sh amd64|arm64|armhf [version]}
+# ELF e_machine: 0x3e x86-64, 0xb7 AArch64, 0x28 ARM.
 case "$ARCH" in
-  arm64) BUN_ASSET=bun-linux-aarch64 ;;
-  # baseline: runs on x86-64 CPUs without AVX2 (older Celerons, Atoms).
-  amd64) BUN_ASSET=bun-linux-x64-baseline ;;
-  *) echo "unknown architecture $ARCH (arm64 or amd64)" >&2; exit 2 ;;
+  amd64) TARGET=x86_64-unknown-linux-musl ELF_MACHINE=3e ;;
+  arm64) TARGET=aarch64-unknown-linux-musl ELF_MACHINE=b7 ;;
+  # ARMv6 hard-float: Debian's armhf baseline is ARMv7, and this also runs on the ARMv6
+  # Pi Zero W and Pi 1 (Raspberry Pi OS's armhf).
+  armhf) TARGET=arm-unknown-linux-musleabihf ELF_MACHINE=28 ;;
+  *) echo "unknown architecture $ARCH (amd64, arm64 or armhf)" >&2; exit 2 ;;
 esac
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PKG=$ROOT/packaging
 DIST=$ROOT/dist
-CACHE=$DIST/cache
 
 # v1.2.3 → 1.2.3; 4 commits past it → 1.2.3+git4.abc1234; no tag yet → 0.0.0~git<n>.<sha>,
 # n = commits in HEAD. Each part grows with every commit, so apt always sees a newer
@@ -45,19 +46,37 @@ version_from_git() {
 VERSION=${2:-$(version_from_git)}
 VERSION=${VERSION#v}
 
-# ---------- Bun ----------
-mkdir -p "$CACHE"
-BUN_ZIP=$CACHE/$BUN_ASSET-$BUN_VERSION.zip
-SUMS=$CACHE/bun-$BUN_VERSION-SHASUMS256.txt
-BASE=https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION
-[ -f "$SUMS" ] || curl -fsSL -o "$SUMS" "$BASE/SHASUMS256.txt"
-[ -f "$BUN_ZIP" ] || curl -fsSL -o "$BUN_ZIP" "$BASE/$BUN_ASSET.zip"
-want=$(awk -v f="$BUN_ASSET.zip" '$2 == f { print $1 }' "$SUMS")
-have=$(sha256sum "$BUN_ZIP" | cut -d' ' -f1)
-if [ -z "$want" ] || [ "$want" != "$have" ]; then
-  rm -f "$BUN_ZIP"
-  echo "checksum mismatch for $BUN_ASSET.zip (want ${want:-nothing}, got $have)" >&2
+# ---------- Server ----------
+if [ -z "${RUST_BIN:-}" ]; then
+  RUST_BIN=${CARGO_TARGET_DIR:-$ROOT/backend/target}/$TARGET/release/benchbob
+  if command -v cargo > /dev/null; then
+    (cd "$ROOT/backend" && cargo build --release --locked --target "$TARGET" -p benchbob) >&2
+  elif [ -f "$RUST_BIN" ]; then
+    echo "warning: no cargo on PATH; packaging $RUST_BIN as it is" >&2
+  else
+    echo "No server binary for $ARCH. Install Rust (https://rustup.rs), then" >&2
+    echo "  rustup target add $TARGET" >&2
+    echo "or pass a prebuilt one as RUST_BIN=<file>." >&2
+    exit 1
+  fi
+fi
+[ -f "$RUST_BIN" ] || { echo "RUST_BIN=$RUST_BIN: no such file" >&2; exit 1; }
+magic=$(od -An -c -N4 "$RUST_BIN" | tr -d ' ')
+machine=$(od -An -tx1 -j18 -N1 "$RUST_BIN" | tr -d ' ')
+if [ "$magic" != '177ELF' ] || [ "$machine" != "$ELF_MACHINE" ]; then
+  echo "$RUST_BIN is not an $ARCH ($TARGET) executable" >&2
   exit 1
+fi
+
+# ---------- Web UI ----------
+# The dashboard served at / is web/'s Vite build. CI builds it once and passes it in with
+# WEB_DIST=<dir>. Build output goes to stderr: stdout is the .deb's path.
+if [ -n "${WEB_DIST:-}" ]; then
+  [ -f "$WEB_DIST/index.html" ] || { echo "WEB_DIST=$WEB_DIST has no index.html" >&2; exit 1; }
+else
+  command -v bun > /dev/null || { echo "Bun is needed to build web/ (https://bun.sh), or pass a prebuilt one as WEB_DIST=<dir>" >&2; exit 1; }
+  (cd "$ROOT/web" && bun install --frozen-lockfile && bun run build:full) >&2
+  WEB_DIST=$ROOT/web/dist
 fi
 
 # ---------- Tree ----------
@@ -67,43 +86,19 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 chmod 0755 "$STAGE"
 APP=$STAGE/usr/lib/benchbob
-mkdir -p "$APP/bin" "$APP/system" "$APP/drives" "$STAGE/DEBIAN"
+mkdir -p "$APP/bin" "$APP/system" "$APP/drives" "$APP/web/dist" "$STAGE/DEBIAN"
 
-# The app: everything server.ts loads, minus tests and captured fixtures.
-install -m 0644 "$ROOT"/index.html "$APP/"
-(cd "$ROOT" && find . -maxdepth 1 -name '*.ts' ! -name '*.test.ts' -printf '%P\n' && find peripherals ui -type f \( -name '*.ts' -o -name '*.js' \) ! -name '*.test.ts' ! -path '*-fixtures/*') |
-  while read -r f; do install -D -m 0644 "$ROOT/$f" "$APP/$f"; done
+install -m 0755 "$RUST_BIN" "$APP/bin/benchbob"
+echo "server: $("$APP/bin/benchbob" --version 2>/dev/null || echo "$RUST_BIN ($TARGET)")" >&2
 echo "$VERSION" > "$APP/VERSION"
 
-unzip -q -j -o "$BUN_ZIP" "$BUN_ASSET/bun" -d "$APP/bin"
-chmod 0755 "$APP/bin/bun"
-
-# ---------- Rust server (opt-in) ----------
-if [ -n "${RUST_BIN:-}" ]; then
-  [ -f "$RUST_BIN" ] || { echo "RUST_BIN=$RUST_BIN: no such file" >&2; exit 1; }
-  install -m 0755 "$RUST_BIN" "$APP/bin/benchbob"
-  install -d -m 0755 "$STAGE/usr/share/benchbob/boards" "$STAGE/etc/benchbob/boards.d"
-  install -m 0644 "$ROOT"/backend/boards/*.toml "$ROOT/backend/boards/README.md" "$STAGE/usr/share/benchbob/boards/"
-  install -D -m 0644 "$PKG/benchbob-rust.service" "$STAGE/usr/lib/systemd/system/benchbob-rust.service"
-  echo "including the Rust server: $("$APP/bin/benchbob" --version 2>/dev/null || echo "$RUST_BIN (another architecture)")" >&2
-fi
-
-# ---------- Web UI ----------
-# The dashboard served at / is web/'s Vite build. CI builds it once and passes it in with
-# WEB_DIST=<dir>; otherwise it's built here with the Bun on PATH or, when this host can run
-# it, the Bun being packaged. Build output goes to stderr: stdout is the .deb's path.
-if [ -n "${WEB_DIST:-}" ]; then
-  [ -f "$WEB_DIST/index.html" ] || { echo "WEB_DIST=$WEB_DIST has no index.html" >&2; exit 1; }
-else
-  BUN=$(command -v bun || true)
-  if [ -z "$BUN" ] && "$APP/bin/bun" --version > /dev/null 2>&1; then BUN=$APP/bin/bun; fi
-  [ -n "$BUN" ] || { echo "Bun is needed to build web/ (or pass a prebuilt one as WEB_DIST=<dir>)" >&2; exit 1; }
-  (cd "$ROOT/web" && "$BUN" install --frozen-lockfile && "$BUN" run build:full) >&2
-  WEB_DIST=$ROOT/web/dist
-fi
-mkdir -p "$APP/web/dist"
 cp -R "$WEB_DIST"/. "$APP/web/dist/"
 find "$APP/web" -type d -exec chmod 0755 {} + && find "$APP/web" -type f -exec chmod 0644 {} +
+
+# Board definitions: the shipped ones, and a directory for the user's own (a file there
+# with the same id overrides a shipped one).
+install -d -m 0755 "$STAGE/usr/share/benchbob/boards" "$STAGE/etc/benchbob/boards.d"
+install -m 0644 "$ROOT"/backend/boards/*.toml "$ROOT/backend/boards/README.md" "$STAGE/usr/share/benchbob/boards/"
 
 install -m 0755 "$PKG/benchbob-setup" "$PKG/benchbob-update" "$APP/system/"
 install -m 0755 "$PKG/drives/nfs-drive-handler.sh" "$PKG/drives/nfs-drive-mount.sh" "$APP/drives/"
@@ -124,7 +119,7 @@ install -D -m 0644 "$ROOT/LICENSE" "$STAGE/usr/share/doc/benchbob/copyright"
 install -m 0644 "$ROOT/README.md" "$STAGE/usr/share/doc/benchbob/README.md"
 
 # ---------- Control ----------
-for s in postinst prerm postrm; do install -m 0755 "$PKG/debian/$s" "$STAGE/DEBIAN/$s"; done
+for s in preinst postinst prerm postrm; do install -m 0755 "$PKG/debian/$s" "$STAGE/DEBIAN/$s"; done
 # The sudoers rule is deliberately not a conffile: it must go when the package is
 # removed, not linger until a purge.
 printf '%s\n' /etc/exports.d/benchbob.exports /etc/default/benchbob /etc/apt/sources.list.d/benchbob.sources > "$STAGE/DEBIAN/conffiles"
@@ -159,6 +154,7 @@ Description: bench server for the hardware plugged into it
  There is no login: run it only on a network you trust.
 EOF
 
+mkdir -p "$DIST"
 OUT=$DIST/benchbob_${VERSION}_$ARCH.deb
 dpkg-deb --root-owner-group -Zxz --build "$STAGE" "$OUT" > /dev/null
 echo "$OUT"

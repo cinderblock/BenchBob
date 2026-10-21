@@ -4,11 +4,7 @@ set -e
 case "$1" in
   remove)
     rm -rf /var/cache/benchbob
-    # Rust mode's drop-in for a unit that is gone now.
-    rm -f /etc/systemd/system/benchbob.service.d/50-rust-mode.conf
-    rmdir /etc/systemd/system/benchbob.service.d 2>/dev/null || true
     if [ -d /run/systemd/system ]; then
-      systemctl disable benchbob-rust.service > /dev/null 2>&1 || true
       systemctl disable benchbob.service > /dev/null 2>&1 || true
       systemctl daemon-reload || true
     fi

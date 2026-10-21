@@ -9,19 +9,16 @@ Type=simple
 User=benchbob
 Group=benchbob
 WorkingDirectory=/usr/lib/benchbob
-ExecStart=/usr/lib/benchbob/bin/bun run /usr/lib/benchbob/server.ts
+ExecStart=/usr/lib/benchbob/bin/benchbob
 # PORT, BENCHBOB_PORT_OFFSET and the like.
 EnvironmentFile=-/etc/default/benchbob
 Environment=HOME=/var/lib/benchbob
 Environment=PATH=/usr/lib/benchbob/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-# Settings and saved lists (paths.ts reads $STATE_DIRECTORY).
+# Settings and saved lists ($STATE_DIRECTORY).
 StateDirectory=benchbob
 StateDirectoryMode=0750
-# Bun caches transpiled sources, one file per version of each source, and never prunes
-# them: under ~/.bun that grew to gigabytes on a box that was updated often. Keep it in
-# /var/cache, which postinst empties on every upgrade.
+# Scratch space that may be thrown away; postinst empties it on every upgrade.
 CacheDirectory=benchbob
-Environment=BUN_RUNTIME_TRANSPILER_CACHE_PATH=/var/cache/benchbob/transpiler
 # The dashboard listens on port 80 without running as root. Privileged work goes through
 # sudo (see /etc/sudoers.d/benchbob), so NoNewPrivileges= must stay off.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
