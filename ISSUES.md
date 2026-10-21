@@ -84,6 +84,15 @@ bring it up on any new Wi-Fi radio (e.g. a USB dongle plugged in for the Wi-Fi p
 Wi-Fi panel sets a dongle unmanaged while it uses it, but between plug-in and first use NM
 can grab it.
 
+## Bun server's Wi-Fi panel finds no OUI vendors (CRLF oui.txt)
+
+`parseOui` in `peripherals/lib/wifi-parse.ts` matches lines with `(.+)$`, and JavaScript's
+`.` excludes ``, so the CRLF lines of IEEE's oui.txt (Debian's ieee-data ships it that
+way) never match. desky's journal: `[wifi] OUI vendors: 0 from /usr/share/ieee-data/oui.txt`,
+and no BSS shows a vendor. The Rust port strips the `` (`191178a`); the Bun server still
+has the bug (left alone: the TS server is only changed for Rust-mode plumbing during the
+port, and goes away after it).
+
 ## Bun server: drive names and image URLs reach a shell unchecked (command injection) — fixed in `e0ec561` (not yet released: releases are on hold until the Rust-only package)
 
 Found 2026-10-20 while porting server.ts to Rust (the Rust drives crate validates both).
