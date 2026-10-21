@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -102,7 +102,24 @@ static NEXT_WS: AtomicU64 = AtomicU64::new(1);
 
 pub enum WsOut {
     Text(String),
+    Binary(Bytes),
     Close,
+    /// A close frame with a status code and reason (`ws.close(4004, "no such port")`).
+    CloseWith(u16, String),
+}
+
+impl WsOut {
+    /// Payload bytes, for the queued-bytes count.
+    pub fn len(&self) -> usize {
+        match self {
+            WsOut::Text(t) => t.len(),
+            WsOut::Binary(b) => b.len(),
+            _ => 0,
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub enum WsIn {
@@ -115,21 +132,48 @@ pub enum WsIn {
 pub struct WsClient {
     id: u64,
     tx: mpsc::UnboundedSender<WsOut>,
+    /// Bytes queued but not yet written to the socket (Bun's `getBufferedAmount()`).
+    queued: Arc<AtomicUsize>,
 }
 
 impl WsClient {
     pub fn new(tx: mpsc::UnboundedSender<WsOut>) -> Self {
-        Self { id: NEXT_WS.fetch_add(1, Ordering::Relaxed), tx }
+        Self { id: NEXT_WS.fetch_add(1, Ordering::Relaxed), tx, queued: Default::default() }
     }
     pub fn id(&self) -> u64 {
         self.id
     }
+    fn push(&self, m: WsOut) -> bool {
+        let n = m.len();
+        self.queued.fetch_add(n, Ordering::Relaxed);
+        if self.tx.send(m).is_err() {
+            self.queued.fetch_sub(n, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
     /// Queue a text message; false once the connection is gone.
     pub fn send(&self, text: impl Into<String>) -> bool {
-        self.tx.send(WsOut::Text(text.into())).is_ok()
+        self.push(WsOut::Text(text.into()))
+    }
+    /// Queue a binary message; false once the connection is gone.
+    pub fn send_binary(&self, data: impl Into<Bytes>) -> bool {
+        self.push(WsOut::Binary(data.into()))
+    }
+    /// Bytes queued for this client that the socket hasn't taken yet.
+    pub fn buffered(&self) -> usize {
+        self.queued.load(Ordering::Relaxed)
+    }
+    /// Called by the server once a message is written (or dropped).
+    pub fn sent(&self, n: usize) {
+        self.queued.fetch_sub(n, Ordering::Relaxed);
     }
     pub fn close(&self) {
         let _ = self.tx.send(WsOut::Close);
+    }
+    /// Close with a status code and reason.
+    pub fn close_with(&self, code: u16, reason: &str) {
+        let _ = self.tx.send(WsOut::CloseWith(code, reason.into()));
     }
 }
 

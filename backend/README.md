@@ -8,6 +8,8 @@ or the new web UI works against either server.
 > **Status:** the foundation, the board layer, the GPIO panel and everything server.ts did
 > itself (drives, flashing, rpiboot, files, OS detection, the catalog) are native. The
 > other panels are proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
+> **Status:** the foundation, the board layer and the GPIO and serial panels are native. Everything
+> else is proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
 > own port 80 before it has every panel. The released `.deb` still runs Bun only.
 
 | What | Native here |
@@ -19,6 +21,8 @@ or the new web UI works against either server.
 | GPIO panel: `/api/gpio*`, `/ws/gpio`, `gpio_*` MCP tools, plus `POST /api/gpio/line` (new) | yes |
 | Drives: the drive fields of `/api/status`, eject, scan, probe, deep scan, erase, flash (with cloud-init / firstrun.sh settings and Install BenchBob), `/api/rpiboot/*`, `/api/blcard*`, `/api/files`, `/api/download`, `/api/osinfo`, `/api/images`, `/api/catalog`, `/api/favorites`, `/api/quicklist`, `/api/defaults` | yes |
 | Every other panel (serial, CAN, I²C, Wi-Fi, BLE, camera…) | proxied |
+| Serial panel: `/api/serial*`, `/ws/serial/:id`, the raw TCP and RFC 2217 bridges, `serial_*` MCP tools, esptool/avrdude flashing | yes |
+| Drives, flashing, rpiboot, files, catalog, and every other panel | proxied |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
 `backend` block listing the native routes. Every response carries permissive CORS
@@ -34,6 +38,7 @@ to any bob.
 | `crates/boards` (`benchbob-boards`) | The board file format, loading (`/usr/share/benchbob/boards`, then `/etc/benchbob/boards.d`) and detection |
 | `crates/drives` (`benchbob-drives`) | Drives and the Pi boot tools: block devices, the operation queue, erase, flash and flash customisation, the raw probe and deep scan, rpiboot and bootloader cards, the image catalog and saved lists, the file browser, OS detection (a read-only registry hive reader for BCD/SOFTWARE/SYSTEM). An unlisted driver: no `peripherals` row, can't be disabled, adds top-level status fields |
 | `crates/gpio` (`benchbob-gpio`) | The GPIO driver: gpiochip v2 uAPI (with output requests), passive level readers (BCM2711 gpiomem, RP1), config.txt and boot-overlay editors, board scripts |
+| `crates/serial` (`benchbob-serial`) | The serial driver: termios2 ports, the ring buffer and fan-out, TCP / RFC 2217 / WebSocket bridges, auto-baud, DTR/RTS resets, esptool/avrdude jobs |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -100,6 +105,7 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_BOARDS_DIR`, `BENCHBOB_BOARDS_D` | other board directories (shipped / user) |
 | `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port |
 | `BENCHBOB_CONFIG_TXT`, `BENCHBOB_CMDLINE_TXT`, `BENCHBOB_BOOT_ENV`, `BENCHBOB_OVERLAY_DIR` | point the boot-config editors at test copies (reboot is then refused) |
+| `BENCHBOB_FLASH_DIR` | where the serial panel stages firmware files (default `/var/tmp/benchbob-serial`; a side instance can't write the packaged one's) |
 | `RUST_LOG` | log filter (default `info`) |
 
 The old `DESKYPI_*` names still work. `benchbob --native-drivers` prints the ids of the
@@ -139,3 +145,16 @@ bind-address setting).
   pinctrl, and has never run on hardware. `GET /api/gpio` reports it in `levelReader`
   (`tested: false`).
 - Consumers come from the uAPI, not from spawning `gpioinfo`.
+
+## Serial notes
+
+- Same API and behaviour as `peripherals/drivers/serial.ts`; the tests run the driver
+  against pseudo-terminals (`crates/serial/tests/pty.rs`).
+- Reads and writes go through tokio's `AsyncFd` on the O_NONBLOCK tty, so a full
+  transmit buffer waits for the tty to drain instead of polling every 5 ms.
+- `wait` in `POST /api/serial/:id/write` and `serial_write` is compiled with the `regex`
+  crate (flags i, m, s; `$` in multi-line mode also ends a line before ``). Lookaround
+  and backreferences aren't supported and answer 400 "Bad wait regex".
+- Firmware given by URL is fetched with `curl`, like the update check.
+- When the flash tool can't be started at all, the port is reopened (the TypeScript left it
+  closed).
