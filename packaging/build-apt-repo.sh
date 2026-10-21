@@ -20,7 +20,7 @@ OUT=$(cd "$OUT" && pwd) # absolute: the rest runs from inside it
 cp "$DEBS"/benchbob_[0-9]*.deb "$OUT/pool/main/"
 cd "$OUT"
 
-for arch in amd64 arm64; do
+for arch in amd64 arm64 armhf; do
   d=dists/stable/main/binary-$arch
   mkdir -p "$d"
   dpkg-scanpackages --multiversion --arch "$arch" pool > "$d/Packages"
@@ -32,7 +32,7 @@ apt-ftparchive \
   -o APT::FTPArchive::Release::Label=BenchBob \
   -o APT::FTPArchive::Release::Suite=stable \
   -o APT::FTPArchive::Release::Codename=stable \
-  -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
+  -o APT::FTPArchive::Release::Architectures="amd64 arm64 armhf" \
   -o APT::FTPArchive::Release::Components=main \
   -o APT::FTPArchive::Release::Description="BenchBob releases" \
   release dists/stable > dists/stable/Release

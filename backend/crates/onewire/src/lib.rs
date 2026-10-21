@@ -241,8 +241,7 @@ pub(crate) fn run_sync(cmd: &[&str], timeout: Duration) -> (i32, String, String)
             Ok(Some(_)) => break,
             Ok(None) if t0.elapsed() < timeout => std::thread::sleep(Duration::from_millis(20)),
             _ => {
-                let _ = child.kill();
-                let _ = child.wait();
+                benchbob_core::child::end_blocking(&mut child, Duration::from_secs(1));
                 return (-1, String::new(), format!("{}: timed out", cmd[0]));
             }
         }

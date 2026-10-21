@@ -1,4 +1,4 @@
-// I²C driver (peripherals/drivers/i2c.ts): status shapes the panel reads.
+// I²C driver (backend/crates/i2c): status shapes the panel reads.
 
 export interface Reading {
   k: string;

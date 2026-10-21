@@ -417,8 +417,8 @@ impl Inner {
             }
         }
         if !net_exists(&name) {
-            let _ = child.child.start_kill();
-            let _ = child.child.wait().await;
+            // SIGTERM, which sudo relays to slcand (a SIGKILL would orphan it).
+            let _ = child.child.terminate(benchbob_core::child::GRACE).await;
             let mut e = String::new();
             if let Some(mut s) = child.child.stderr.take() {
                 let _ = s.read_to_string(&mut e).await;

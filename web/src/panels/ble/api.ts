@@ -1,4 +1,4 @@
-// Bluetooth LE panel types (peripherals/drivers/ble.ts). Status comes over SSE; the device
+// Bluetooth LE panel types (backend/crates/ble). Status comes over SSE; the device
 // list over /ws/ble ({type:"devices"} roughly once a second while it changes).
 
 export interface BleController {

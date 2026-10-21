@@ -31,10 +31,10 @@ pub fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
-/// The app's files: `index.html`, `ui/`, `VERSION`, `web/dist`. `BENCHBOB_ROOT` if set;
-/// otherwise the nearest directory at or above the executable that has an `index.html`
+/// The app's files: `web/dist` (the dashboard) and `VERSION`. `BENCHBOB_ROOT` if set;
+/// otherwise the nearest directory above the executable that has a `web` directory
 /// (`/usr/lib/benchbob` for `/usr/lib/benchbob/bin/benchbob`, the checkout for a cargo
-/// build); otherwise the working directory.
+/// build in `backend/target`); otherwise the working directory.
 pub fn app_root() -> &'static Path {
     static ROOT: OnceLock<PathBuf> = OnceLock::new();
     ROOT.get_or_init(|| {
@@ -44,7 +44,7 @@ pub fn app_root() -> &'static Path {
         if let Ok(exe) = std::env::current_exe() {
             let exe = exe.canonicalize().unwrap_or(exe);
             for dir in exe.ancestors().skip(1).take(5) {
-                if dir.join("index.html").is_file() {
+                if dir.join("web").is_dir() {
                     return dir.to_path_buf();
                 }
             }

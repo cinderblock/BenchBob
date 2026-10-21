@@ -1,4 +1,4 @@
-// Wired-network panel types (peripherals/drivers/netdiag.ts).
+// Wired-network panel types (backend/crates/netdiag).
 
 export interface Neighbor {
   name?: string;

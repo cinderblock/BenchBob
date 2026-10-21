@@ -23,7 +23,8 @@ if [ "$1" = "configure" ]; then
   # A card flashed with "Install BenchBob" bootstrapped from this; our conffile replaces it.
   rm -f /etc/apt/sources.list.d/benchbob-bootstrap.sources
 
-  # Transpiled copies of the previous version's sources: never needed again.
+  # Nothing in the cache outlives a version. Up to 0.4.x it held Bun's transpiled copies
+  # of the previous version's sources (and before that, ~/.bun did): gone for good.
   rm -rf /var/cache/benchbob/* /var/lib/benchbob/.bun
 
   # Enabling works offline too (an SD image built in a chroot); starting needs systemd.
@@ -31,8 +32,6 @@ if [ "$1" = "configure" ]; then
   if [ -d /run/systemd/system ]; then
     systemctl daemon-reload
     systemctl restart benchbob.service
-    # Rust mode (benchbob-setup rust on), if it's on: restart that server too.
-    systemctl try-restart benchbob-rust.service > /dev/null 2>&1 || true
   fi
 
   cat << 'EOF'

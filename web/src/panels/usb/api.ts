@@ -1,4 +1,4 @@
-// USB panel types (peripherals/drivers/usb.ts).
+// USB panel types (backend/crates/usb).
 
 export interface HubPort {
   port: number;

@@ -1,4 +1,4 @@
-// Wi-Fi (peripherals/drivers/wifi.ts): radios + regulatory domain, a scanner with per-band
+// Wi-Fi (backend/crates/wifi): radios + regulatory domain, a scanner with per-band
 // channel-occupancy charts and a sortable BSS table, and netns client tests with a live
 // timeline. Status carries only sequence numbers for the bulky data; this fetches
 // /api/wifi/{radios,scan,results,profiles} when one changes. Forms hold their own state, so

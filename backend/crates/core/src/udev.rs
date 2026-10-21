@@ -11,6 +11,8 @@ use indexmap::IndexMap;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+use crate::child::CommandExt;
+
 /// One device's properties: DEVPATH, SUBSYSTEM, DEVNAME, DEVTYPE, ID_*…
 pub type Props = IndexMap<String, String>;
 
@@ -110,8 +112,7 @@ impl UdevDb {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .stdin(Stdio::null())
-                .kill_on_drop(true)
-                .spawn();
+                .spawn_guarded();
             let mut child = match child {
                 Ok(c) => c,
                 Err(e) => {

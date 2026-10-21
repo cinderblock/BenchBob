@@ -12,9 +12,9 @@ fn fields(b: Option<Beacon>) -> Value {
 /// names. It stays out of the (public) repo: gitignored, and this test skips without it.
 /// `BENCHBOB_BLE_CAPTURE` can point at a copy elsewhere.
 fn capture() -> Option<Vec<u8>> {
-    let p = std::env::var("BENCHBOB_BLE_CAPTURE").map(std::path::PathBuf::from).unwrap_or_else(|_| {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../peripherals/lib/radios-fixtures/ble-scan.btsnoop")
-    });
+    let p = std::env::var("BENCHBOB_BLE_CAPTURE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/ble-scan.btsnoop"));
     std::fs::read(p).ok()
 }
 

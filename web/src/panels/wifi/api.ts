@@ -1,4 +1,4 @@
-// Wi-Fi panel types (peripherals/drivers/wifi.ts). Status carries only sequence numbers
+// Wi-Fi panel types (backend/crates/wifi). Status carries only sequence numbers
 // for the bulky data; the panel fetches /api/wifi/{radios,scan,results,profiles} when one
 // changes.
 

@@ -1,4 +1,4 @@
-// Serial ports (peripherals/drivers/serial.ts portStatus()): REST under /api/serial/:id/*,
+// Serial ports (backend/crates/serial): REST under /api/serial/:id/*,
 // and /ws/serial/:id (binary = raw bytes both ways, JSON text = control/status).
 
 export interface SerialConfig {

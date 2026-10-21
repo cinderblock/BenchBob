@@ -707,8 +707,8 @@ impl Inner {
                 tokio::time::sleep(Duration::from_millis(5000 * (fails as u64 + 1))).await;
             }
         });
-        // Detached on purpose: aborting this task would drop the child handle, which
-        // SIGKILLs sudo and leaves dmesg running as root. stop() SIGTERMs it instead.
+        // Detached on purpose: stop() SIGTERMs dmesg (through sudo), and the task ends when
+        // it exits. (Dropping the handle would end it the same way: see core's `child`.)
         drop(t);
     }
 

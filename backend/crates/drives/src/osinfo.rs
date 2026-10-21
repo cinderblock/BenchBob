@@ -800,10 +800,11 @@ fn summarise(parts: &[Value]) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
-    //! osinfo.ts and this module on the same fixture disk (fixtures/osinfo-tree.json: an
+    //! osinfo.ts (as recorded; see `scenario_tests` on the frozen fixtures) and this module
+    //! on the same fixture disk (fixtures/osinfo-tree.json: an
     //! ESP with Windows, Ubuntu, systemd-boot and firmware loaders and a BCD store, a
     //! Windows partition with SOFTWARE/SYSTEM hives, a Linux rootfs, a Raspberry Pi bootfs
-    //! and a macOS volume), compared with what fixtures/harness.ts recorded.
+    //! and a macOS volume), compared with what the TypeScript harness recorded.
 
     use super::*;
     use crate::regf::build::{V, hive, k};

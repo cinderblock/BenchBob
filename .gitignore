@@ -4,7 +4,8 @@ favorites.json
 eeprom-history.json
 quicklist.json
 peripherals.json
-peripherals/lib/radios-fixtures/ble-scan.btsnoop
+# A real over-the-air BLE capture (neighbours' addresses): kept local, the tests skip without it.
+backend/crates/ble/fixtures/ble-scan.btsnoop
 dist/
 .claude/worktrees/
 dist-mcu/

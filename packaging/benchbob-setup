@@ -4,10 +4,6 @@
 #
 #   benchbob-setup configure   shares, on-demand daemons, kernel modules (idempotent)
 #   benchbob-setup apfs        build the APFS kernel module under DKMS (needs the network)
-#   benchbob-setup rust on|off|status
-#                              Rust mode, for packages built with the Rust server: it takes
-#                              port 80 and proxies the panels it doesn't have yet to the
-#                              Bun server, which moves to port 8081
 set -euo pipefail
 
 STATE_DIR=/var/lib/benchbob
@@ -124,77 +120,39 @@ SMB
   have exportfs && exportfs -ra 2>/dev/null || true
   udevadm control --reload-rules 2>/dev/null || true
 
-  # Rust mode survives upgrades: refresh the list of drivers Bun leaves to the Rust
-  # server (it grows as panels are ported). A package without the Rust server ends it.
-  if [ -f "$RUST_DROPIN" ]; then
-    if [ -x "$RUST_BIN" ]; then
-      write_rust_dropin
-    else
-      blue "This package has no Rust server: leaving Rust mode."
-      rust_off
-    fi
+  retire_rust_mode
+}
+
+# ---------- Bun-era leftovers ----------
+# Up to 0.4.x the package ran a Bun server, and `benchbob-setup rust on` could put the Rust
+# server in front of it: benchbob-rust.service on port 80, and a drop-in moving
+# benchbob.service (Bun) to port 8081. benchbob.service is the Rust server now, so both go.
+# The package's preinst already stopped benchbob-rust.service while its unit file existed;
+# this catches anything left (an enable link whose unit file dpkg has removed, the drop-in).
+retire_rust_mode() {
+  local dropin=/etc/systemd/system/benchbob.service.d/50-rust-mode.conf changed=
+  if [ -f "$dropin" ]; then
+    rm -f "$dropin"
+    rmdir "$(dirname "$dropin")" 2>/dev/null || true
+    echo "  removed the Rust-mode drop-in $dropin"
+    changed=1
   fi
-}
-
-# ---------- Rust mode ----------
-# benchbob-rust.service (the Rust server) on port 80, and a drop-in that moves
-# benchbob.service (Bun) to LEGACY_PORT without the drivers the Rust server runs.
-
-RUST_BIN=/usr/lib/benchbob/bin/benchbob
-RUST_DROPIN=/etc/systemd/system/benchbob.service.d/50-rust-mode.conf
-LEGACY_PORT=8081
-
-write_rust_dropin() {
-  local native
-  native=$("$RUST_BIN" --native-drivers)
-  mkdir -p "$(dirname "$RUST_DROPIN")"
-  cat > "$RUST_DROPIN" << EOF
-# Written by \`benchbob-setup rust on\` (and refreshed by every upgrade); removed by
-# \`benchbob-setup rust off\`. Rust mode: benchbob-rust.service owns port 80 and the
-# drivers below, and proxies every other route to this Bun server on port $LEGACY_PORT.
-[Service]
-ExecStart=
-ExecStart=/usr/bin/env PORT=$LEGACY_PORT BENCHBOB_BIND=127.0.0.1 BENCHBOB_NATIVE_DRIVERS=$native /usr/lib/benchbob/bin/bun run /usr/lib/benchbob/server.ts
-EOF
-}
-
-rust_off() {
-  rm -f "$RUST_DROPIN"
-  rmdir "$(dirname "$RUST_DROPIN")" 2>/dev/null || true
-  if systemd_running; then
-    # The Rust server lets go of port 80 before Bun takes it back.
-    systemctl disable --now benchbob-rust.service &>/dev/null || true
+  if systemd_running && systemctl is-active --quiet benchbob-rust.service; then
+    systemctl stop benchbob-rust.service || true
+    changed=1
+  fi
+  systemctl disable benchbob-rust.service &>/dev/null || true
+  local link
+  for link in /etc/systemd/system/*.wants/benchbob-rust.service; do
+    [ -L "$link" ] || continue
+    rm -f "$link"
+    echo "  removed $link"
+    changed=1
+  done
+  if [ -n "$changed" ] && systemd_running; then
     systemctl daemon-reload
-    systemctl restart benchbob.service
-  else
-    systemctl disable benchbob-rust.service &>/dev/null || true
+    systemctl reset-failed benchbob-rust.service &>/dev/null || true
   fi
-}
-
-rust_mode() {
-  case "${1:-status}" in
-    on)
-      [ -x "$RUST_BIN" ] || { echo "This BenchBob package has no Rust server ($RUST_BIN)" >&2; exit 1; }
-      write_rust_dropin
-      if systemd_running; then
-        # Bun moves off port 80 first, then the Rust server takes it.
-        systemctl daemon-reload
-        systemctl restart benchbob.service
-        systemctl enable --now benchbob-rust.service
-      else
-        systemctl enable benchbob-rust.service
-      fi
-      blue "Rust mode on: the Rust server is on port 80 ($("$RUST_BIN" --native-drivers) native), Bun on $LEGACY_PORT behind it."
-      ;;
-    off)
-      rust_off
-      blue "Rust mode off: the Bun server is on port 80 again."
-      ;;
-    status)
-      if [ -f "$RUST_DROPIN" ]; then echo "on"; else echo "off"; fi
-      ;;
-    *) echo "usage: benchbob-setup rust on|off|status" >&2; exit 2 ;;
-  esac
 }
 
 # Debian's apfs-dkms (0.3.13) stops building at kernel 6.18 (`struct page` lost `index`),
@@ -223,6 +181,5 @@ apfs() {
 case "${1:-configure}" in
   configure) configure ;;
   apfs) apfs ;;
-  rust) rust_mode "${2:-status}" ;;
-  *) echo "usage: benchbob-setup [configure|apfs|rust on|off|status]" >&2; exit 2 ;;
+  *) echo "usage: benchbob-setup [configure|apfs]" >&2; exit 2 ;;
 esac

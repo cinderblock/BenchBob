@@ -1,9 +1,16 @@
-//! The write paths and device actions, replayed against the TypeScript server's own code:
-//! fixtures/scenarios.json says how commands answer, fixtures/harness.ts ran server.ts's
-//! functions on them and wrote scenarios.expected.json (every command with its stdin,
-//! every stream read, every file check, each with the operation's state at that moment,
-//! and the outcome). Here the Rust functions run on the same scenarios and must produce
-//! the same log and outcome.
+//! The write paths and device actions, replayed against what the TypeScript server did:
+//! fixtures/scenarios.json says how commands answer, and scenarios.expected.json holds
+//! what server.ts's functions did with them (every command with its stdin, every stream
+//! read, every file check, each with the operation's state at that moment, and the
+//! outcome). Here the Rust functions run on the same scenarios and must produce the same
+//! log and outcome.
+//!
+//! **The `*.expected.json` fixtures are frozen.** A TypeScript harness (harness.ts, which
+//! ran server.ts, rpiboot.ts and osinfo.ts behind mocks of every command, file, fetch and
+//! clock) recorded them; it was deleted with the Bun server (`git log --diff-filter=D --
+//! backend/crates/drives/fixtures/harness.ts` finds it). They are now the specification of
+//! the behaviour the Rust port reached parity with: when a change here is meant to alter
+//! that behaviour, edit the expected files by hand, deliberately, in the same commit.
 
 use std::sync::{Arc, Mutex};
 

@@ -8,6 +8,8 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+use crate::child::CommandExt;
+
 /// Where tools are looked for when the service's own PATH is thin (systemd units).
 pub const SYSTEM_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
@@ -39,12 +41,12 @@ pub async fn run(cmd: &[&str], opts: Opts) -> Output {
         return Output { code: 127, err: "empty command".into(), ..Default::default() };
     };
     let mut c = Command::new(prog);
-    c.args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    c.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
     c.stdin(if opts.stdin.is_some() { Stdio::piped() } else { Stdio::null() });
     for (k, v) in &opts.env {
         c.env(k, v);
     }
-    let mut child = match c.spawn() {
+    let mut child = match c.spawn_guarded() {
         Ok(ch) => ch,
         Err(e) => {
             let why = if e.kind() == std::io::ErrorKind::NotFound { "not installed".to_string() } else { e.to_string() };
@@ -60,7 +62,7 @@ pub async fn run(cmd: &[&str], opts: Opts) -> Output {
     let res = match opts.timeout {
         Some(t) => match tokio::time::timeout(t, fut).await {
             Ok(r) => r,
-            // Dropping the future drops the child, which kill_on_drop kills.
+            // Returning drops the guard, which ends the child: SIGTERM, then SIGKILL.
             Err(_) => return Output { out: String::new(), err: format!("{prog}: timed out"), code: -1 },
         },
         None => fut.await,

@@ -344,7 +344,7 @@ pub fn order(a: &str, b: &str) -> Ordering {
     locale_cmp(a, b, true, true)
 }
 
-/// For tests: a listing request's outcome, as the TS harness writes it.
+/// For tests: a listing request's outcome, as the TypeScript harness recorded it.
 pub fn error_json(e: &HttpError) -> Value {
     json!({ "error": e.message, "status": e.status })
 }

@@ -4,8 +4,7 @@
 //! tools/list, tools/call. No sessions or server-initiated messages, so every request is
 //! answered with plain JSON and GET (the SSE side channel) is refused, as the spec allows.
 //!
-//! The tools come from a [`ToolSource`]: the registry's drivers, or (in proxy mode) those
-//! merged with the Bun server's.
+//! The tools come from a [`ToolSource`]: the registry's drivers.
 
 use async_trait::async_trait;
 use axum::body::Body;

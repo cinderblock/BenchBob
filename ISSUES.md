@@ -55,22 +55,12 @@ the app. The package (`fa911fe`) keeps it in `/var/cache/benchbob` and empties i
 upgrade; a git-checkout deploy like desky's still grows it until desky moves to the
 package. The flash download-to-root-filesystem problem is unchanged.
 
-## lldpd loses LLDP multicast membership when another lldpd on the same NIC exits
-
-Seen 2026-10-17: a side instance on desky started and stopped its own receive-only lldpd
-on eth0 while the live one ran. Afterwards `ip maddr show dev eth0` no longer listed
-`01:80:c2:00:00:0e` and the live lldpd reported "no neighbor" until netdiag was restarted
-(disable/enable in Peripherals…). Only happens with two BenchBob instances on one Pi, but
-netdiag could notice "listening for minutes, link up, no LLDP multicast address" and
-restart lldpd itself. The Rust server's netdiag now does (`benchbob-netdiag`, `lldp_heal`:
-no `0180c200000e` for a linked port in /proc/net/dev_mcast after two minutes); the Bun
-server still doesn't.
-
 ## Full status refresh spawns ~12 processes every 2 s while a dashboard is open
 
-`getStatus()` in server.ts runs lsusb, lsblk, findmnt, ip (×3), iw, vcgencmd and three `ls`
-calls each time; with a dashboard open that is ~3.5% of a Pi 4 core in children alone
-(measured 2026-10-17). Most of it could come from sysfs/procfs reads or be cached
+The Bun server's `getStatus()` ran lsusb, lsblk, findmnt, ip (×3), iw, vcgencmd and three
+`ls` calls each time; with a dashboard open that was ~3.5% of a Pi 4 core in children alone
+(measured 2026-10-17). The Rust port kept the same shape (`backend/crates/benchbob/src/status.rs`
+and the drives crate: findmnt, lsblk, iw…), so it still applies. Most of it could come from sysfs/procfs reads or be cached
 (lsusb, nbd conf.d, root storage change rarely).
 
 ## GPIO stream pushes ~5 messages/s from SoC-internal pins
@@ -85,40 +75,6 @@ The netplan-generated `netplan-wlan0-TwillTech` profile has no interface name, s
 bring it up on any new Wi-Fi radio (e.g. a USB dongle plugged in for the Wi-Fi panel). The
 Wi-Fi panel sets a dongle unmanaged while it uses it, but between plug-in and first use NM
 can grab it.
-
-## Rust server: dropping a `sudo` child's handle orphans the root program
-
-`benchbob_core::Ctx::spawn` and `run::run` set tokio's `kill_on_drop`, which sends SIGKILL.
-For a `sudo -n prog` child that kills sudo only, and `prog` keeps running as root (sudo
-passes on SIGTERM, but can't pass on SIGKILL). This happens whenever such a handle is
-dropped early: an aborted task that holds it, or `run()` hitting its timeout (e.g. a hung
-`sudo uhubctl`). Seen on desky 2026-10-21 with the USB panel's `sudo dmesg -W` (fixed for
-that one in `9063982`). A general fix belongs in core: SIGTERM, a short grace, then SIGKILL,
-for every child.
-## Bun server's Wi-Fi panel finds no OUI vendors (CRLF oui.txt)
-
-`parseOui` in `peripherals/lib/wifi-parse.ts` matches lines with `(.+)$`, and JavaScript's
-`.` excludes ``, so the CRLF lines of IEEE's oui.txt (Debian's ieee-data ships it that
-way) never match. desky's journal: `[wifi] OUI vendors: 0 from /usr/share/ieee-data/oui.txt`,
-and no BSS shows a vendor. The Rust port strips the `` (`191178a`); the Bun server still
-has the bug (left alone: the TS server is only changed for Rust-mode plumbing during the
-port, and goes away after it).
-
-## Bun server: drive names and image URLs reach a shell unchecked (command injection) — fixed in `e0ec561` (not yet released: releases are on hold until the Rust-only package)
-
-Found 2026-10-20 while porting server.ts to Rust (the Rust drives crate validates both).
-No login, so anyone on the LAN can do this against port 80:
-
-- `POST /api/probe {"device": "x; touch /tmp/pwned"}`: `readBlocks` builds a `sudo sh -c`
-  script with `/dev/${devName}`, and the device is only checked with `isSysDev`.
-- `POST /api/flash`: `doFlash` runs `bash -o pipefail -c` with `/dev/${op.device}` and the
-  download path, whose file name is the image URL's last segment (`"$(...)"` inside the
-  double quotes runs). `eject`, `erase` and `deepscan` pass the name to argv only, but
-  still unchecked.
-
-Why it matters: root command execution (the commands run under sudo). `/api/blcard` and
-`/api/osinfo` already check `^[a-z][a-z0-9]*$`; the other routes need the same, and the
-flash file name a whitelist.
 
 ## Web UI tests time out on a cold first run under load
 

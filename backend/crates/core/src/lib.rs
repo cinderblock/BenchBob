@@ -5,12 +5,14 @@
 //!   MCP tools;
 //! - [`registry`]: discovers nothing (drivers are registered by the binary) but starts and
 //!   stops them, routes requests to them and assembles their status;
-//! - [`settings`]: `peripherals.json`, merged on write so another process (the Bun server
-//!   in proxy mode) can keep its own drivers' entries in the same file;
+//! - [`settings`]: `peripherals.json`, merged on write so entries for drivers this build
+//!   doesn't run survive;
 //! - [`udev`]: the udev device database, kept live from `udevadm monitor`;
 //! - [`mcp`]: the stateless Streamable HTTP JSON-RPC endpoint;
 //! - [`http`], [`run`], [`paths`]: request/response helpers, child processes, state dir;
 //! - [`proc`]: long-running children read line by line (the on-demand tools' servers);
+//! - [`child`]: how children end when dropped: SIGTERM, a grace period, then SIGKILL (never a
+//!   bare SIGKILL, which would orphan the program a `sudo` runs);
 //! - [`util`]: udev strings and USB names, JavaScript numbers and dates, base64.
 //!
 //! Contract every driver keeps (as in the TypeScript server): `status()` is called every
@@ -18,6 +20,7 @@
 //! long-lived is released in `stop()`; call `ctx.changed()` after a change worth showing
 //! right away.
 
+pub mod child;
 pub mod driver;
 pub mod http;
 pub mod mcp;

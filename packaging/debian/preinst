@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+# Upgrading from the Bun-based 0.4.x with Rust mode on: its benchbob-rust.service (the Rust
+# server in front of Bun) holds port 80. Stop and disable it now, while its unit file still
+# exists; dpkg removes the file, and postinst's `benchbob-setup configure` clears the rest.
+if [ "$1" = "upgrade" ] && [ -f /usr/lib/systemd/system/benchbob-rust.service ]; then
+  if [ -d /run/systemd/system ]; then
+    systemctl disable --now benchbob-rust.service > /dev/null 2>&1 || true
+  else
+    systemctl disable benchbob-rust.service > /dev/null 2>&1 || true
+  fi
+fi

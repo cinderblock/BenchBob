@@ -1,4 +1,4 @@
-// GPS driver (peripherals/drivers/gps.ts): status shapes the panel reads.
+// GPS driver (backend/crates/gps): status shapes the panel reads.
 
 export interface GpsCandidate {
   key: string;

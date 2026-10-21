@@ -1,4 +1,4 @@
-// Camera panel types (peripherals/drivers/camera.ts).
+// Camera panel types (backend/crates/camera).
 
 export interface StreamChoice {
   fourcc: string;

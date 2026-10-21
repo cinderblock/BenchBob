@@ -1,4 +1,4 @@
-// Debug probes (peripherals/drivers/probes.ts): OpenOCD-driven probes and MCUs in
+// Debug probes (backend/crates/probes): OpenOCD-driven probes and MCUs in
 // bootloader mode (RP2 BOOTSEL, STM32 DFU).
 
 export interface ProbeJob {

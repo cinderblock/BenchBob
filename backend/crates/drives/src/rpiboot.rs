@@ -712,7 +712,7 @@ mod tests {
 #[cfg(test)]
 mod tree_tests {
     //! rpiboot.ts and this module on the same fixture tree (fixtures/rpiboot-tree.json),
-    //! compared with what fixtures/harness.ts recorded from the TypeScript.
+    //! compared with what the TypeScript harness recorded (frozen; see `scenario_tests`).
 
     use super::*;
     use crate::sys::mock::{Mock, Shared};

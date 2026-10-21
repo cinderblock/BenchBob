@@ -1,4 +1,4 @@
-// RTL-SDR (peripherals/drivers/sdr.ts): status, mode switch, probe, rtl_433 results.
+// RTL-SDR (backend/crates/sdr): status, mode switch, probe, rtl_433 results.
 
 export interface SdrStick {
   key: string;

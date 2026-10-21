@@ -458,7 +458,7 @@ impl Inner {
                 sp
             }
             None => {
-                let mut c = cmd.kill_on_drop(true).spawn()?;
+                let mut c = benchbob_core::child::CommandExt::spawn_guarded(cmd)?;
                 let sp = Spawned { pid: c.id(), exit, stdin: c.stdin.take(), stdout: c.stdout.take(), stderr: c.stderr.take() };
                 tokio::spawn(async move {
                     let code = code_of(c.wait().await);
