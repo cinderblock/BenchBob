@@ -264,7 +264,8 @@ jobs:
           # CORS: a UI served elsewhere can use this bob.
           curl -fsS -D - -o /dev/null http://localhost/api/status | grep -qi '^access-control-allow-origin: \*'
           systemctl is-active benchbob
-          test "$(readlink /proc/$(systemctl show -p MainPID --value benchbob)/exe)" = /usr/lib/benchbob/bin/benchbob
+          # Another user's /proc/<pid>/exe needs root to read.
+          test "$(sudo readlink /proc/$(systemctl show -p MainPID --value benchbob)/exe)" = /usr/lib/benchbob/bin/benchbob
           sudo -u benchbob sudo -n true
           test -d /var/lib/benchbob
       - name: Service log
