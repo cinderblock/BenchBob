@@ -106,6 +106,7 @@ dependencies = [
  "async-trait",
  "axum",
  "benchbob-boards",
+ "benchbob-camera",
  "benchbob-can",
  "benchbob-core",
  "benchbob-drives",
@@ -145,6 +146,26 @@ dependencies = [
  "tempfile",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "benchbob-camera"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "bytes",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "indexmap",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

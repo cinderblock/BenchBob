@@ -3,6 +3,7 @@
 # Its own workspace, separate from firmware/ (no_std, embedded targets). Crates:
 #   benchbob-core    driver registry, settings, udev hotplug, MCP, HTTP helpers
 #   benchbob-boards  board definitions (TOML data files), loading and detection
+#   benchbob-camera  the camera panel: UVC cameras through on-demand ustreamer children
 #   benchbob-drives  drives, flashing, rpiboot, bootloader cards, files, OS detection
 #   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
 #   benchbob-gps     the GPS panel: USB receivers through a temporary gpsd
@@ -29,6 +30,7 @@ publish = false
 [workspace.dependencies]
 benchbob-core = { path = "crates/core" }
 benchbob-boards = { path = "crates/boards" }
+benchbob-camera = { path = "crates/camera" }
 benchbob-can = { path = "crates/can" }
 benchbob-drives = { path = "crates/drives" }
 benchbob-gpio = { path = "crates/gpio" }
