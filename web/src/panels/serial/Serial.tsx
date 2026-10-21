@@ -1,10 +1,11 @@
 // Serial ports: one card per port. The card that has its terminal open holds a WebSocket
 // to /ws/serial/:id (binary = raw bytes both ways, JSON text = control/status); every other
-// part of the section is driven by the 2 s status push. Controls go through the REST API so
-// failures toast the same way as the rest of the dashboard.
+// part of the section is driven by the 2 s status push. Controls go through the REST API;
+// each reports its result or failure beside the control that started it.
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useBob } from "../../bob/context";
+import { ActionLine, useAction, type Action } from "../../ui/status";
 import type { PanelProps } from "../../registry";
 import { fmtN } from "../../lib/format";
 import { readLocal, readLocalStr, writeLocal } from "../../lib/storage";
@@ -38,6 +39,7 @@ export default function Serial({ st }: PanelProps<SerialState>) {
   const [patch, setPatch] = useState<SerialPort | null>(null);
   useEffect(() => setPatch(null), [st]);
   const [manual, setManual] = useState("");
+  const add = useAction();
   const iface = useIfaceAvailable();
 
   return (
@@ -65,18 +67,19 @@ export default function Serial({ st }: PanelProps<SerialState>) {
         </label>
         <button
           className="btn btn-sm"
+          disabled={add.busy}
           onClick={async () => {
-            if (!manual.trim()) return;
-            try {
-              const r = await b.api<{ id: string }>("POST", "/api/serial/manual", { path: manual.trim() });
-              setManual("");
-              select(r.id);
-            } catch {}
+            if (!manual.trim()) return add.fail("Enter a tty path, e.g. /dev/pts/3");
+            const r = await add.run(() => b.api<{ id: string }>("POST", "/api/serial/manual", { path: manual.trim() }), { busy: "Adding…" });
+            if (!r) return;
+            setManual("");
+            select(r.id);
           }}
         >
           Add
         </button>
         <span className="pr-note">For ptys, socat links and other ports udev doesn't list as USB serial</span>
+        <ActionLine a={add} />
       </div>
       {iface && (
         <div className="pr-row">
@@ -90,7 +93,9 @@ export default function Serial({ st }: PanelProps<SerialState>) {
 
 function Head({ p, isSel, toggle }: { p: SerialPort; isSel: boolean; toggle(): void }) {
   const b = useBob();
-  const api = (what: string, body?: unknown) => b.api("POST", `/api/serial/${eid(p.id)}/${what}`, body).catch(() => {});
+  // Open and Close swap places, so the header row holds their status.
+  const act = useAction();
+  const api = (what: string, busy: string) => act.run(() => b.api("POST", `/api/serial/${eid(p.id)}/${what}`), { busy });
   const pill = !p.present ? (
     <span className="pr-pill">unplugged</span>
   ) : p.state === "flashing" ? (
@@ -122,11 +127,11 @@ function Head({ p, isSel, toggle }: { p: SerialPort; isSel: boolean; toggle(): v
       <div className="pr-row">
         {p.present &&
           (p.open ? (
-            <button className="btn btn-sm" onClick={() => api("close")}>
+            <button className="btn btn-sm" disabled={act.busy} onClick={() => api("close", "Closing…")}>
               Close
             </button>
           ) : (
-            <button className="btn btn-sm btn-primary" disabled={p.state === "flashing"} onClick={() => api("open")}>
+            <button className="btn btn-sm btn-primary" disabled={p.state === "flashing" || act.busy} onClick={() => api("open", "Opening…")}>
               Open
             </button>
           ))}
@@ -140,6 +145,7 @@ function Head({ p, isSel, toggle }: { p: SerialPort; isSel: boolean; toggle(): v
           {clients ? ` · ${clients} client${clients > 1 ? "s" : ""}` : ""}
           {br.length ? " · " + br.join(", ") : ""}
         </span>
+        <ActionLine a={act} />
       </div>
       {p.error && (
         <div className="pr-note" style={{ color: "var(--danger)" }}>
@@ -162,7 +168,10 @@ function Terminal({ p, onPort }: { p: SerialPort; onPort(p: SerialPort): void })
   const id = p.id;
   const ro = p.console;
   const api = (what: string, body?: unknown) => b.api<any>("POST", `/api/serial/${eid(id)}/${what}`, body);
-  const quiet = () => {};
+  // Sending (and the socket's errors) report on the input row; port options in their section.
+  const io = useAction();
+  const ioFail = io.fail;
+  const opts = useAction();
 
   const screen = useRef<HTMLDivElement>(null);
   const term = useRef<Term | null>(null);
@@ -202,7 +211,7 @@ function Terminal({ p, onPort }: { p: SerialPort; onPort(p: SerialPort): void })
           const line = m.line;
           if (line) setFlashLog((l) => [...l, line].slice(-300));
           setWsFlash(m.job);
-        } else if (m.type === "error") b.toast(m.message, "error");
+        } else if (m.type === "error") ioFail(m.message);
       },
     }));
     return () => {
@@ -224,9 +233,9 @@ function Terminal({ p, onPort }: { p: SerialPort; onPort(p: SerialPort): void })
   };
 
   const sendBytes = (u8: Uint8Array) => {
-    if (!portRef.current.open) return b.toast("Open the port first", "error");
+    if (!portRef.current.open) return io.fail("Open the port first");
     if (ws.current?.ready) ws.current.send(u8);
-    else api("write", { base64: btoa(String.fromCharCode(...u8)) }).catch(quiet);
+    else io.run(() => api("write", { base64: btoa(String.fromCharCode(...u8)) }), { busy: "Sending…" });
     term.current?.feed(u8, Date.now(), true);
   };
 
@@ -236,7 +245,7 @@ function Terminal({ p, onPort }: { p: SerialPort; onPort(p: SerialPort): void })
     let bytes: Uint8Array;
     if (hexIn) {
       const h = line.replace(/0x/gi, "").replace(/[\s,:]/g, "");
-      if (!/^([0-9a-f]{2})*$/i.test(h)) return b.toast("Hex must be pairs of hex digits", "error");
+      if (!/^([0-9a-f]{2})*$/i.test(h)) return io.fail("Hex must be pairs of hex digits");
       bytes = new Uint8Array((h.match(/../g) || []).map((x) => parseInt(x, 16)));
     } else bytes = enc.encode(line + EOLS[eol]);
     if (!bytes.length) return;
@@ -338,6 +347,7 @@ function Terminal({ p, onPort }: { p: SerialPort; onPort(p: SerialPort): void })
         <button className="btn btn-sm btn-primary" disabled={ro} onClick={sendLine}>
           Send
         </button>
+        <ActionLine a={io} />
       </div>
       <details className="ser-more">
         <summary>Network bridges</summary>
@@ -354,8 +364,9 @@ function Terminal({ p, onPort }: { p: SerialPort; onPort(p: SerialPort): void })
         <summary>Port options</summary>
         <div className="pr-row">
           <label>
-            <input type="checkbox" checked={p.openOnPlug} onChange={(e) => api("settings", { openOnPlug: e.currentTarget.checked }).catch(quiet)} /> Open automatically when plugged in (and when BenchBob starts)
+            <input type="checkbox" checked={p.openOnPlug} onChange={(e) => opts.run(() => api("settings", { openOnPlug: e.currentTarget.checked }), { busy: "Saving…" })} /> Open automatically when plugged in (and when BenchBob starts)
           </label>
+          <ActionLine a={opts} />
         </div>
         {!p.console && (
           <div className="pr-row">
@@ -376,7 +387,7 @@ function Terminal({ p, onPort }: { p: SerialPort; onPort(p: SerialPort): void })
               ) : (
                 <>
                   <span className="pr-pill warn">Writing locked by {p.lock.owner}</span>
-                  <button className="btn btn-sm btn-danger" onClick={() => api("unlock", { force: true }).catch(quiet)}>
+                  <button className="btn btn-sm btn-danger" disabled={opts.busy} onClick={() => opts.run(() => api("unlock", { force: true }), { busy: "Breaking lock…", ok: "Lock broken" })}>
                     Break lock
                   </button>
                 </>
@@ -409,7 +420,7 @@ type Api = (what: string, body?: unknown) => Promise<any>;
 
 /** Baud and framing: follow the port's config, except while the user is editing them. */
 function LineSettings({ p, abTxt, api }: { p: SerialPort; abTxt: string; api: Api }) {
-  const b = useBob();
+  const act = useAction();
   const row = useRef<HTMLDivElement>(null);
   const c = p.config;
   const [baud, setBaud] = useState(String(c.baud));
@@ -425,10 +436,14 @@ function LineSettings({ p, abTxt, api }: { p: SerialPort; abTxt: string; api: Ap
     setStop(String(c.stopBits));
     setFlow(c.flow);
   }, [JSON.stringify(c)]);
-  const apply = () =>
-    api("config", { baud: Number(baud), dataBits: Number(bits), parity: par, stopBits: Number(stop), flow })
-      .then(() => b.toast("Line settings applied", "success"))
-      .catch(() => {});
+  const apply = () => act.run(() => api("config", { baud: Number(baud), dataBits: Number(bits), parity: par, stopBits: Number(stop), flow }), { busy: "Applying…", ok: "Line settings applied" });
+  // Hearing nothing at any rate is a failed detection, so it shows as one.
+  const autobaud = async () => {
+    const r = await act.run(() => api("autobaud", { apply: true }), { busy: "Auto-baud listening…" });
+    if (!r) return;
+    if (!r.best) act.fail("Heard nothing at any rate; the device must be sending");
+    else act.ok(`Best guess ${r.best.baud} baud (${Math.round(r.best.confidence * 100)}%)${r.applied ? ", applied" : ", not applied (low confidence)"}`);
+  };
   const ro = p.console;
   return (
     <div className="pr-row" ref={row}>
@@ -485,26 +500,21 @@ function LineSettings({ p, abTxt, api }: { p: SerialPort; abTxt: string; api: Ap
           <option value="xonxoff">XON/XOFF</option>
         </select>
       </label>
-      <button className="btn btn-sm" disabled={ro} onClick={apply}>
+      <button className="btn btn-sm" disabled={ro || act.busy} onClick={apply}>
         Apply
       </button>
-      <button
-        className="btn btn-sm"
-        disabled={ro}
-        onClick={() =>
-          api("autobaud", { apply: true })
-            .then((r) => b.toast(r.best ? `Best guess ${r.best.baud} baud (${Math.round(r.best.confidence * 100)}%)${r.applied ? ", applied" : ", not applied (low confidence)"}` : "Heard nothing at any rate", r.applied ? "success" : "info"))
-            .catch(() => {})
-        }
-      >
+      <button className="btn btn-sm" disabled={ro || act.busy} onClick={autobaud}>
         Auto-baud
       </button>
-      <span className="pr-note">{abTxt}</span>
+      {/* The port's last auto-baud result, unless this tab's own run is already saying it. */}
+      {act.status ? <ActionLine a={act} /> : <span className="pr-note">{abTxt}</span>}
     </div>
   );
 }
 
 function ModemRow({ p, api }: { p: SerialPort; api: Api }) {
+  const act = useAction();
+  const run = (what: string, body: unknown, busy: string, ok?: string) => act.run(() => api(what, body), { busy, ok });
   if (!p.open)
     return (
       <div className="pr-row">
@@ -519,7 +529,7 @@ function ModemRow({ p, api }: { p: SerialPort; api: Api }) {
     </span>
   );
   const tog = (k: "dtr" | "rts", label: string) => (
-    <button key={k} className={`btn btn-sm ser-tog ${l?.[k] ? "on" : ""}`} disabled={!l || p.console} onClick={() => api("lines", { [k]: !l?.[k] }).catch(() => {})}>
+    <button key={k} className={`btn btn-sm ser-tog ${l?.[k] ? "on" : ""}`} disabled={!l || p.console} onClick={() => run("lines", { [k]: !l?.[k] }, `Setting ${label}…`)}>
       {label}
     </button>
   );
@@ -529,7 +539,7 @@ function ModemRow({ p, api }: { p: SerialPort; api: Api }) {
       {!p.console && (
         <>
           <span className="ser-sep" />
-          <button className="btn btn-sm" onClick={() => api("break", { ms: 250 }).catch(() => {})}>
+          <button className="btn btn-sm" disabled={act.busy} onClick={() => run("break", { ms: 250 }, "Sending break…", "Break sent")}>
             Break
           </button>
         </>
@@ -538,12 +548,13 @@ function ModemRow({ p, api }: { p: SerialPort; api: Api }) {
         <>
           <span className="ser-sep" />
           {p.resets.map((r) => (
-            <button key={r} className="btn btn-sm btn-warn" disabled={!l && r !== "touch1200"} onClick={() => api("reset", { mode: r }).catch(() => {})}>
+            <button key={r} className="btn btn-sm btn-warn" disabled={(!l && r !== "touch1200") || act.busy} onClick={() => run("reset", { mode: r }, "Resetting…", `${RESET_LABELS[r]} done`)}>
               {RESET_LABELS[r]}
             </button>
           ))}
         </>
       )}
+      <ActionLine a={act} />
     </div>
   );
 }
@@ -552,15 +563,17 @@ function Bridges({ p, api }: { p: SerialPort; api: Api }) {
   const b = useBob();
   const host = b.conn.hostname;
   const wsUrl = b.conn.wsUrl(`/ws/serial/${p.id}`);
+  const acts = { tcp: useAction(), rfc2217: useAction() };
   const Block = ({ k, title, about, cmds }: { k: "tcp" | "rfc2217"; title: string; about: string; cmds: (port: number) => string[] }) => {
     const br = p.bridges[k];
+    const act = acts[k];
     return (
       <>
         <div className="pr-row">
           <label>
-            <input type="checkbox" checked={br.enabled} onChange={(e) => api("bridge", { kind: k, enabled: e.currentTarget.checked }).catch(() => {})} /> <b>{title}</b>
+            <input type="checkbox" checked={br.enabled} onChange={(e) => act.run(() => api("bridge", { kind: k, enabled: e.currentTarget.checked }), { busy: "Saving…" })} /> <b>{title}</b>
           </label>
-          <BridgePort k={k} port={br.port} enabled={br.enabled} api={api} />{" "}
+          <BridgePort k={k} port={br.port} enabled={br.enabled} api={api} act={act} /> <ActionLine a={act} />{" "}
           {br.error ? (
             <span className="pr-pill bad">{br.error}</span>
           ) : br.listening ? (
@@ -609,7 +622,7 @@ function Bridges({ p, api }: { p: SerialPort; api: Api }) {
   );
 }
 
-function BridgePort({ k, port, enabled, api }: { k: string; port: number; enabled: boolean; api: Api }) {
+function BridgePort({ k, port, enabled, api, act }: { k: string; port: number; enabled: boolean; api: Api; act: Action }) {
   const [v, setV] = useState(String(port));
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -620,7 +633,7 @@ function BridgePort({ k, port, enabled, api }: { k: string; port: number; enable
       <label>
         port <input ref={ref} type="number" value={v} min={1024} max={65535} style={{ width: 84 }} onInput={(e) => setV(e.currentTarget.value)} />
       </label>
-      <button className="btn btn-sm" onClick={() => api("bridge", { kind: k, enabled, port: Number(v) }).catch(() => {})}>
+      <button className="btn btn-sm" disabled={act.busy} onClick={() => act.run(() => api("bridge", { kind: k, enabled, port: Number(v) }), { busy: "Saving…", ok: `Port ${v} set` })}>
         Set port
       </button>
     </>
@@ -629,6 +642,8 @@ function BridgePort({ k, port, enabled, api }: { k: string; port: number; enable
 
 function FlashForm({ p, api, onStart }: { p: SerialPort; api: Api; onStart(): void }) {
   const b = useBob();
+  // Starting and cancelling report here; the job's own progress is FlashProgress below.
+  const run = useAction();
   const [tool, setTool] = useState<string>(p.flashTools[0]);
   const [act, setAct] = useState("write");
   const [chip, setChip] = useState("auto");
@@ -656,14 +671,10 @@ function FlashForm({ p, api, onStart }: { p: SerialPort; api: Api; onStart(): vo
         fd.append("file", r.file, r.file.name);
         n++;
       }
-      if (!n) return b.toast("Choose a firmware file", "error");
+      if (!n) return run.fail("Choose a firmware file");
     }
     onStart();
-    try {
-      await b.conn.upload(`/api/serial/${eid(p.id)}/flash`, fd);
-    } catch (e: any) {
-      b.toast(e?.message || "Upload failed", "error");
-    }
+    await run.run(() => b.conn.upload(`/api/serial/${eid(p.id)}/flash`, fd), { busy: "Uploading…" });
   };
   return (
     <div>
@@ -739,12 +750,13 @@ function FlashForm({ p, api, onStart }: { p: SerialPort; api: Api; onStart(): vo
             Add file
           </button>
         )}
-        <button className="btn btn-sm btn-primary" onClick={start}>
+        <button className="btn btn-sm btn-primary" disabled={run.busy} onClick={start}>
           Start
         </button>
-        <button className="btn btn-sm btn-danger" onClick={() => api("flash/cancel").catch(() => {})}>
+        <button className="btn btn-sm btn-danger" onClick={() => run.run(() => api("flash/cancel"), { busy: "Cancelling…" })}>
           Cancel
         </button>
+        <ActionLine a={run} />
       </div>
       <div className="pr-note">BenchBob releases the port while the tool runs and reopens it after. ESP32: bootloader 0x1000, partition table 0x8000, app 0x10000 (ESP32-S3/C3/C6 bootloader at 0x0), or one merged image at 0x0.</div>
     </div>

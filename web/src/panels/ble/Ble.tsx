@@ -7,6 +7,7 @@ import type { PanelProps } from "../../registry";
 import { fmtAgo, fmtHex } from "../../lib/format";
 import { readLocal, writeLocal } from "../../lib/storage";
 import type { Ws } from "../../lib/connection";
+import { ActionLine, useAction, type Action } from "../../ui/status";
 import { bleApi, type BleDevice, type BlePrefs, type BleState } from "./api";
 
 const PREF_DEFAULTS: BlePrefs = { live: false, q: "", minRssi: "", beacons: false, sort: "rssi" };
@@ -46,13 +47,17 @@ export default function Ble({ st }: PanelProps<BleState>) {
   const [ctrl, setCtrl] = useState<string | undefined>(def?.name);
   const ctrlRef = useRef(ctrl);
   ctrlRef.current = ctrl ?? def?.name;
+  // Settings changes report on the controller row; scans (and the scan stream's errors) on theirs.
+  const settings = useAction();
+  const scan = useAction();
+  const scanFail = scan.fail;
 
   useEffect(() => {
     const s = b.conn.ws("/ws/ble", {
       onopen: () => s.send({ live: prefsRef.current.live }),
       onmessage: (m) => {
         if (m?.type === "devices") setSnap(m);
-        else if (m?.type === "error") b.toast(m.message, "error");
+        else if (m?.type === "error") scanFail(m.message);
       },
     });
     ws.current = s;
@@ -62,7 +67,7 @@ export default function Ble({ st }: PanelProps<BleState>) {
     };
   }, [b.conn]);
 
-  const call = (r: readonly [string, string, unknown?]) => b.api(r[0], r[1], r[2]).catch(() => {});
+  const call = (a: Action, r: readonly [string, string, unknown?], busy: string) => a.run(() => b.api(r[0], r[1], r[2]), { busy });
 
   const sc = st.scan;
   const sorters: Record<string, (a: BleDevice, b: BleDevice) => number> = {
@@ -93,7 +98,7 @@ export default function Ble({ st }: PanelProps<BleState>) {
                 value={ctrl ?? def?.name}
                 onChange={(e) => {
                   setCtrl(e.currentTarget.value);
-                  call(bleApi.settings({ controller: e.currentTarget.value }));
+                  call(settings, bleApi.settings({ controller: e.currentTarget.value }), "Saving…");
                 }}
               >
                 {cs.map((c) => (
@@ -110,16 +115,17 @@ export default function Ble({ st }: PanelProps<BleState>) {
               </span>
             ))}
             <label>
-              <input type="checkbox" checked={st.restoreRadio !== false} onChange={(e) => call(bleApi.settings({ restoreRadio: e.currentTarget.checked }))} /> Put radio back to off/blocked after scanning
+              <input type="checkbox" checked={st.restoreRadio !== false} onChange={(e) => call(settings, bleApi.settings({ restoreRadio: e.currentTarget.checked }), "Saving…")} /> Put radio back to off/blocked after scanning
             </label>
+            <ActionLine a={settings} />
           </>
         )}
       </div>
       <div className="pr-row">
-        <button className="btn btn-sm btn-primary" onClick={() => call(bleApi.scan(10, ctrlRef.current))}>
+        <button className="btn btn-sm btn-primary" disabled={scan.busy} onClick={() => call(scan, bleApi.scan(10, ctrlRef.current), "Starting scan…")}>
           Scan 10 s
         </button>
-        <button className="btn btn-sm" onClick={() => call(bleApi.scan(60, ctrlRef.current))}>
+        <button className="btn btn-sm" disabled={scan.busy} onClick={() => call(scan, bleApi.scan(60, ctrlRef.current), "Starting scan…")}>
           Scan 60 s
         </button>
         <label>
@@ -140,14 +146,15 @@ export default function Ble({ st }: PanelProps<BleState>) {
               setPrefs({ live: false });
               ws.current?.send({ live: false });
             }
-            await call(bleApi.stop());
+            await call(scan, bleApi.stop(), "Stopping…");
           }}
         >
           Stop
         </button>
-        <button className="btn btn-sm" onClick={() => call(bleApi.clear())}>
+        <button className="btn btn-sm" onClick={() => call(scan, bleApi.clear(), "Clearing…")}>
           Clear list
         </button>
+        <ActionLine a={scan} />
       </div>
       <div className="pr-row pr-note">
         {sc ? (

@@ -13,6 +13,7 @@ import { useBob } from "../../bob/context";
 import type { PanelProps } from "../../registry";
 import { fmtAgo } from "../../lib/format";
 import { readLocal, writeLocal } from "../../lib/storage";
+import { ActionLine, useAction, type Action } from "../../ui/status";
 import type { AutobitrateResult, CanFrame, CanIface, CanState, CanStats, FrameReq } from "./api";
 
 const enc = encodeURIComponent;
@@ -57,7 +58,9 @@ export default function Can({ st }: PanelProps<CanState>) {
 
 function IfaceHead({ i, st, monitor, toggleMon }: { i: CanIface; st: CanState; monitor: boolean; toggleMon(): void }) {
   const b = useBob();
-  const post = (path: string, body?: unknown) => b.api("POST", `/api/can/${enc(i.name)}/${path}`, body).catch(() => null);
+  // Everything done to this interface (here or from its dialogs) reports on the action row.
+  const act = useAction();
+  const post = <T,>(path: string, body: unknown, busy: string, ok?: string | ((r: T) => string)) => act.run(() => b.api<T>("POST", `/api/can/${enc(i.name)}/${path}`, body), { busy, ok });
   const timing =
     i.kind === "can"
       ? i.bitrate
@@ -74,7 +77,7 @@ function IfaceHead({ i, st, monitor, toggleMon }: { i: CanIface; st: CanState; m
         .join(" · ")
     : "";
   const dev = [i.label, i.driver && i.driver !== i.kind ? i.driver : "", i.usb?.serial ? "S/N " + i.usb.serial : "", i.slcanTty ? "on " + i.slcanTty : "", i.clock ? `clock ${fmtBr(i.clock)}Hz` : "", i.fdCapable && i.kind === "can" ? "FD capable" : ""].filter(Boolean).join(" · ");
-  const dis = !!i.busy;
+  const dis = !!i.busy || act.busy;
   return (
     <>
       <h4>
@@ -125,29 +128,29 @@ function IfaceHead({ i, st, monitor, toggleMon }: { i: CanIface; st: CanState; m
         </div>
       )}
       <div className="pr-row">
-        <button className="btn btn-sm" disabled={dis} onClick={() => post("config", { up: !i.up })}>
+        <button className="btn btn-sm" disabled={dis} onClick={() => post("config", { up: !i.up }, i.up ? "Bringing down…" : "Bringing up…")}>
           {i.up ? "Down" : "Up"}
         </button>
-        <button className="btn btn-sm" disabled={dis} onClick={() => b.openModal(<ConfigDlg i={i} st={st} />)}>
+        <button className="btn btn-sm" disabled={dis} onClick={() => b.openModal(<ConfigDlg i={i} st={st} act={act} />)}>
           Configure…
         </button>
         {(i.kind === "can" || i.kind === "vcan") && (
-          <button className="btn btn-sm" disabled={dis} onClick={() => b.openModal(<AutoDlg i={i} st={st} />)}>
+          <button className="btn btn-sm" disabled={dis} onClick={() => b.openModal(<AutoDlg i={i} st={st} act={act} />)}>
             Auto-bitrate
           </button>
         )}
         {i.state === "BUS-OFF" && (
-          <button className="btn btn-sm btn-warn" onClick={() => post("restart")}>
+          <button className="btn btn-sm btn-warn" disabled={act.busy} onClick={() => post("restart", undefined, "Restarting…", "Controller restarted")}>
             Restart controller
           </button>
         )}
         {i.up && (
           <button
             className={`btn btn-sm${i.recording ? " btn-danger" : ""}`}
-            onClick={async () => {
+            disabled={act.busy}
+            onClick={() => {
               const on = !i.recording;
-              const res = await post("record", { on });
-              if (res) b.toast(on ? `Recording to ${res.file}` : `Saved ${res.file} (${res.frames} frames)`, "success");
+              post<{ file: string; frames: number }>("record", { on }, on ? "Starting recording…" : "Stopping recording…", (r) => (on ? `Recording to ${r.file}` : `Saved ${r.file} (${r.frames} frames)`));
             }}
           >
             {i.recording ? "Stop recording" : "Record"}
@@ -157,15 +160,16 @@ function IfaceHead({ i, st, monitor, toggleMon }: { i: CanIface; st: CanState; m
           {monitor ? "Hide monitor" : "Monitor"}
         </button>
         {i.kind === "vcan" && (
-          <button className="btn btn-sm btn-danger" onClick={() => b.api("DELETE", `/api/can/vcan/${enc(i.name)}`).catch(() => {})}>
+          <button className="btn btn-sm btn-danger" disabled={act.busy} onClick={() => act.run(() => b.api("DELETE", `/api/can/vcan/${enc(i.name)}`), { busy: "Removing…" })}>
             Remove vcan
           </button>
         )}
         {i.slcanTty && (
-          <button className="btn btn-sm btn-danger" onClick={() => b.api("DELETE", `/api/can/slcan/${enc(i.name)}`).catch(() => {})}>
+          <button className="btn btn-sm btn-danger" disabled={act.busy} onClick={() => act.run(() => b.api("DELETE", `/api/can/slcan/${enc(i.name)}`), { busy: "Detaching…" })}>
             Detach SLCAN
           </button>
         )}
+        <ActionLine a={act} />
       </div>
     </>
   );
@@ -222,6 +226,11 @@ function Monitor({ name }: { name: string }) {
   const [fd, setFd] = useState(false);
   const [brs, setBrs] = useState(false);
   const [per, setPer] = useState("100");
+  // The log row (stream errors, Clear), the send row, and the periodic jobs list each report in place.
+  const log = useAction();
+  const tx = useAction();
+  const jobs = useAction();
+  const logFail = log.fail;
 
   useEffect(() => {
     const st = m.current;
@@ -267,7 +276,7 @@ function Monitor({ name }: { name: string }) {
           st.stats = msg;
           st.dirtyStats = true;
           schedule();
-        } else if (msg.type === "error") b.toast(msg.message, "error");
+        } else if (msg.type === "error") logFail(msg.message);
       },
       onclose: () => setConn("Disconnected, retrying…"),
     }));
@@ -287,23 +296,20 @@ function Monitor({ name }: { name: string }) {
   const frame = (): FrameReq | null => {
     const id = sid.trim();
     if (!id) {
-      b.toast("Enter an ID (hex)", "error");
+      tx.fail("Enter an ID (hex)");
       return null;
     }
     if (id.includes("#")) return { cansend: id };
     return { id, data: sdata.trim(), ext: ext || undefined, rtr: rtr || undefined, fd: fd || undefined, brs: brs || undefined };
   };
+  // A successful send shows up in the log as tx, so it clears the line rather than adding to it.
   const send = () => {
     const f = frame();
-    if (f) b.api("POST", `/api/can/${enc(name)}/send`, f).catch(() => {});
+    if (f) tx.run(() => b.api("POST", `/api/can/${enc(name)}/send`, f), { busy: "Sending…" });
   };
-  const periodic = async () => {
+  const periodic = () => {
     const f = frame();
-    if (!f) return;
-    try {
-      await b.api("POST", `/api/can/${enc(name)}/periodic`, { ...f, periodMs: Number(per) });
-      b.toast("Periodic job started", "success");
-    } catch {}
+    if (f) tx.run(() => b.api("POST", `/api/can/${enc(name)}/periodic`, { ...f, periodMs: Number(per) }), { busy: "Starting…", ok: "Periodic job started" });
   };
   const s = stats,
     r = s?.rates || {};
@@ -396,11 +402,12 @@ function Monitor({ name }: { name: string }) {
           onClick={() => {
             m.current.log = [];
             if (logEl.current) logEl.current.textContent = "";
-            b.api("POST", `/api/can/${enc(name)}/clear`).catch(() => {});
+            log.run(() => b.api("POST", `/api/can/${enc(name)}/clear`), { busy: "Clearing…" });
           }}
         >
           Clear
         </button>
+        <ActionLine a={log} />
       </div>
       <div className="pr-note">Filter: hex IDs, optional :mask, x prefix for extended. Applied on the server, so the log only carries what matches; the ID table always shows everything.</div>
       <div className="pr-log can-log" style={{ height: 220 }} ref={logEl} />
@@ -429,9 +436,10 @@ function Monitor({ name }: { name: string }) {
         <label>
           every <input type="number" min={5} style={{ width: 70 }} value={per} onInput={(e) => setPer(e.currentTarget.value)} /> ms
         </label>
-        <button className="btn btn-sm" onClick={periodic}>
+        <button className="btn btn-sm" disabled={tx.busy} onClick={periodic}>
           Start periodic
         </button>
+        <ActionLine a={tx} />
       </div>
       <div className="pr-note">
         ID and data are hex. You can also type cansend syntax in ID, e.g. <span className="pr-endpoint">123#DEADBEEF</span> or <span className="pr-endpoint">123##1AABBCC</span> (FD+BRS). Frames you send appear in the log as <b>tx</b> once the
@@ -440,7 +448,7 @@ function Monitor({ name }: { name: string }) {
       {s?.jobs?.length ? (
         <>
           <div className="pr-note" style={{ marginTop: 8 }}>
-            <b>Periodic jobs</b>
+            <b>Periodic jobs</b> <ActionLine a={jobs} />
           </div>
           {s.jobs.map((j) => (
             <div key={j.id} className="pr-row">
@@ -449,7 +457,7 @@ function Monitor({ name }: { name: string }) {
                 every {j.periodMs} ms · sent {j.sent}
                 {j.errors ? ` · ${j.errors} errors${j.lastErr ? ": " + j.lastErr : ""}` : ""}
               </span>
-              <button className="btn btn-sm" onClick={() => b.api("DELETE", `/api/can/${enc(name)}/periodic/${j.id}`).catch(() => {})}>
+              <button className="btn btn-sm" disabled={jobs.busy} onClick={() => jobs.run(() => b.api("DELETE", `/api/can/${enc(name)}/periodic/${j.id}`), { busy: "Stopping…" })}>
                 Stop
               </button>
             </div>
@@ -462,17 +470,15 @@ function Monitor({ name }: { name: string }) {
 
 // ---------- dialogs ----------
 
-function AutoDlg({ i, st }: { i: CanIface; st: CanState }) {
+// `act` is the interface card's action line: the run is reported there once the dialog closes.
+function AutoDlg({ i, st, act }: { i: CanIface; st: CanState; act: Action }) {
   const b = useBob();
   const [ms, setMs] = useState("400");
   const [apply, setApply] = useState(false);
   const go = async () => {
     b.closeModal();
-    b.toast(`Auto-bitrate running on ${i.name}…`, "info");
-    try {
-      const r = await b.api<AutobitrateResult>("POST", `/api/can/${enc(i.name)}/autobitrate`, { listenMs: Number(ms) || 400, apply });
-      b.openModal(<AutoResult name={i.name} r={r} />);
-    } catch {}
+    const r = await act.run(() => b.api<AutobitrateResult>("POST", `/api/can/${enc(i.name)}/autobitrate`, { listenMs: Number(ms) || 400, apply }), { busy: "Auto-bitrate running…", ok: (r) => `Auto-bitrate: ${r.text}` });
+    if (r) b.openModal(<AutoResult name={i.name} r={r} />);
   };
   return (
     <>
@@ -574,7 +580,7 @@ function Chk({ label, checked, set, note }: { label: string; checked: boolean; s
   );
 }
 
-function ConfigDlg({ i, st }: { i: CanIface; st: CanState }) {
+function ConfigDlg({ i, st, act }: { i: CanIface; st: CanState; act: Action }) {
   const b = useBob();
   const std = st.standardBitrates || [];
   const custom = !!i.bitrate && !std.includes(i.bitrate);
@@ -607,10 +613,7 @@ function ConfigDlg({ i, st }: { i: CanIface; st: CanState }) {
       c.restartMs = Number(rms) || 0;
     }
     b.closeModal();
-    try {
-      await b.api("POST", `/api/can/${enc(i.name)}/config`, c);
-      b.toast(`${i.name} configured`, "success");
-    } catch {}
+    act.run(() => b.api("POST", `/api/can/${enc(i.name)}/config`, c), { busy: "Configuring…", ok: "Configured" });
   };
   return (
     <>
@@ -703,6 +706,8 @@ function BitrateSel({ rates, value, set }: { rates: number[]; value: string; set
 function Candidate({ c, rates }: { c: CanState["slcan"]["candidates"][number]; rates: number[] }) {
   const b = useBob();
   const [br, setBr] = useState("500000");
+  // Attach and Detach swap places, so the row holds their status.
+  const act = useAction();
   return (
     <div className="pr-row">
       <span>
@@ -715,31 +720,30 @@ function Candidate({ c, rates }: { c: CanState["slcan"]["candidates"][number]; r
       {c.attached ? (
         <>
           <span className="pr-pill on">attached as {c.attached}</span>
-          <button className="btn btn-sm" onClick={() => b.api("DELETE", `/api/can/slcan/${enc(c.attached!)}`).catch(() => {})}>
+          <button className="btn btn-sm" disabled={act.busy} onClick={() => act.run(() => b.api("DELETE", `/api/can/slcan/${enc(c.attached!)}`), { busy: "Detaching…", ok: "Detached" })}>
             Detach
           </button>
         </>
       ) : (
         <>
           <BitrateSel rates={rates} value={br} set={setBr} />
-          <AttachBtn tty={c.tty} bitrate={br} label="Attach as SLCAN" primary />
+          <AttachBtn tty={c.tty} bitrate={br} label="Attach as SLCAN" primary act={act} />
         </>
       )}
+      <ActionLine a={act} />
     </div>
   );
 }
 
-function AttachBtn({ tty, bitrate, label, primary }: { tty: string; bitrate: string; label: string; primary?: boolean }) {
+function AttachBtn({ tty, bitrate, label, primary, act }: { tty: string; bitrate: string; label: string; primary?: boolean; act: Action }) {
   const b = useBob();
   return (
     <button
       className={`btn btn-sm${primary ? " btn-primary" : ""}`}
-      onClick={async () => {
-        if (!tty) return;
-        try {
-          const r = await b.api<{ name: string }>("POST", "/api/can/slcan", { tty, bitrate: Number(bitrate) || 500000 });
-          b.toast(`Attached as ${r.name}`, "success");
-        } catch {}
+      disabled={act.busy}
+      onClick={() => {
+        if (!tty) return act.fail("Enter the serial device, e.g. /dev/ttyACM0");
+        act.run(() => b.api<{ name: string }>("POST", "/api/can/slcan", { tty, bitrate: Number(bitrate) || 500000 }), { busy: "Attaching…", ok: (r) => `Attached as ${r.name}` });
       }}
     >
       {label}
@@ -752,6 +756,9 @@ function Tools({ st }: { st: CanState }) {
   const rates = st.slcanBitrates || [];
   const [mtty, setMtty] = useState("");
   const [mbr, setMbr] = useState("500000");
+  const attach = useAction();
+  const vcan = useAction();
+  const recs = useAction();
   return (
     <div className="can-tools">
       <div className="pr-card">
@@ -771,22 +778,16 @@ function Tools({ st }: { st: CanState }) {
           <div className="pr-row">
             <input placeholder="/dev/ttyACM0" style={{ width: 150 }} value={mtty} onInput={(e) => setMtty(e.currentTarget.value)} />
             <BitrateSel rates={rates} value={mbr} set={setMbr} />
-            <AttachBtn tty={mtty.trim()} bitrate={mbr} label="Attach" />
+            <AttachBtn tty={mtty.trim()} bitrate={mbr} label="Attach" act={attach} />
+            <ActionLine a={attach} />
           </div>
         </details>
         <div className="pr-row" style={{ marginTop: 8 }}>
-          <button
-            className="btn btn-sm"
-            onClick={async () => {
-              try {
-                const r = await b.api<{ name: string }>("POST", "/api/can/vcan", { fd: true });
-                b.toast(`Created ${r.name}`, "success");
-              } catch {}
-            }}
-          >
+          <button className="btn btn-sm" disabled={vcan.busy} onClick={() => vcan.run(() => b.api<{ name: string }>("POST", "/api/can/vcan", { fd: true }), { busy: "Creating…", ok: (r) => `Created ${r.name}` })}>
             Create virtual CAN (vcan) for testing
           </button>
           <span className="pr-note">A software bus with no hardware: everything sent on it is received by every listener on it.</span>
+          <ActionLine a={vcan} />
         </div>
       </div>
       {st.recordings.length > 0 && (
@@ -794,6 +795,7 @@ function Tools({ st }: { st: CanState }) {
           <h4>
             Recordings <small>candump -L format; replay with canplayer -I file</small>
           </h4>
+          <ActionLine a={recs} />
           {st.recordings.map((r) => (
             <div key={r.file} className="pr-row">
               <a className="btn btn-sm" href={b.conn.url(`/api/can/recordings/${enc(r.file)}`)} download>
@@ -802,7 +804,7 @@ function Tools({ st }: { st: CanState }) {
               <span className="pr-note">
                 {fmtSize(r.size)} · {fmtAgo(r.mtime)}
               </span>
-              <button className="btn btn-sm btn-danger" onClick={() => b.api("DELETE", `/api/can/recordings/${enc(r.file)}`).catch(() => {})}>
+              <button className="btn btn-sm btn-danger" disabled={recs.busy} onClick={() => recs.run(() => b.api("DELETE", `/api/can/recordings/${enc(r.file)}`), { busy: `Deleting ${r.file}…`, ok: `Deleted ${r.file}` })}>
                 Delete
               </button>
             </div>
@@ -822,6 +824,7 @@ function Endpoints({ st }: { st: CanState }) {
   const [en, setEn] = useState(sc.enabled);
   const [port, setPort] = useState(String(sc.port));
   const [bc, setBc] = useState(sc.beacon);
+  const save = useAction();
   // Follow the server's settings, but not while the user is editing them.
   const sig = JSON.stringify([sc.enabled, sc.port, sc.beacon]);
   useEffect(() => {
@@ -847,17 +850,10 @@ function Endpoints({ st }: { st: CanState }) {
         <label>
           <input type="checkbox" checked={bc} onChange={(e) => setBc(e.currentTarget.checked)} /> discovery beacon (UDP 42000)
         </label>
-        <button
-          className="btn btn-sm"
-          onClick={async () => {
-            try {
-              await b.api("POST", "/api/can/socketcand", { enabled: en, port: Number(port), beacon: bc });
-              b.toast("socketcand settings saved", "success");
-            } catch {}
-          }}
-        >
+        <button className="btn btn-sm" disabled={save.busy} onClick={() => save.run(() => b.api("POST", "/api/can/socketcand", { enabled: en, port: Number(port), beacon: bc }), { busy: "Applying…", ok: "socketcand settings saved" })}>
           Apply
         </button>
+        <ActionLine a={save} />
       </div>
       <div className="pr-note">
         {sc.listening ? (
