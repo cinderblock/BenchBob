@@ -76,14 +76,7 @@ export function Bob({ connection, pageBuild, setTitle = true, nodeOnly = false, 
     const a: BobApi = {
       conn: connection,
       store,
-      async api(method, path, body) {
-        try {
-          return await connection.json(method, path, body);
-        } catch (e: any) {
-          toast(e instanceof TypeError ? "Request failed: " + e.message : e.message, "error");
-          throw e;
-        }
-      },
+      api: (method, path, body) => connection.json(method, path, body),
       toast,
       openModal,
       closeModal,

@@ -18,7 +18,10 @@ export interface ModalOptions {
 export interface BobApi {
   conn: BobConnection;
   store: BobStore;
-  /** JSON request; toasts the error and rethrows on failure (the old dashboard's papi). */
+  /**
+   * JSON request; throws on failure. Callers show the failure where the action was taken
+   * (ui/status.tsx: useAction, AsyncButton), never silently.
+   */
   api<T = any>(method: string, path: string, body?: unknown): Promise<T>;
   toast(msg: string, kind?: ToastKind): void;
   /** Open a dialog. `content` renders inside this bob's context, so it can use hooks. */

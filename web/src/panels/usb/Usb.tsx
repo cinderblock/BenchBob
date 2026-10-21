@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import registry from "@registry";
 import { useBob, type BobApi } from "../../bob/context";
 import type { PanelProps } from "../../registry";
+import { ActionLine, StatusLine, errText, useAction, type ActionStatus } from "../../ui/status";
 import type { DmesgLine, PowerArgs, PowerPlan, UsbDev, UsbState } from "./api";
 import "./style.css";
 
@@ -18,11 +19,8 @@ interface Sel {
 }
 
 /** The last power action on one target (a hub, or a hub port), shown where it was switched. */
-interface PowerStatus {
+interface PowerStatus extends ActionStatus {
   action: PowerArgs["action"];
-  state: "busy" | "ok" | "error";
-  msg?: string;
-  t: number;
 }
 
 // Keyed by hub location, plus ":port" for a single port.
@@ -137,13 +135,16 @@ function PanelLink({ p, dev = "" }: { p?: string; dev?: string }) {
   );
 }
 
-// Progress and failures go to `report`, which shows them beside the buttons, not as toasts.
+const POWER_BUSY = { on: "switching on", off: "switching off", cycle: "power cycling" };
+const POWER_DONE = { on: "Switched on", off: "Switched off", cycle: "Power cycled" };
+
+// Progress and failures go to `report`, which shows them beside the buttons that did it.
 async function doPower(b: BobApi, args: PowerArgs, report: (s: PowerStatus) => void) {
-  const status = (state: PowerStatus["state"], msg?: string) => report({ action: args.action, state, msg, t: Date.now() });
-  const fail = (e: unknown) => status("error", e instanceof TypeError ? "Request failed: " + e.message : (e as Error).message);
+  const status = (state: PowerStatus["state"], msg: string) => report({ action: args.action, state, msg, t: Date.now() });
+  const fail = (e: unknown) => status("error", `Power ${args.action} failed: ${errText(e)}`);
   let plan: PowerPlan;
   try {
-    plan = await b.conn.json<PowerPlan>("GET", "/api/usb/power/plan?" + new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])));
+    plan = await b.api<PowerPlan>("GET", "/api/usb/power/plan?" + new URLSearchParams(Object.entries(args).map(([k, v]) => [k, String(v)])));
   } catch (e) {
     return fail(e);
   }
@@ -152,10 +153,10 @@ async function doPower(b: BobApi, args: PowerArgs, report: (s: PowerStatus) => v
     if (!level) return;
     if (plan.needs !== "none") args.confirm = plan.needs;
   }
-  status("busy");
+  status("busy", POWER_BUSY[args.action] + "…");
   try {
-    await b.conn.json("POST", "/api/usb/power", args);
-    status("ok");
+    await b.api("POST", "/api/usb/power", args);
+    status("ok", POWER_DONE[args.action]);
   } catch (e) {
     fail(e);
   }
@@ -234,24 +235,8 @@ function PowerBtns({ t, pk, ctx }: { t: { hub?: string; port?: number; busid?: s
       <label className="pr-note">
         off for <input type="number" min={1} max={30} value={delay} onInput={(e) => setDelay(e.currentTarget.value)} /> s
       </label>
-      {s && <PowerResult s={s} clear={() => ctx.setPowerStatus(pk, null)} />}
+      <StatusLine s={s} onClear={() => ctx.setPowerStatus(pk, null)} />
     </>
-  );
-}
-
-const POWER_BUSY = { on: "switching on", off: "switching off", cycle: "power cycling" };
-const POWER_DONE = { on: "Switched on", off: "Switched off", cycle: "Power cycled" };
-
-function PowerResult({ s, clear }: { s: PowerStatus; clear(): void }) {
-  if (s.state === "busy") return <span className="usb-pstat busy">{POWER_BUSY[s.action]}…</span>;
-  const at = new Date(s.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  return (
-    <span className={`usb-pstat ${s.state}`}>
-      {s.state === "ok" ? `✓ ${POWER_DONE[s.action]} at ${at}` : `✗ Power ${s.action} failed: ${s.msg}`}
-      <button className="pr-x" aria-label="Dismiss" onClick={clear}>
-        &times;
-      </button>
-    </span>
   );
 }
 
@@ -303,7 +288,7 @@ function PortChips({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
           const mark = ps?.state === "busy" ? " busy" : ps?.state === "error" ? " err" : "";
           return (
             <button key={p.port} className={`usb-chip ${cls}${isSel ? " sel" : ""}${mark}`} disabled={!!p.internal || grouped} onClick={() => ctx.setSel(isSel ? null : { hub: pw.loc, port: p.port })}>
-              P{p.port} {ps?.state === "busy" ? POWER_BUSY[ps.action] + "…" : state}
+              P{p.port} {ps?.state === "busy" ? ps.msg : state}
               {child ? " · used" : ""}
             </button>
           );
@@ -316,6 +301,8 @@ function PortChips({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
 
 function DevRow({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
   const b = useBob();
+  // Share/Unshare swap places when they work, so their status belongs to the row.
+  const share = useAction();
   const depth = Math.min(d.depth, 6);
   const style = depth ? { marginLeft: depth * 12 } : undefined;
   if (d.root) {
@@ -333,12 +320,6 @@ function DevRow({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
       </div>
     );
   }
-  const call = async (method: string, path: string, body: unknown, ok?: (r: any) => string) => {
-    try {
-      const r = await b.api(method, path, body);
-      if (ok) b.toast(ok(r), "success");
-    } catch {}
-  };
   const meta = [d.vidpid, d.version && `USB ${d.version}`, d.maxPowerMa ? `${d.maxPowerMa} mA` : "", d.config ? `cfg ${d.config}` : "", d.hub ? `${d.nports} ports` : ""].filter(Boolean).join(" · ");
   const isOpen = ctx.open.has(d.busid);
   return (
@@ -355,13 +336,18 @@ function DevRow({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
         {!d.hub && (
           <>
             {d.usbip ? (
-              <ShareBtn label="Unshare" run={() => call("POST", "/api/usb/unshare", { busid: d.busid }, () => `Stopped sharing ${d.busid}`)} />
+              <button className="btn btn-sm" disabled={share.busy} onClick={() => share.run(() => b.api("POST", "/api/usb/unshare", { busid: d.busid }), { busy: "Unsharing…", ok: "Stopped sharing" })}>
+                Unshare
+              </button>
             ) : !d.redir && !d.shareBlock ? (
-              <ShareBtn label="Share (USB/IP)" run={() => call("POST", "/api/usb/share", { busid: d.busid }, (r) => `Shared ${d.busid}. Attach with: ${r.attach}`)} />
+              <button className="btn btn-sm" disabled={share.busy} onClick={() => share.run(() => b.api<{ attach: string }>("POST", "/api/usb/share", { busid: d.busid }), { busy: "Sharing…", ok: (r) => `Shared. Attach with: ${r.attach}` })}>
+                Share (USB/IP)
+              </button>
             ) : null}
             <button className="btn btn-sm" onClick={() => ctx.toggleMore(d.busid)}>
               {isOpen ? "Less" : "More"}
             </button>
+            <ActionLine a={share} />
           </>
         )}
       </div>
@@ -405,33 +391,14 @@ function DevRow({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
   );
 }
 
-function ShareBtn({ label, run }: { label: string; run(): Promise<void> }) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <button
-      className="btn btn-sm"
-      disabled={busy}
-      onClick={async () => {
-        setBusy(true);
-        await run();
-        setBusy(false);
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
 function More({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
   const b = useBob();
+  const rules = useAction();
+  const redir = useAction();
   const st = ctx.st;
   const vp = d.rules.includes("vidpid"),
     pt = d.rules.includes("port");
-  const rule = async (match: string, value: string, on: boolean) => {
-    try {
-      await b.api(on ? "POST" : "DELETE", "/api/usb/rules", { match, value });
-    } catch {}
-  };
+  const rule = (match: string, value: string, on: boolean) => rules.run(() => b.api(on ? "POST" : "DELETE", "/api/usb/rules", { match, value }), { busy: "Saving…" });
   return (
     <div className="usb-more">
       <div>
@@ -456,6 +423,7 @@ function More({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
         <label>
           <input type="checkbox" checked={pt} onChange={(e) => rule("port", d.busid, e.currentTarget.checked)} /> anything on port {d.busid}
         </label>
+        <ActionLine a={rules} />
       </div>
       {d.shareBlock && !d.usbip && <div className="pr-note">{d.shareBlock}</div>}
       {st.redir.available ? (
@@ -463,9 +431,10 @@ function More({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
           <>
             <div className="usb-cmd">
               usbredir on TCP {d.redir.port}{" "}
-              <button className="btn btn-sm" onClick={() => b.api("POST", "/api/usb/redir/stop", { busid: d.busid }).catch(() => {})}>
+              <button className="btn btn-sm" disabled={redir.busy} onClick={() => redir.run(() => b.api("POST", "/api/usb/redir/stop", { busid: d.busid }), { busy: "Stopping…" })}>
                 Stop usbredir
               </button>
+              <ActionLine a={redir} />
             </div>
             <div className="usb-cmd">
               QEMU{" "}
@@ -476,18 +445,11 @@ function More({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
           </>
         ) : !d.usbip && !d.shareBlock ? (
           <div className="usb-cmd">
-            <button
-              className="btn btn-sm"
-              onClick={async () => {
-                try {
-                  const r = await b.api<{ port: number }>("POST", "/api/usb/redir/start", { busid: d.busid });
-                  b.toast(`usbredir on TCP ${r.port}`, "success");
-                } catch {}
-              }}
-            >
+            <button className="btn btn-sm" disabled={redir.busy} onClick={() => redir.run(() => b.api("POST", "/api/usb/redir/start", { busid: d.busid }), { busy: "Starting…" })}>
               Serve with usbredir
             </button>
             <span className="pr-note">for QEMU/libvirt usb-redir; exclusive with USB/IP</span>
+            <ActionLine a={redir} />
           </div>
         ) : null
       ) : (
@@ -506,6 +468,8 @@ function More({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
 
 function Share({ st, host }: { st: UsbState; host: string }) {
   const b = useBob();
+  const rules = useAction();
+  const save = useAction();
   const u = st.usbip;
   // null = untouched, so the field follows the server until someone edits it.
   const [usbipPort, setUsbipPort] = useState<string | null>(null);
@@ -557,7 +521,7 @@ function Share({ st, host }: { st: UsbState; host: string }) {
             <span key={r.match + r.value} className="pr-pill">
               {r.match === "port" ? "port " : ""}
               {r.value}{" "}
-              <button className="pr-x" aria-label="Remove rule" onClick={() => b.api("DELETE", "/api/usb/rules", { match: r.match, value: r.value }).catch(() => {})}>
+              <button className="pr-x" aria-label="Remove rule" onClick={() => rules.run(() => b.api("DELETE", "/api/usb/rules", { match: r.match, value: r.value }), { busy: "Removing…" })}>
                 &times;
               </button>
             </span>
@@ -565,6 +529,7 @@ function Share({ st, host }: { st: UsbState; host: string }) {
         ) : (
           <span className="pr-note">none</span>
         )}
+        <ActionLine a={rules} />
       </div>
       <div className="pr-row">
         <label>
@@ -575,17 +540,17 @@ function Share({ st, host }: { st: UsbState; host: string }) {
         </label>
         <button
           className="btn btn-sm"
+          disabled={save.busy}
           onClick={async () => {
-            try {
-              await b.api("POST", "/api/usb/config", { usbipPort: +(usbipPort ?? u.port), redirBasePort: +(redirPort ?? st.redir.basePort) });
-              b.toast("Ports saved", "success");
+            if (await save.run(() => b.api("POST", "/api/usb/config", { usbipPort: +(usbipPort ?? u.port), redirBasePort: +(redirPort ?? st.redir.basePort) }), { busy: "Saving…", ok: "Ports saved" })) {
               setUsbipPort(null);
               setRedirPort(null);
-            } catch {}
+            }
           }}
         >
           Save ports
         </button>
+        <ActionLine a={save} />
       </div>
     </>
   );
@@ -593,7 +558,8 @@ function Share({ st, host }: { st: UsbState; host: string }) {
 
 function Timeline({ st, kind, setKind, hist, setHist }: { st: UsbState; kind: "all" | "usb" | "kernel"; setKind(k: "all" | "usb" | "kernel"): void; hist: DmesgLine[] | null; setHist(h: DmesgLine[] | null): void }) {
   const b = useBob();
-  const kinds = { all: null, usb: ["plug", "unplug", "power", "share"], kernel: ["kernel"] }[kind];
+  const load = useAction();
+  const kinds ={ all: null, usb: ["plug", "unplug", "power", "share"], kernel: ["kernel"] }[kind];
   const rows = (st.timeline || []).filter((e) => !kinds || kinds.includes(e.detail?.kind || ""));
   const fmt = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const f = (k: "all" | "usb" | "kernel", l: string) => (
@@ -611,17 +577,18 @@ function Timeline({ st, kind, setKind, hist, setHist }: { st: UsbState; kind: "a
           {f("kernel", "Kernel")}
           <button
             className="btn btn-sm"
+            disabled={load.busy}
             onClick={async () => {
               if (hist) return setHist(null);
-              try {
-                setHist((await b.api<{ lines: DmesgLine[] }>("GET", "/api/usb/dmesg")).lines);
-              } catch {}
+              const r = await load.run(() => b.api<{ lines: DmesgLine[] }>("GET", "/api/usb/dmesg"), { busy: "Loading…" });
+              if (r) setHist(r.lines);
             }}
           >
             {hist ? "Hide boot log" : "Since boot"}
           </button>
         </span>
       </h4>
+      <ActionLine a={load} />
       <div className="pr-log" style={{ maxHeight: 240 }}>
         {rows.length ? (
           rows.map((e, i) => (

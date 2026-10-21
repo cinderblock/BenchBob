@@ -17,12 +17,7 @@
 .usb-chip.sel{outline:1px solid var(--accent)}
 .usb-chip:disabled{cursor:default}
 .usb-chip.busy{color:var(--accent);border-color:var(--accent);border-style:solid}
-.usb-chip.err{border-color:var(--danger)}
-.usb-pstat{display:inline-flex;align-items:center;gap:4px;font-size:.72rem}
-.usb-pstat.busy{color:var(--accent)}
-.usb-pstat.ok{color:var(--success)}
-.usb-pstat.error{color:var(--danger)}
-.usb-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:.75rem}
+.usb-chip.err{border-color:var(--danger)}.usb-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:.75rem}
 .usb-bar input{width:3.2em;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:2px 4px;font:inherit}
 .usb-more{margin:4px 0;padding:6px 8px;background:var(--surface2);border-radius:6px;font-size:.75rem;display:flex;flex-direction:column;gap:4px}
 .usb-link{background:none;border:none;color:var(--accent);cursor:pointer;font:inherit;padding:0;text-decoration:underline}

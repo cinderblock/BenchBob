@@ -360,6 +360,12 @@ details[open] summary{margin-bottom:8px}
 .pr-sec .pr-sum{font-weight:400;text-transform:none;letter-spacing:0;font-size:.78rem;color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pr-x{background:none;border:none;color:var(--dim);cursor:pointer;font-size:1rem;line-height:1;padding:0 2px}
 .pr-x:hover{color:var(--text)}
+/* In-place action status (ui/status.tsx) */
+.act-stat{display:inline-flex;align-items:center;gap:4px;font-size:.75rem;overflow-wrap:anywhere}
+.act-stat.busy{color:var(--accent)}
+.act-stat.ok{color:var(--success)}
+.act-stat.error{color:var(--danger)}
+.act-stat .act-at{color:var(--dim)}
 .pr-body{padding:0 18px 16px}
 .pr-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 18px}
 .pr-tools .pr-lbl{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin-right:4px}

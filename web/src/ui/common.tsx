@@ -1,6 +1,7 @@
 // Small building blocks used across sections.
 
 import { useState, type CSSProperties, type ReactNode } from "react";
+import { ActionLine, useAction } from "./status";
 
 export function Pill({ cls = "", children }: { cls?: string; children: ReactNode }) {
   return <span className={`pr-pill ${cls}`}>{children}</span>;
@@ -35,25 +36,19 @@ export const Note = ({ children, color, style }: { children: ReactNode; color?: 
   </div>
 );
 
-/** A button that disables itself while its async action runs. */
-export function AsyncButton({ onClick, className = "btn btn-sm", children, disabled, busyText }: { onClick: () => Promise<unknown> | void; className?: string; children: ReactNode; disabled?: boolean; busyText?: ReactNode }) {
-  const [busy, setBusy] = useState(false);
+/**
+ * A button that disables itself while its async action runs, then shows beside itself why it
+ * failed, or `ok` (text, or made from the action's result) when it worked.
+ */
+export function AsyncButton<T>({ onClick, className = "btn btn-sm", children, disabled, busyText, ok }: { onClick: () => Promise<T> | void; className?: string; children: ReactNode; disabled?: boolean; busyText?: ReactNode; ok?: ReactNode | ((r: T) => ReactNode) }) {
+  const a = useAction();
   return (
-    <button
-      className={className}
-      disabled={disabled || busy}
-      onClick={async () => {
-        setBusy(true);
-        try {
-          await onClick();
-        } catch {
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      {busy && busyText ? busyText : children}
-    </button>
+    <>
+      <button className={className} disabled={disabled || a.busy} onClick={() => a.run(async () => (await onClick()) as T, { busy: "", ok })}>
+        {a.busy && busyText ? busyText : children}
+      </button>
+      {a.status?.state !== "busy" && <ActionLine a={a} />}
+    </>
   );
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/preact";
+import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { BobContext, type BobApi } from "../../bob/context";
 import { ApiError } from "../../lib/connection";
 import type { PanelProps } from "../../registry";
@@ -42,7 +42,7 @@ const state: UsbState = {
 const plan = { action: "on", needs: "none", ports: ["1-1.1"], devices: [], warnings: [] };
 
 function make(json: (method: string, path: string, body?: unknown) => Promise<unknown>) {
-  const b = { conn: { hostname: "bob", json }, toast: vi.fn(), api: vi.fn(), openModal: vi.fn(), closeModal: vi.fn() } as unknown as BobApi;
+  const b = { conn: { hostname: "bob" }, api: json, openModal: vi.fn(), closeModal: vi.fn() } as unknown as BobApi;
   render(
     <BobContext.Provider value={b}>
       <Usb {...({ st: state } as PanelProps<UsbState>)} />
@@ -53,29 +53,27 @@ function make(json: (method: string, path: string, body?: unknown) => Promise<un
 }
 
 describe("USB port power", () => {
-  it("shows progress and the result beside the buttons, not as toasts", async () => {
+  it("shows progress and the result beside the buttons", async () => {
     let finish!: () => void;
     const json = vi.fn(async (method: string) => (method === "GET" ? plan : new Promise<object>((r) => (finish = () => r({ ok: true })))));
-    const b = make(json);
+    make(json);
     fireEvent.click(screen.getByRole("button", { name: "On" }));
-    expect(await screen.findByText("switching on…")).toBeTruthy();
+    expect(await screen.findByText("switching on…", { selector: ".act-stat" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^P1 switching on…/ })).toBeTruthy();
     expect((screen.getByRole("button", { name: "Off" }) as HTMLButtonElement).disabled).toBe(true);
     finish();
-    expect(await screen.findByText(/✓ Switched on at/)).toBeTruthy();
-    expect(b.toast).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/^✓ Switched on at /));
     expect(json).toHaveBeenCalledWith("POST", "/api/usb/power", { action: "on", hub: "1-1", port: 1, delay: 2 });
   });
 
   it("shows a failure inline until dismissed", async () => {
-    const b = make(async (method) => {
+    make(async (method) => {
       if (method === "GET") return plan;
       throw new ApiError("uhubctl on failed: permission denied", 500);
     });
     fireEvent.click(screen.getByRole("button", { name: "On" }));
-    expect(await screen.findByText("✗ Power on failed: uhubctl on failed: permission denied")).toBeTruthy();
-    expect(b.toast).not.toHaveBeenCalled();
+    expect((await screen.findByRole("alert")).textContent).toBe("✗ Power on failed: uhubctl on failed: permission denied×");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-    expect(screen.queryByText(/failed/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
