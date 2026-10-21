@@ -17,6 +17,10 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+/// One test at a time: the kernel reuses a freed pty number at once, so a test opening a
+/// pty in parallel could make another test's closed `/dev/pts/N` exist again.
+static PTYS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 struct Pty {
     master: tokio::fs::File,
     path: String,
@@ -132,6 +136,7 @@ async fn read_some(f: &mut tokio::fs::File, want: usize) -> Vec<u8> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn manual_port_open_read_write_and_cursor() {
+    let _one_at_a_time = PTYS.lock().await;
     let b = bob().await;
     let mut dev = pty();
     let id = b.manual(&dev).await;
@@ -206,6 +211,7 @@ async fn manual_port_open_read_write_and_cursor() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn write_waits_for_a_regex_and_locks_are_honoured() {
+    let _one_at_a_time = PTYS.lock().await;
     let b = bob().await;
     let dev = pty();
     let id = b.manual(&dev).await;
@@ -285,6 +291,7 @@ async fn next_binary(rx: &mut mpsc::UnboundedReceiver<WsOut>) -> Bytes {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn websocket_terminal_protocol() {
+    let _one_at_a_time = PTYS.lock().await;
     let b = bob().await;
     let mut dev = pty();
     let id = b.manual(&dev).await;
@@ -345,6 +352,7 @@ fn free_port() -> u16 {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn tcp_bridge_carries_bytes_both_ways_and_holds_a_lease() {
+    let _one_at_a_time = PTYS.lock().await;
     let b = bob().await;
     let mut dev = pty();
     let id = b.manual(&dev).await;
@@ -378,6 +386,7 @@ async fn tcp_bridge_carries_bytes_both_ways_and_holds_a_lease() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn rfc2217_bridge_negotiates_and_sets_the_baud_rate() {
+    let _one_at_a_time = PTYS.lock().await;
     use benchbob_serial::rfc2217::{DO, IAC, OPT_COM_PORT, SB, SE, WILL};
     let b = bob().await;
     let mut dev = pty();
@@ -418,14 +427,22 @@ async fn rfc2217_bridge_negotiates_and_sets_the_baud_rate() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn device_going_away_closes_and_unplugs_the_port() {
+    let _one_at_a_time = PTYS.lock().await;
     let b = bob().await;
     let dev = pty();
     let id = b.manual(&dev).await;
     let (s, _) = b.call(Method::POST, &format!("/api/serial/{id}/open"), json!({})).await;
     assert_eq!(s, 200);
     drop(dev.master);
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    let (_, v) = b.call(Method::GET, &format!("/api/serial/{id}"), json!({})).await;
+    // The driver notices on its next read: poll for it rather than guessing a delay.
+    let mut v = json!({});
+    for _ in 0..50 {
+        v = b.call(Method::GET, &format!("/api/serial/{id}"), json!({})).await.1;
+        if v["open"] == false && v["present"] == false {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     assert_eq!((v["open"].as_bool(), v["present"].as_bool()), (Some(false), Some(false)), "{v}");
     let (s, v) = b.call(Method::POST, &format!("/api/serial/{id}/open"), json!({})).await;
     assert_eq!((s, v["message"].as_str().map(|m| m.ends_with("is unplugged"))), (409, Some(true)));
@@ -433,6 +450,7 @@ async fn device_going_away_closes_and_unplugs_the_port() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn flash_releases_the_port_and_reopens_it() {
+    let _one_at_a_time = PTYS.lock().await;
     let b = bob().await;
     let mut dev = pty();
     let id = b.manual(&dev).await;
@@ -478,6 +496,7 @@ async fn flash_releases_the_port_and_reopens_it() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn autobaud_listens_and_restores() {
+    let _one_at_a_time = PTYS.lock().await;
     let b = bob().await;
     let dev = pty();
     let id = b.manual(&dev).await;
@@ -519,6 +538,7 @@ async fn autobaud_listens_and_restores() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn status_and_settings() {
+    let _one_at_a_time = PTYS.lock().await;
     let b = bob().await;
     let dev = pty();
     let id = b.manual(&dev).await;
