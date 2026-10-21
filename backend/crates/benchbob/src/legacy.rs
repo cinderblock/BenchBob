@@ -40,31 +40,6 @@ const LEGACY_ORDER: &[(&str, i32)] = &[
     ("netdiag", 80),
 ];
 
-/// Status fields only the Bun server has (drives, flashing, rpiboot), with what to send
-/// when it can't be reached.
-pub fn legacy_status_fields() -> Vec<(&'static str, Value)> {
-    vec![
-        ("rootDevice", Value::Null),
-        ("drives", json!([])),
-        ("nbdExports", json!([])),
-        ("bootDevices", json!([])),
-        ("rpibootInstalled", Value::Bool(false)),
-        ("rpibootResults", json!([])),
-        (
-            "filesRoot",
-            Value::String(
-                std::env::var("FILES_ROOT")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| "/srv/nfs/drives".into())
-                    .trim_end_matches('/')
-                    .to_string(),
-            ),
-        ),
-        ("operations", json!([])),
-    ]
-}
-
 /// Headers that belong to one hop, not the request (RFC 9110 §7.6.1).
 const HOP: &[&str] = &[
     "connection",

@@ -1,8 +1,7 @@
 //! BenchBob's server: the dashboard, REST API, SSE status stream, WebSockets and MCP on
 //! `$PORT` (default 80), dual-stack. See backend/README.md.
 //!
-//! A library too, so later panel crates (drives and flashing need `update`'s first-boot
-//! files and `status`' root disk) can reuse what's here.
+//! A library too, for the tests and the CLI.
 
 pub mod app;
 pub mod docs;
@@ -56,7 +55,7 @@ pub fn listen(port: u16) -> anyhow::Result<std::net::TcpListener> {
 /// The drivers this server runs natively; every other panel is the Bun server's (started
 /// with BENCHBOB_NATIVE_DRIVERS set to these ids). A new panel crate is one line here.
 pub fn drivers(board: &Arc<Board>) -> Vec<Arc<dyn benchbob_core::Driver>> {
-    vec![Arc::new(benchbob_gpio::Gpio::new(board.clone()))]
+    vec![Arc::new(benchbob_drives::Drives::new()), Arc::new(benchbob_gpio::Gpio::new(board.clone()))]
 }
 
 pub async fn serve() -> anyhow::Result<()> {

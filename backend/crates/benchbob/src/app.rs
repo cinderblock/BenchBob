@@ -60,6 +60,12 @@ impl App {
         self.legacy.as_ref().map(|l| l.build.lock().unwrap().clone()).unwrap_or_default()
     }
 
+    /// The drives service (block devices, flashing, rpiboot), for its status fields.
+    pub fn drives(&self) -> Option<&benchbob_drives::Drives> {
+        let l = self.registry.get("drives")?;
+        l.driver.as_any()?.downcast_ref()
+    }
+
     pub fn build_version(&self) -> String {
         self.ui.build(&self.legacy_build()).version
     }
@@ -75,10 +81,10 @@ impl App {
 
     /// The full status (server.ts getStatus), keys in the same order.
     pub async fn status(&self) -> Value {
-        let legacy = match &self.legacy {
-            Some(l) => l.status(Duration::from_millis(1500)).await,
-            None => None,
-        };
+        // Refreshes the Bun server's peripherals (and build version), merged in below.
+        if let Some(l) = &self.legacy {
+            let _ = l.status(Duration::from_millis(1500)).await;
+        }
         let temp = self.health.cpu_temp().await;
         let power = self.health.power().await;
         let (sensors, _, _) = self.health.sensors().await;
@@ -109,9 +115,11 @@ impl App {
         m.insert("sensors".into(), sensors.to_json());
         m.insert("network".into(), network);
         m.insert("rootStorage".into(), root_storage);
-        for (k, default) in crate::legacy::legacy_status_fields() {
-            let v = legacy.as_ref().and_then(|l| l.get(k)).cloned().unwrap_or(default);
-            m.insert(k.into(), v);
+        if let Some(d) = self.drives() {
+            let root = s.root_disk_name();
+            for (k, v) in d.status_fields(&s.disk_rates, root.as_deref()).await {
+                m.insert(k.into(), v);
+            }
         }
         m.insert("peripherals".into(), self.periph());
         m.insert("history".into(), s.history());
@@ -134,6 +142,9 @@ impl App {
         .iter()
         .map(|s| s.to_string())
         .collect();
+        if self.drives().is_some() {
+            native.extend(benchbob_drives::docs().keys().cloned());
+        }
         for k in self.registry.docs().keys() {
             native.push(k.clone());
         }
@@ -280,6 +291,9 @@ impl App {
                 None => None,
             };
             let mut native = crate::docs::own_endpoints();
+            if self.drives().is_some() {
+                native.extend(benchbob_drives::docs());
+            }
             for (k, v) in crate::update::docs().as_object().unwrap() {
                 native.insert(k.clone(), v.clone());
             }

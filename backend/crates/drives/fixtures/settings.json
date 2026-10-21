@@ -1,0 +1,25 @@
+{
+  "empty": {},
+  "defaults": {
+    "hostname": "raspberrypi", "username": "pi", "password": "", "enableSsh": true, "sshKeys": [],
+    "wifiNetworks": [{ "ssid": "HomeNet", "password": "", "country": "US", "priority": 0 }], "timezone": "UTC", "keyboardLayout": "us"
+  },
+  "everything": {
+    "hostname": "  bench-01  ", "username": "cam", "password": "s3cret\r\n", "enableSsh": true,
+    "sshKeys": "ssh-ed25519 AAAAC3Nza key1@laptop\r\n\r\n  ssh-rsa AAAAB3Nza key2  \n",
+    "passwordlessSudo": true, "timezone": " America/Los_Angeles ", "keyboardLayout": "de",
+    "wifiNetworks": [
+      { "ssid": "Home \"Net\"", "password": "pa:ss#1\n", "country": "us", "priority": 1 },
+      { "ssid": "Open Cafe", "password": "", "country": "US", "priority": 5 },
+      { "ssid": "It's \\ tricky", "password": "a'b", "country": "GBR", "priority": "2" },
+      null, { "password": "no ssid" }
+    ],
+    "installBenchBob": true
+  },
+  "keys-only": { "username": "o'brien", "enableSsh": true, "sshKeys": ["ssh-ed25519 AAAA one", " ", 42], "passwordlessSudo": true },
+  "password-no-ssh": { "username": "", "password": "pw", "enableSsh": false, "sshKeys": ["ignored"], "timezone": "Europe/Dublin" },
+  "legacy-wifi": { "hostname": "x", "configureWifi": true, "wifiSsid": "Legacy", "wifiPassword": "pw", "installBenchBob": false },
+  "legacy-wifi-off": { "configureWifi": false, "wifiSsid": "Legacy", "wifiPassword": "pw" },
+  "install-only": { "installBenchBob": true },
+  "odd-types": { "hostname": "h", "username": "u", "password": 1234, "enableSsh": 1, "timezone": "Etc/UTC", "keyboardLayout": "fr", "wifiNetworks": [{ "ssid": 5, "password": 6, "priority": "high" }] }
+}

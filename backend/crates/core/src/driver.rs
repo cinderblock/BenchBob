@@ -61,6 +61,17 @@ pub trait Driver: Send + Sync + 'static {
     fn tools(&self) -> Vec<Tool> {
         Vec::new()
     }
+    /// False for a part of the server that isn't a dashboard panel (drives and flashing,
+    /// which live in server.ts in the Bun server): it has no row in `peripherals`, always
+    /// runs, and can't be disabled. It still gets routes, docs, MCP tools and a Ctx.
+    fn listed(&self) -> bool {
+        true
+    }
+    /// The driver itself, for the binary to reach its own API (the drives crate adds
+    /// top-level `/api/status` fields this way).
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
 }
 
 // ---------- routes ----------

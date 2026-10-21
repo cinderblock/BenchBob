@@ -83,3 +83,19 @@ The netplan-generated `netplan-wlan0-TwillTech` profile has no interface name, s
 bring it up on any new Wi-Fi radio (e.g. a USB dongle plugged in for the Wi-Fi panel). The
 Wi-Fi panel sets a dongle unmanaged while it uses it, but between plug-in and first use NM
 can grab it.
+
+## Bun server: drive names and image URLs reach a shell unchecked (command injection)
+
+Found 2026-10-20 while porting server.ts to Rust (the Rust drives crate validates both).
+No login, so anyone on the LAN can do this against port 80:
+
+- `POST /api/probe {"device": "x; touch /tmp/pwned"}`: `readBlocks` builds a `sudo sh -c`
+  script with `/dev/${devName}`, and the device is only checked with `isSysDev`.
+- `POST /api/flash`: `doFlash` runs `bash -o pipefail -c` with `/dev/${op.device}` and the
+  download path, whose file name is the image URL's last segment (`"$(...)"` inside the
+  double quotes runs). `eject`, `erase` and `deepscan` pass the name to argv only, but
+  still unchecked.
+
+Why it matters: root command execution (the commands run under sudo). `/api/blcard` and
+`/api/osinfo` already check `^[a-z][a-z0-9]*$`; the other routes need the same, and the
+flash file name a whitelist.

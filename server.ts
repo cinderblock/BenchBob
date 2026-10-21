@@ -362,14 +362,19 @@ async function getPower() {
 
 // ==================== Status Assembly ====================
 
+// In Rust mode (packaging/benchbob-rust.service) the Rust server owns drives, flashing and
+// rpiboot ("drives" in BENCHBOB_NATIVE_DRIVERS): it answers those routes and status fields
+// itself, so this server doesn't spend lsblk and sysfs walks on fields nobody reads.
+const DRIVES_NATIVE = (process.env.BENCHBOB_NATIVE_DRIVERS || "").split(",").map((s) => s.trim()).includes("drives");
+
 async function getStatus() {
   await sampleIO();
   const system = await getSystemInfo();
   const network = await getNetworkInfo();
   const rootStorage = await getRootStorage();
-  const { rootDevice, drives } = await getDevices();
-  const nbdExports = await getNbdExports();
-  const bootDevices = await rpi.getBootDevices();
+  const { rootDevice, drives } = DRIVES_NATIVE ? { rootDevice: null, drives: [] } : await getDevices();
+  const nbdExports = DRIVES_NATIVE ? [] : await getNbdExports();
+  const bootDevices = DRIVES_NATIVE ? [] : await rpi.getBootDevices();
   const hostname = await readSysFile("/etc/hostname");
   const uptimeStr = await readSysFile("/proc/uptime");
   const power = await getPower();
@@ -399,7 +404,7 @@ async function getStatus() {
     drives,
     nbdExports,
     bootDevices,
-    rpibootInstalled: await rpi.rpibootInstalled(),
+    rpibootInstalled: DRIVES_NATIVE ? false : await rpi.rpibootInstalled(),
     rpibootResults: [...rpibootResults.values()],
     filesRoot: FILES_ROOT,
     operations: getAllOps().map(opPublic),

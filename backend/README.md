@@ -5,8 +5,9 @@ binary per architecture, the same API (paths, JSON shapes and key order, SSE and
 WebSocket messages, MCP tool names), the same settings files, so either the old dashboard
 or the new web UI works against either server.
 
-> **Status:** the foundation, the board layer and the GPIO panel are native. Everything
-> else is proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
+> **Status:** the foundation, the board layer, the GPIO panel and everything server.ts did
+> itself (drives, flashing, rpiboot, files, OS detection, the catalog) are native. The
+> other panels are proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
 > own port 80 before it has every panel. The released `.deb` still runs Bun only.
 
 | What | Native here |
@@ -16,7 +17,8 @@ or the new web UI works against either server.
 | `/api/update*` (release check, settings, install), `/mcp` (stateless Streamable HTTP), `/api/periph/driver`, `/api/periph/timeline` | yes |
 | `GET /api/boards`: the board files loaded, which one matched, files that failed (new) | yes |
 | GPIO panel: `/api/gpio*`, `/ws/gpio`, `gpio_*` MCP tools, plus `POST /api/gpio/line` (new) | yes |
-| Drives, flashing, rpiboot, files, catalog, and every other panel | proxied |
+| Drives: the drive fields of `/api/status`, eject, scan, probe, deep scan, erase, flash (with cloud-init / firstrun.sh settings and Install BenchBob), `/api/rpiboot/*`, `/api/blcard*`, `/api/files`, `/api/download`, `/api/osinfo`, `/api/images`, `/api/catalog`, `/api/favorites`, `/api/quicklist`, `/api/defaults` | yes |
+| Every other panel (serial, CAN, I²C, Wi-Fi, BLE, camera…) | proxied |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
 `backend` block listing the native routes. Every response carries permissive CORS
@@ -30,6 +32,7 @@ to any bob.
 | --- | --- |
 | `crates/core` (`benchbob-core`) | The `Driver` trait (routes, WebSockets, MCP tools, status), the registry, `peripherals.json` settings (merged on write), udev hotplug, the event timeline, MCP, child processes, the state directory |
 | `crates/boards` (`benchbob-boards`) | The board file format, loading (`/usr/share/benchbob/boards`, then `/etc/benchbob/boards.d`) and detection |
+| `crates/drives` (`benchbob-drives`) | Drives and the Pi boot tools: block devices, the operation queue, erase, flash and flash customisation, the raw probe and deep scan, rpiboot and bootloader cards, the image catalog and saved lists, the file browser, OS detection (a read-only registry hive reader for BCD/SOFTWARE/SYSTEM). An unlisted driver: no `peripherals` row, can't be disabled, adds top-level status fields |
 | `crates/gpio` (`benchbob-gpio`) | The GPIO driver: gpiochip v2 uAPI (with output requests), passive level readers (BCM2711 gpiomem, RP1), config.txt and boot-overlay editors, board scripts |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
@@ -69,6 +72,15 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
+The drives crate's tests replay the TypeScript server itself: `bun
+backend/crates/drives/fixtures/harness.ts` (from the repository root) cuts the sections
+under test out of server.ts, and loads rpiboot.ts and osinfo.ts, behind mocks of every
+command, file, fetch and clock; it records each command (with its stdin), stream read
+and file check alongside the operation's state, and writes `fixtures/*.expected.json`.
+The Rust tests run the same scenarios through `sys::mock` and must produce the same log
+and outcome, and the same cloud-init and firstrun.sh files byte for byte. Rerun the
+harness after changing the TypeScript it covers.
+
 CI runs those on x86-64 and arm64, builds every target, smoke-tests the x86-64 binary,
 and installs a `.deb` built with it to switch Rust mode on and off.
 
@@ -97,8 +109,7 @@ drivers this build runs itself.
 
 With `BENCHBOB_LEGACY_PORT`, any route not served here (HTTP, and WebSocket upgrades) is
 streamed to the Bun server. The documents that span every panel merge both servers'
-parts: `/api/status` (the drive and rpiboot fields come from Bun's status; `peripherals`
-lists both servers' drivers in dashboard order), `/api/events` (it follows Bun's stream
+parts: `/api/status` (`peripherals` lists both servers' drivers in dashboard order), `/api/events` (it follows Bun's stream
 for `periph` events), `/api`, MCP `tools/list` and `tools/call`, and the timeline. The
 build version folds in Bun's, so a page reloads when either server changes.
 

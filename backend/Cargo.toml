@@ -3,6 +3,7 @@
 # Its own workspace, separate from firmware/ (no_std, embedded targets). Crates:
 #   benchbob-core    driver registry, settings, udev hotplug, MCP, HTTP helpers
 #   benchbob-boards  board definitions (TOML data files), loading and detection
+#   benchbob-drives  drives, flashing, rpiboot, bootloader cards, files, OS detection
 #   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
 #   benchbob         the server binary: HTTP, UI, status, SSE, update, legacy proxy
 # Each later panel (serial, CAN, I²C…) becomes its own crate registered in the binary.
@@ -21,6 +22,7 @@ publish = false
 [workspace.dependencies]
 benchbob-core = { path = "crates/core" }
 benchbob-boards = { path = "crates/boards" }
+benchbob-drives = { path = "crates/drives" }
 benchbob-gpio = { path = "crates/gpio" }
 
 anyhow = "1"
@@ -40,6 +42,7 @@ serde = { version = "1", features = ["derive"] }
 # API's JSON matches the Bun server's byte for byte.
 serde_json = { version = "1", features = ["preserve_order"] }
 socket2 = "0.6"
+sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "process", "signal", "sync", "time", "fs", "io-util"] }
 toml = "1"

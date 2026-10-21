@@ -36,7 +36,7 @@ pub fn assemble(legacy: Option<Value>, native: Map<String, Value>, board: Value,
             "appVersion": benchbob_core::paths::version(),
             "base": "http://benchbob.local",
             "endpoints": {},
-            "examples": { "status": "curl -s http://benchbob.local/api/status | jq '.board'" },
+            "examples": benchbob_drives::examples(),
         })
         .as_object()
         .unwrap()
