@@ -1,0 +1,419 @@
+//! Pure helpers (`peripherals/lib/ups.ts`): which USB devices are UPSes (reusing NUT's own
+//! udev table), NUT config generation, `upsc` parsing and status-flag decoding. No I/O.
+
+use std::sync::OnceLock;
+
+use benchbob_core::util::js_round;
+use indexmap::IndexMap;
+use regex::Regex;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpsId {
+    pub vid: String,
+    /// "*" = any product from this vendor.
+    pub pid: String,
+    /// NUT driver binary in /lib/nut.
+    pub driver: String,
+    /// NUT's comment, e.g. "CP1200AVR/BC1200D, …".
+    pub models: String,
+}
+
+fn id(vid: &str, pid: &str, driver: &str, models: &str) -> UpsId {
+    UpsId { vid: vid.into(), pid: pid.into(), driver: driver.into(), models: models.into() }
+}
+
+fn comment_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^#\s+(.*?)\s+-\s+([a-z0-9_-]+)\s*$").unwrap())
+}
+
+/// NUT ships a generated udev file listing every USB ID it supports, each preceded by a
+/// comment naming the models and the driver: `#  900AVR/BC900D  - usbhid-ups`. Parsing it
+/// means BenchBob recognises exactly what the installed NUT can drive, with the right driver.
+pub fn parse_nut_udev_rules(text: &str) -> Vec<UpsId> {
+    static ATTR: OnceLock<Regex> = OnceLock::new();
+    let attr = ATTR.get_or_init(|| Regex::new(r#"ATTR\{idVendor\}=="([0-9a-fA-F]{4})", ATTR\{idProduct\}=="([0-9a-fA-F]{4})""#).unwrap());
+    let mut out = Vec::new();
+    let mut comment = String::new();
+    for line in text.split('\n') {
+        if comment_re().is_match(line) {
+            comment = line.to_string();
+            continue;
+        }
+        if let Some(m) = attr.captures(line) {
+            let cm = comment_re().captures(&comment);
+            let driver = cm.as_ref().and_then(|c| c.get(2)).map(|g| g.as_str()).filter(|s| !s.is_empty()).unwrap_or("usbhid-ups");
+            let models = cm.as_ref().and_then(|c| c.get(1)).map(|g| g.as_str()).unwrap_or("");
+            out.push(id(&m[1].to_lowercase(), &m[2].to_lowercase(), driver, models));
+            comment.clear();
+        }
+    }
+    out
+}
+
+/// Used when NUT's rules file is missing, plus whole-vendor matches the rules can't express.
+pub fn builtin_ids() -> &'static [UpsId] {
+    static IDS: OnceLock<Vec<UpsId>> = OnceLock::new();
+    IDS.get_or_init(|| {
+        vec![
+            id("051d", "0002", "usbhid-ups", "APC"),
+            id("051d", "0003", "usbhid-ups", "APC (modern)"),
+            id("0764", "0501", "usbhid-ups", "CyberPower"),
+            id("0764", "0601", "usbhid-ups", "CyberPower"),
+            id("0463", "ffff", "usbhid-ups", "Eaton / MGE"),
+            id("0463", "0001", "usbhid-ups", "Eaton / MGE"),
+            id("09ae", "*", "usbhid-ups", "Tripp Lite"),
+            id("10af", "*", "usbhid-ups", "Liebert"),
+        ]
+    })
+}
+
+/// Exact NUT match first, then the vendor-wide fallbacks.
+pub fn match_ups<'a>(vid: &str, pid: &str, table: &'a [UpsId]) -> Option<&'a UpsId> {
+    let vid = vid.to_lowercase();
+    let pid = pid.to_lowercase();
+    table
+        .iter()
+        .find(|t| t.vid == vid && t.pid == pid)
+        .or_else(|| builtin_ids().iter().find(|t| t.vid == vid && (t.pid == pid || t.pid == "*")))
+}
+
+/// HID Power Device class: a report descriptor that opens the Power Device (0x84) or Battery
+/// System (0x85) usage page. Usage Page items: 0x05 <1 byte> or 0x06 <2 bytes LE>.
+pub fn is_power_device_descriptor(desc: &[u8]) -> bool {
+    let at = |i: usize| desc.get(i).copied().unwrap_or(0) as usize;
+    let mut i = 0;
+    while i < desc.len() {
+        let b = desc[i];
+        if b == 0xfe {
+            // long item: skip
+            i += 3 + at(i + 1);
+            continue;
+        }
+        let size = [0, 1, 2, 4][(b & 3) as usize];
+        if b & 0xfc == 0x04 {
+            let page = match size {
+                1 => at(i + 1) as i64,
+                2 => (at(i + 1) | (at(i + 2) << 8)) as i64,
+                _ => -1,
+            };
+            if page == 0x84 || page == 0x85 {
+                return true;
+            }
+        }
+        i += 1 + size;
+    }
+    false
+}
+
+// ---------- NUT config ----------
+
+#[derive(Debug, Clone, Default)]
+pub struct UpsSection {
+    pub name: String,
+    pub driver: String,
+    /// "auto" for USB, the .dev path for dummy-ups.
+    pub port: String,
+    pub vid: Option<String>,
+    pub pid: Option<String>,
+    pub serial: Option<String>,
+    pub bus: Option<String>,
+    pub desc: Option<String>,
+}
+
+fn q(s: &str) -> String {
+    let mut o = String::from("\"");
+    for c in s.chars() {
+        if c == '"' || c == '\\' {
+            o.push('\\');
+        }
+        o.push(c);
+    }
+    o.push('"');
+    o
+}
+
+fn some(v: &Option<String>) -> Option<&str> {
+    v.as_deref().filter(|s| !s.is_empty())
+}
+
+pub fn ups_conf(sections: &[UpsSection]) -> String {
+    let mut out = String::from("# Generated by BenchBob; private to its NUT children. Not /etc/nut.\nmaxretry = 3\n");
+    for s in sections {
+        out += &format!("\n[{}]\n  driver = {}\n  port = {}\n", s.name, s.driver, q(&s.port));
+        if let Some(v) = some(&s.vid) {
+            out += &format!("  vendorid = {v}\n");
+        }
+        if let Some(v) = some(&s.pid) {
+            out += &format!("  productid = {v}\n");
+        }
+        // Two identical UPSes are told apart by serial; failing that, by USB bus.
+        if let Some(v) = some(&s.serial) {
+            out += &format!("  serial = {}\n", q(v));
+        } else if let Some(v) = some(&s.bus) {
+            out += &format!("  bus = {}\n", q(v));
+        }
+        if let Some(v) = some(&s.desc) {
+            out += &format!("  desc = {}\n", q(v));
+        }
+    }
+    out
+}
+
+pub fn upsd_conf(port: &str, shared: bool) -> String {
+    format!("# Generated by BenchBob\nLISTEN {} {port}\nMAXAGE 25\n", if shared { "0.0.0.0" } else { "127.0.0.1" })
+}
+
+/// A read-only monitoring account, so `upsmon` elsewhere can follow this UPS when shared.
+pub fn upsd_users(user: &str, password: &str) -> String {
+    format!("# Generated by BenchBob\n[{user}]\n  password = {password}\n  upsmon secondary\n")
+}
+
+// ---------- upsc ----------
+
+pub fn parse_upsc(text: &str) -> IndexMap<String, String> {
+    let mut out = IndexMap::new();
+    for line in text.split('\n') {
+        if let Some(i) = line.find(": ")
+            && i > 0
+            && line[..i].bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'.')
+        {
+            out.insert(line[..i].to_string(), line[i + 2..].trim().to_string());
+        }
+    }
+    out
+}
+
+pub fn status_word(flag: &str) -> Option<&'static str> {
+    Some(match flag {
+        "OL" => "On mains",
+        "OB" => "On battery",
+        "LB" => "Low battery",
+        "HB" => "High battery",
+        "RB" => "Replace battery",
+        "CHRG" => "Charging",
+        "DISCHRG" => "Discharging",
+        "BYPASS" => "On bypass",
+        "CAL" => "Calibrating",
+        "OFF" => "Output off",
+        "OVER" => "Overloaded",
+        "TRIM" => "Trimming high voltage",
+        "BOOST" => "Boosting low voltage",
+        "FSD" => "Forced shutdown",
+        "ALARM" => "Alarm",
+        "TEST" => "Self-test",
+        "ECO" => "Eco mode",
+        _ => return None,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Flag {
+    pub flag: String,
+    pub word: String,
+    pub severity: &'static str,
+}
+
+pub fn decode_status(s: &str) -> Vec<Flag> {
+    s.split_whitespace()
+        .map(|flag| {
+            let severity = match flag {
+                "OL" => "ok",
+                "OB" | "RB" | "BYPASS" => "warn",
+                "LB" | "OVER" | "FSD" | "ALARM" | "OFF" => "bad",
+                _ => "info",
+            };
+            Flag { flag: flag.into(), word: status_word(flag).unwrap_or(flag).into(), severity }
+        })
+        .collect()
+}
+
+/// Power events worth a line in the timeline when the status flags change.
+pub fn status_events(prev: &str, next: &str) -> Vec<&'static str> {
+    let a: Vec<&str> = prev.split_whitespace().collect();
+    let b: Vec<&str> = next.split_whitespace().collect();
+    let rose = |f: &str| b.contains(&f) && !a.contains(&f);
+    let fell = |f: &str| a.contains(&f) && !b.contains(&f);
+    let mut out = Vec::new();
+    if rose("OB") {
+        out.push("Power lost: running on battery");
+    }
+    if rose("OL") && a.contains(&"OB") {
+        out.push("Power restored: back on mains");
+    }
+    if rose("LB") {
+        out.push("Battery low");
+    }
+    if fell("LB") {
+        out.push("Battery no longer low");
+    }
+    if rose("RB") {
+        out.push("UPS says: replace battery");
+    }
+    if rose("OVER") {
+        out.push("UPS overloaded");
+    }
+    if fell("OVER") {
+        out.push("Overload cleared");
+    }
+    if rose("BYPASS") {
+        out.push("UPS on bypass (load not protected)");
+    }
+    if rose("FSD") {
+        out.push("UPS forced shutdown in progress");
+    }
+    if rose("OFF") {
+        out.push("UPS output off");
+    }
+    out
+}
+
+/// "battery.runtime" seconds → "1 h 23 min" / "12 min" / "45 s".
+pub fn fmt_runtime(sec: f64) -> String {
+    if !sec.is_finite() {
+        return String::new();
+    }
+    if sec < 60.0 {
+        return format!("{} s", js_round(sec) as i64);
+    }
+    let m = js_round(sec / 60.0) as i64;
+    if m < 60 { format!("{m} min") } else { format!("{} h {} min", m / 60, m % 60) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Excerpt of desky's /lib/udev/rules.d/62-nut-usbups.rules (NUT 2.8.1).
+    const RULES: &str = r#"# This file is generated and installed by the Network UPS Tools package.
+
+ACTION=="remove", GOTO="nut-usbups_rules_end"
+SUBSYSTEM=="usb_device", GOTO="nut-usbups_rules_real"
+
+LABEL="nut-usbups_rules_real"
+#  SNR-UPS-LID-XXXX UPSes  - nutdrv_qx
+ATTR{idVendor}=="0001", ATTR{idProduct}=="0000", MODE="664", GROUP="nut"
+
+#  various models  - usbhid-ups
+ATTR{idVendor}=="051d", ATTR{idProduct}=="0002", MODE="664", GROUP="nut"
+#  USB IDs device table  - apc_modbus
+ATTR{idVendor}=="051d", ATTR{idProduct}=="0003", MODE="664", GROUP="nut"
+#  Dynex DX-800U?, CP1200AVR/BC1200D, CP825AVR-G, CP1000AVRLCD, CP1000PFCLCD, CP1500C, CP550HG, etc.  - usbhid-ups
+ATTR{idVendor}=="0764", ATTR{idProduct}=="0501", MODE="664", GROUP="nut"
+#  e.g. OMNIVS1000, SMART550USB, ...  - tripplite_usb
+ATTR{idVendor}=="09ae", ATTR{idProduct}=="0001", MODE="664", GROUP="nut"
+"#;
+
+    #[test]
+    fn nut_udev_table_parsing() {
+        let t = parse_nut_udev_rules(RULES);
+        assert_eq!(t.len(), 5);
+        assert_eq!(t[0], id("0001", "0000", "nutdrv_qx", "SNR-UPS-LID-XXXX UPSes"));
+        assert_eq!(t[2].driver, "apc_modbus");
+        assert!(t[3].models.contains("CP1200AVR"));
+    }
+
+    #[test]
+    fn matching_exact_then_vendor_fallbacks() {
+        let t = parse_nut_udev_rules(RULES);
+        assert_eq!(match_ups("09AE", "0001", &t).unwrap().driver, "tripplite_usb");
+        assert_eq!(match_ups("09ae", "3016", &t).unwrap().models, "Tripp Lite");
+        assert_eq!(match_ups("10af", "0002", &[]).unwrap().driver, "usbhid-ups");
+        assert_eq!(match_ups("0764", "0601", &[]).unwrap().models, "CyberPower");
+        assert!(match_ups("046d", "c52b", &t).is_none());
+    }
+
+    #[test]
+    fn hid_power_device_descriptors() {
+        assert!(is_power_device_descriptor(&[0x05, 0x84, 0x09, 0x04, 0xa1, 0x01, 0x09, 0x24, 0xa1, 0x00]));
+        assert!(is_power_device_descriptor(&[0x05, 0x01, 0x09, 0x00, 0xa1, 0x01, 0x06, 0x85, 0x00, 0x09, 0x2c]));
+        assert!(!is_power_device_descriptor(&[
+            0x05, 0x01, 0x09, 0x06, 0xa1, 0x01, 0x05, 0x07, 0x19, 0x84, 0x29, 0xe7, 0x15, 0x00, 0x25, 0x01
+        ]));
+        // Truncated items read missing bytes as 0 (as JavaScript's undefined << 8 does); long items are skipped.
+        assert!(is_power_device_descriptor(&[0x06, 0x84]));
+        assert!(!is_power_device_descriptor(&[0xfe, 0x10, 0x00]));
+    }
+
+    #[test]
+    fn conf_generation() {
+        let c = ups_conf(&[
+            UpsSection {
+                name: "benchbob".into(),
+                driver: "usbhid-ups".into(),
+                port: "auto".into(),
+                vid: Some("0764".into()),
+                pid: Some("0501".into()),
+                serial: Some("CXXKZ200".into()),
+                desc: Some("CyberPower CP1500".into()),
+                ..Default::default()
+            },
+            UpsSection {
+                name: "benchbob-2".into(),
+                driver: "usbhid-ups".into(),
+                port: "auto".into(),
+                vid: Some("0764".into()),
+                pid: Some("0501".into()),
+                bus: Some("001".into()),
+                ..Default::default()
+            },
+        ]);
+        assert!(c.contains("[benchbob]\n  driver = usbhid-ups\n  port = \"auto\"\n  vendorid = 0764\n  productid = 0501\n  serial = \"CXXKZ200\"\n  desc = \"CyberPower CP1500\"\n"));
+        assert!(c.contains("[benchbob-2]"));
+        assert!(c.contains("  bus = \"001\""));
+        assert!(upsd_conf("3493", false).contains("LISTEN 127.0.0.1 3493"));
+        assert!(upsd_conf("3493", true).contains("LISTEN 0.0.0.0 3493"));
+        assert_eq!(q(r#"a"b\c"#), r#""a\"b\\c""#);
+    }
+
+    // Real `upsc benchbob@127.0.0.1:13493` output from the dummy-ups run on desky.
+    const UPSC: &str = "battery.charge: 87
+battery.runtime: 1800
+device.mfr: SimCorp
+device.model: Sim 1500
+device.type: ups
+driver.name: dummy-ups
+driver.parameter.port: /tmp/nutx.zEhg/sim.dev
+driver.version: 2.8.1
+input.voltage: 121.0
+ups.load: 23
+ups.mfr: SimCorp
+ups.model: Sim 1500
+ups.status: OL CHRG";
+
+    #[test]
+    fn upsc_parsing_and_status_decoding() {
+        let v = parse_upsc(&format!("Init SSL without certificate database\n{UPSC}"));
+        assert_eq!(v["battery.charge"], "87");
+        assert_eq!(v["ups.status"], "OL CHRG");
+        assert_eq!(v["driver.parameter.port"], "/tmp/nutx.zEhg/sim.dev");
+        assert!(!v.contains_key("Init SSL without certificate database"));
+        let f = decode_status("OB DISCHRG LB");
+        assert_eq!(
+            f,
+            vec![
+                Flag { flag: "OB".into(), word: "On battery".into(), severity: "warn" },
+                Flag { flag: "DISCHRG".into(), word: "Discharging".into(), severity: "info" },
+                Flag { flag: "LB".into(), word: "Low battery".into(), severity: "bad" },
+            ]
+        );
+        assert_eq!(decode_status("XYZ")[0].word, "XYZ");
+    }
+
+    #[test]
+    fn power_events_from_status_transitions() {
+        assert_eq!(status_events("OL CHRG", "OB DISCHRG"), ["Power lost: running on battery"]);
+        assert_eq!(status_events("OB DISCHRG", "OB DISCHRG LB"), ["Battery low"]);
+        assert_eq!(status_events("OB DISCHRG LB", "OL CHRG"), ["Power restored: back on mains", "Battery no longer low"]);
+        assert_eq!(status_events("OL", "OL RB"), ["UPS says: replace battery"]);
+        assert!(status_events("", "OL").is_empty());
+    }
+
+    #[test]
+    fn runtime_formatting() {
+        assert_eq!(fmt_runtime(45.0), "45 s");
+        assert_eq!(fmt_runtime(1800.0), "30 min");
+        assert_eq!(fmt_runtime(5000.0), "1 h 23 min");
+        assert_eq!(fmt_runtime(f64::NAN), "");
+    }
+}

@@ -9,6 +9,7 @@
 #   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
 #   benchbob-i2c-chips  I²C chip identification + decoders (no_std, shared with firmware)
 #   benchbob-onewire the 1-Wire panel: w1 sysfs masters/slaves, family decoders, DS2482 bridges
+#   benchbob-ups     the UPS panel: USB UPSes through a private NUT
 #   benchbob         the server binary: HTTP, UI, status, SSE, update, legacy proxy
 # Each later panel (serial, CAN, I²C…) becomes its own crate registered in the binary.
 
@@ -30,6 +31,7 @@ benchbob-can = { path = "crates/can" }
 benchbob-drives = { path = "crates/drives" }
 benchbob-gpio = { path = "crates/gpio" }
 benchbob-serial = { path = "crates/serial" }
+benchbob-ups = { path = "crates/ups" }
 benchbob-i2c = { path = "crates/i2c" }
 benchbob-i2c-chips = { path = "crates/i2c-chips" }
 benchbob-onewire = { path = "crates/onewire" }

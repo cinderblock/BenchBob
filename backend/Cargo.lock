@@ -113,6 +113,7 @@ dependencies = [
  "benchbob-i2c",
  "benchbob-onewire",
  "benchbob-serial",
+ "benchbob-ups",
  "bytes",
  "flate2",
  "futures-util",
@@ -284,6 +285,23 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "benchbob-ups"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "futures-util",
+ "indexmap",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 
