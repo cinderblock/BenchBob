@@ -108,6 +108,7 @@ dependencies = [
  "benchbob-boards",
  "benchbob-core",
  "benchbob-gpio",
+ "benchbob-serial",
  "bytes",
  "flate2",
  "futures-util",
