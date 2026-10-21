@@ -215,6 +215,9 @@ EOF
       : > /var/log/benchbob-update.log
       post /api/update/install '{"confirm":true}' | jq -e '.ok == true' > /dev/null || fail "the update didn't start"
       wait_version "$NEW_VERSION"
+      # The new server answers as soon as postinst restarts it, but the updater writes its
+      # "done" line only once apt itself has exited: wait for its unit to finish.
+      for _ in $(seq 120); do systemctl is-active --quiet benchbob-update.service || break; sleep 1; done
       grep -q "done: $NEW_VERSION" /var/log/benchbob-update.log || {
         cat /var/log/benchbob-update.log
         fail "benchbob-update didn't report success"
