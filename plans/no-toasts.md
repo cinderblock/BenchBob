@@ -32,18 +32,18 @@ its card, row or dialog), and the global toast stack goes away entirely.
 ## Plan / steps
 
 1. [x] USB port power inline status (`effc87f`).
-2. [ ] **[CURRENT]** Primitive in `ui/status.tsx`, AsyncButton inline status, `b.api` stops
-   toasting; USB panel moved onto the primitive. Commit.
-3. [ ] Convert every remaining toast / silent-catch site, by area (parallel forks in
-   worktrees, merged back):
+2. [x] Primitive in `ui/status.tsx`, AsyncButton inline status, `b.api` stops
+   toasting; USB panel moved onto the primitive (`a9e1204`).
+3. [x] Convert every remaining toast / silent-catch site, by area (parallel
+   forks in worktrees off `a9e1204`, cherry-picked onto master; no force-push):
    - A: CAN, serial, BLE
    - B: probes, 1-Wire, GPIO (+Stage, Interfaces), I²C, node sections
    - C: Wi-Fi, netdiag, camera, GPS, SDR, UPS, shell/Periph
    - D: sections: drives, file browser, flash, boot, bootloader dialogs, system copy,
      update banner
-4. [ ] Remove `toast` from `BobApi`, `<Bob>`, CSS; new-version reload notice becomes a
-   banner. Tests updated. Commit.
-5. [ ] README check; final typecheck/test/build.
+4. [x] Remove `toast` from `BobApi`, `<Bob>`, CSS; new-version reload notice becomes a
+   banner. Tests updated (`2c54643`).
+5. [x] README check (no mention); final typecheck/test/build pass (79 tests).
 
 ## Findings / gotchas
 
@@ -56,6 +56,20 @@ its card, row or dialog), and the global toast stack goes away entirely.
 ## Progress log
 
 - [x] USB power inline (`effc87f`)
+- [x] Primitive + USB panel (`a9e1204`)
+- [x] A: CAN/serial/BLE (`3212c9c`)
+- [x] C: Wi-Fi/netdiag/camera/GPS/SDR/UPS/Periph (`a91aa81`)
+- [x] B: probes/1-Wire/GPIO/I²C/node (`6ab35e5`)
+- [x] D: drives/flash/boot/bootloader/system/update banner (`cc4d754`)
+- [x] Toasts removed (`2c54643`)
+- Remaining deliberate empty catches: JSON parse in connection.ts, localStorage write,
+  node-API probe in store.ts, Wi-Fi watch-lease renewal (retries every 20 s).
+- Flaky cold-run test timeouts logged in ISSUES.md (`76aa97f`), not part of this task.
+
+## Findings (cont.)
+
+- `findBy*` hangs under `vi.useFakeTimers({ toFake: ["setTimeout"] })` (it polls with
+  setTimeout); use `act()` + `getBy*` while timers are faked.
 
 ## Things not to do
 
