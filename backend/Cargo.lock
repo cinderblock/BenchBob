@@ -111,6 +111,7 @@ dependencies = [
  "benchbob-drives",
  "benchbob-gpio",
  "benchbob-i2c",
+ "benchbob-netdiag",
  "benchbob-onewire",
  "benchbob-serial",
  "benchbob-usb",
@@ -248,6 +249,26 @@ name = "benchbob-i2c-chips"
 version = "0.1.0"
 dependencies = [
  "libm",
+]
+
+[[package]]
+name = "benchbob-netdiag"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "bytes",
+ "futures-util",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

@@ -1,0 +1,29 @@
+[package]
+name = "benchbob-netdiag"
+description = "BenchBob's wired-network panel: ethtool link details, receive-only LLDP, iperf3, ping/DNS/HTTP/MTU checks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+benchbob-core.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+indexmap.workspace = true
+libc.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# start_paused: the keep-alive test runs 9 s of timers instantly.
+tokio = { workspace = true, features = ["test-util"] }
