@@ -6,6 +6,7 @@
 #   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
 #   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
 #   benchbob-i2c-chips  I²C chip identification + decoders (no_std, shared with firmware)
+#   benchbob-onewire the 1-Wire panel: w1 sysfs masters/slaves, family decoders, DS2482 bridges
 #   benchbob         the server binary: HTTP, UI, status, SSE, update, legacy proxy
 # Each later panel (serial, CAN, I²C…) becomes its own crate registered in the binary.
 
@@ -26,6 +27,7 @@ benchbob-boards = { path = "crates/boards" }
 benchbob-gpio = { path = "crates/gpio" }
 benchbob-i2c = { path = "crates/i2c" }
 benchbob-i2c-chips = { path = "crates/i2c-chips" }
+benchbob-onewire = { path = "crates/onewire" }
 
 anyhow = "1"
 async-trait = "0.1"

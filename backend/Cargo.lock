@@ -109,6 +109,7 @@ dependencies = [
  "benchbob-core",
  "benchbob-gpio",
  "benchbob-i2c",
+ "benchbob-onewire",
  "bytes",
  "flate2",
  "futures-util",
@@ -199,6 +200,24 @@ name = "benchbob-i2c-chips"
 version = "0.1.0"
 dependencies = [
  "libm",
+]
+
+[[package]]
+name = "benchbob-onewire"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "benchbob-i2c",
+ "benchbob-i2c-chips",
+ "indexmap",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
