@@ -318,8 +318,9 @@ fn oui_formats() {
     assert_eq!(m["f4e2c6"], "Ubiquiti Inc");
     assert_eq!(m["dca632"], "Raspberry Pi Trading Ltd");
     assert_eq!(m["001122"], "Cimsys Inc");
-    // A CRLF line doesn't match, exactly as JavaScript's `.` + `$` treat it.
-    assert!(!parse_oui("F4-E2-C6   (hex)\t\tUbiquiti Inc\r\n").contains_key("f4e2c6"));
+    // IEEE's (and Debian's) oui.txt has CRLF line ends; the TypeScript found nothing in it.
+    let crlf = parse_oui("F4-E2-C6   (hex)\t\tUbiquiti Inc\r\nF4E2C6     (base 16)\t\tUbiquiti Inc\r\n");
+    assert_eq!(crlf.get("f4e2c6").map(String::as_str), Some("Ubiquiti Inc"));
 }
 
 #[test]
@@ -380,4 +381,92 @@ fn bss_json_shape() {
     let c = list.iter().find(|b| b.bssid.ends_with("66")).unwrap().json();
     // " Café " decodes as clean text: no ssidHex
     assert!(c.get("ssidHex").is_none());
+}
+
+/// The parsers' results for live captures, as the TypeScript objects would serialise, for
+/// comparing against `bun` running wifi-parse.ts on the same files (captures can carry
+/// neighbours' SSIDs, so they stay out of the repo). Run with
+/// `BENCHBOB_WIFI_CAPTURE=<dir> cargo test -p benchbob-wifi capture_dump -- --ignored`;
+/// writes <dir>/rust.json.
+#[test]
+#[ignore]
+fn capture_dump() {
+    use crate::json::O;
+    let dir = std::env::var("BENCHBOB_WIFI_CAPTURE").expect("BENCHBOB_WIFI_CAPTURE");
+    let rd = |n: &str| std::fs::read_to_string(format!("{dir}/{n}")).unwrap_or_default();
+    let dev: Vec<Value> = parse_iw_dev(&rd("wb-dev.txt"))
+        .iter()
+        .map(|i| {
+            O::new()
+                .k("phy", i.phy.clone())
+                .k("name", i.name.clone().map(Value::from).unwrap_or(Value::Null))
+                .on("ifindex", i.ifindex)
+                .o("wdev", i.wdev.clone())
+                .o("addr", i.addr.clone())
+                .o("ssid", i.ssid.clone())
+                .o("type", i.r#type.clone())
+                .on("txpower", i.txpower)
+                .on("channel", i.channel)
+                .on("freq", i.freq)
+                .o("width", i.width.clone())
+                .on("center1", i.center1)
+                .v()
+        })
+        .collect();
+    let p = parse_iw_phy(&rd("wb-phy.txt"));
+    let phy = O::new()
+        .k("phy", p.phy.clone())
+        .k("iftypes", p.iftypes.clone())
+        .k("softwareIftypes", p.software_iftypes.clone())
+        .k("ciphers", p.ciphers.clone())
+        .k("commands", p.commands.clone())
+        .k(
+            "bands",
+            p.bands
+                .iter()
+                .map(|b| {
+                    O::new()
+                        .k("band", b.band)
+                        .k("ht", b.ht)
+                        .k("vht", b.vht)
+                        .k("he", b.he)
+                        .k("eht", b.eht)
+                        .n("maxWidth", b.max_width)
+                        .k(
+                            "channels",
+                            b.channels
+                                .iter()
+                                .map(|c| {
+                                    O::new()
+                                        .n("mhz", c.mhz)
+                                        .n("channel", c.channel)
+                                        .k("band", c.band)
+                                        .k("disabled", c.disabled)
+                                        .k("radar", c.radar)
+                                        .k("noIR", c.no_ir)
+                                        .on("maxPower", c.max_power)
+                                        .k("flags", c.flags.clone())
+                                        .v()
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                        .v()
+                })
+                .collect::<Vec<_>>(),
+        )
+        .k("monitor", p.monitor)
+        .k("ap", p.ap)
+        .k("netns", p.netns)
+        .k("sae", p.sae)
+        .k("extFeatures", p.ext_features.clone())
+        .v();
+    let out = O::new()
+        .k("dev", dev)
+        .k("phy", phy)
+        .k("reg", parse_iw_reg(&rd("wb-reg.txt")).iter().map(RegDomain::json).collect::<Vec<_>>())
+        .k("scan", parse_iw_scan(&rd("wb-scan.txt")).iter().map(Bss::json).collect::<Vec<_>>())
+        .k("survey", parse_survey(&rd("wb-survey.txt")).iter().map(Survey::json).collect::<Vec<_>>())
+        .k("link", parse_link(&rd("wb-link.txt"), &rd("wb-sta.txt")).json())
+        .v();
+    std::fs::write(format!("{dir}/rust.json"), serde_json::to_string_pretty(&out).unwrap()).unwrap();
 }

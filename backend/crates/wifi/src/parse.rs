@@ -1412,24 +1412,26 @@ pub fn parse_iperf(out: &str) -> IperfResult {
 /// Parse whichever OUI list is installed: IEEE's oui.txt ("AA-BB-CC   (hex)\t\tVendor"),
 /// nmap's ("AABBCC Vendor") or Wireshark's manuf ("AA:BB:CC\tShort\tLong").
 ///
-/// The patterns use `[^\r\n]` where the TypeScript has `.`: JavaScript's dot doesn't match
-/// a carriage return either, so a CRLF line matches (or doesn't) exactly as there.
+/// A line's trailing carriage return is dropped first: IEEE ships oui.txt with CRLF line
+/// ends (so does Debian's ieee-data), and the TypeScript's `(.+)$` never matched those
+/// lines, finding no vendors at all on desky.
 pub fn parse_oui(text: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for line in text.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
         if line.contains("(base 16)") {
             continue; // oui.txt repeats each entry in this form
         }
-        if let Some(m) = re!(r"(?i)^([0-9A-F]{2})-([0-9A-F]{2})-([0-9A-F]{2})\s+\(hex\)\s+([^\r\n  ]+)$").captures(line) {
+        if let Some(m) = re!(r"(?i)^([0-9A-F]{2})-([0-9A-F]{2})-([0-9A-F]{2})\s+\(hex\)\s+([^\r\n\x{2028}\x{2029}]+)$").captures(line) {
             map.insert(format!("{}{}{}", &m[1], &m[2], &m[3]).to_lowercase(), m[4].trim().to_string());
             continue;
         }
-        if let Some(m) = re!(r"(?i)^([0-9A-F]{2}):([0-9A-F]{2}):([0-9A-F]{2})\s+(\S+)(?:\s+([^\r\n  ]+))?$").captures(line) {
+        if let Some(m) = re!(r"(?i)^([0-9A-F]{2}):([0-9A-F]{2}):([0-9A-F]{2})\s+(\S+)(?:\s+([^\r\n\x{2028}\x{2029}]+))?$").captures(line) {
             let v = m.get(5).map(|x| x.as_str()).filter(|x| !x.is_empty()).unwrap_or(&m[4]);
             map.insert(format!("{}{}{}", &m[1], &m[2], &m[3]).to_lowercase(), v.trim().to_string());
             continue;
         }
-        if let Some(m) = re!(r"(?i)^([0-9A-F]{6})\s+([^\r\n  ]+)$").captures(line) {
+        if let Some(m) = re!(r"(?i)^([0-9A-F]{6})\s+([^\r\n\x{2028}\x{2029}]+)$").captures(line) {
             map.insert(m[1].to_lowercase(), m[2].trim().to_string());
         }
     }
