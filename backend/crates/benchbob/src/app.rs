@@ -16,7 +16,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::extract::FromRequestParts;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use benchbob_boards::{Board, Boards};
@@ -356,17 +356,28 @@ async fn bridge(
 ) {
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<WsOut>();
     let (in_tx, in_rx) = mpsc::unbounded_channel::<WsIn>();
-    let session = WsSession { client: WsClient::new(out_tx), params, query, incoming: in_rx };
+    let client = WsClient::new(out_tx);
+    let session = WsSession { client: client.clone(), params, query, incoming: in_rx };
     let task = tokio::spawn(handler(session));
     let (mut sink, mut stream) = socket.split();
     loop {
         tokio::select! {
-            out = out_rx.recv() => match out {
-                Some(WsOut::Text(t)) => if sink.send(Message::Text(t.into())).await.is_err() { break },
-                Some(WsOut::Close) | None => {
-                    let _ = sink.send(Message::Close(None)).await;
-                    break;
-                }
+            out = out_rx.recv() => {
+                let n = out.as_ref().map_or(0, WsOut::len);
+                let r = match out {
+                    Some(WsOut::Text(t)) => sink.send(Message::Text(t.into())).await,
+                    Some(WsOut::Binary(b)) => sink.send(Message::Binary(b)).await,
+                    Some(WsOut::CloseWith(code, reason)) => {
+                        let _ = sink.send(Message::Close(Some(CloseFrame { code, reason: reason.into() }))).await;
+                        break;
+                    }
+                    Some(WsOut::Close) | None => {
+                        let _ = sink.send(Message::Close(None)).await;
+                        break;
+                    }
+                };
+                client.sent(n);
+                if r.is_err() { break }
             },
             msg = stream.next() => match msg {
                 Some(Ok(Message::Text(t))) => { let _ = in_tx.send(WsIn::Text(t.to_string())); }
