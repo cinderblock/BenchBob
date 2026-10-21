@@ -9,6 +9,7 @@ or the new web UI works against either server.
 > itself (drives, flashing, rpiboot, files, OS detection, the catalog) are native. The
 > other panels are proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
 > **Status:** the foundation, the board layer and the GPIO and serial panels are native. Everything
+> **Status:** the foundation, the board layer and the GPIO and CAN panels are native. Everything
 > else is proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
 > own port 80 before it has every panel. The released `.deb` still runs Bun only.
 
@@ -22,6 +23,7 @@ or the new web UI works against either server.
 | Drives: the drive fields of `/api/status`, eject, scan, probe, deep scan, erase, flash (with cloud-init / firstrun.sh settings and Install BenchBob), `/api/rpiboot/*`, `/api/blcard*`, `/api/files`, `/api/download`, `/api/osinfo`, `/api/images`, `/api/catalog`, `/api/favorites`, `/api/quicklist`, `/api/defaults` | yes |
 | Every other panel (serial, CAN, I²C, Wi-Fi, BLE, camera…) | proxied |
 | Serial panel: `/api/serial*`, `/ws/serial/:id`, the raw TCP and RFC 2217 bridges, `serial_*` MCP tools, esptool/avrdude flashing | yes |
+| CAN panel: `/api/can*`, `/ws/can/:iface`, `can_*` MCP tools, the socketcand server and its UDP beacon | yes |
 | Drives, flashing, rpiboot, files, catalog, and every other panel | proxied |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
@@ -39,6 +41,7 @@ to any bob.
 | `crates/drives` (`benchbob-drives`) | Drives and the Pi boot tools: block devices, the operation queue, erase, flash and flash customisation, the raw probe and deep scan, rpiboot and bootloader cards, the image catalog and saved lists, the file browser, OS detection (a read-only registry hive reader for BCD/SOFTWARE/SYSTEM). An unlisted driver: no `peripherals` row, can't be disabled, adds top-level status fields |
 | `crates/gpio` (`benchbob-gpio`) | The GPIO driver: gpiochip v2 uAPI (with output requests), passive level readers (BCM2711 gpiomem, RP1), config.txt and boot-overlay editors, board scripts |
 | `crates/serial` (`benchbob-serial`) | The serial driver: termios2 ports, the ring buffer and fan-out, TCP / RFC 2217 / WebSocket bridges, auto-baud, DTR/RTS resets, esptool/avrdude jobs |
+| `crates/can` (`benchbob-can`) | The CAN driver: SocketCAN raw sockets (libc), `ip link` config, auto-bitrate, vcan, SLCAN, per-ID table, captures, periodic jobs, candump recordings, the socketcand server |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -85,6 +88,9 @@ and file check alongside the operation's state, and writes `fixtures/*.expected.
 The Rust tests run the same scenarios through `sys::mock` and must produce the same log
 and outcome, and the same cloud-init and firstrun.sh files byte for byte. Rerun the
 harness after changing the TypeScript it covers.
+The CAN tests that need a bus run on a vcan named by `BENCHBOB_CAN_TEST_VCAN` (create it once
+as root: `ip link add dev vcanbbtest0 type vcan && ip link set vcanbbtest0 mtu 72 up`;
+the tests themselves need no privileges) and are skipped without it.
 
 CI runs those on x86-64 and arm64, builds every target, smoke-tests the x86-64 binary,
 and installs a `.deb` built with it to switch Rust mode on and off.
@@ -103,7 +109,8 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_LEGACY_PORT` | proxy every route this server doesn't have to the Bun server on `127.0.0.1:<port>` |
 | `BENCHBOB_BOARD` | force a board id |
 | `BENCHBOB_BOARDS_DIR`, `BENCHBOB_BOARDS_D` | other board directories (shipped / user) |
-| `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port |
+| `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port (socketcand: 29536 + offset) |
+| `BENCHBOB_CAN_REC_DIR` | where CAN recordings go (default `/var/tmp/benchbob-can`, capped at 256 MB each) |
 | `BENCHBOB_CONFIG_TXT`, `BENCHBOB_CMDLINE_TXT`, `BENCHBOB_BOOT_ENV`, `BENCHBOB_OVERLAY_DIR` | point the boot-config editors at test copies (reboot is then refused) |
 | `BENCHBOB_FLASH_DIR` | where the serial panel stages firmware files (default `/var/tmp/benchbob-serial`; a side instance can't write the packaged one's) |
 | `RUST_LOG` | log filter (default `info`) |
@@ -129,6 +136,16 @@ on` enables `benchbob-rust.service` on port 80 and moves `benchbob.service` to p
 with that variable (a drop-in, refreshed on every upgrade); `sudo benchbob-setup rust off`
 undoes it. The Bun server still listens on every interface on 8081 (it has no
 bind-address setting).
+
+## CAN notes
+
+- One raw socket per interface feeds the stats, the dashboard, captures and recordings. It
+  waits for readiness instead of polling, then gathers for 5 ms while traffic flows.
+  Kernel RX timestamps, own-frame echoes (`dir: "tx"`) and the drop counter come from
+  recvmsg; timestamps use SO_TIMESTAMP_NEW, so 32-bit ARM builds read them right.
+- `ip link` changes, vcan and slcand run through `sudo -n`, as the Bun server's do.
+- On desky (Pi 4, 1k frames/s on a vcan) it used 3.0 % of a core idle and 3.9 % with a
+  dashboard watching, against Bun's 4.2 % and 5.1 %.
 
 ## GPIO notes
 

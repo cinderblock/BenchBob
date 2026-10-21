@@ -227,6 +227,9 @@ definitions as TOML files you can add without rebuilding
 ([backend/boards/README.md](backend/boards/README.md)). It serves the dashboard, status,
 events, updates, MCP, the GPIO panel (with pin output on every board) and drives,
 flashing, rpiboot and the file browser itself, and proxies every panel it doesn't have yet to the Bun server, so it can take port 80 early.
+events, updates, MCP, the GPIO panel (with pin output on every board) and the CAN panel
+(socketcand server included) itself, and
+proxies every panel it doesn't have yet to the Bun server, so it can take port 80 early.
 The released package still runs Bun only; `RUST_BIN=… packaging/build-deb.sh` adds the
 Rust server, and `sudo benchbob-setup rust on` switches it in. See
 [backend/README.md](backend/README.md).

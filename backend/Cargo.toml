@@ -23,6 +23,7 @@ publish = false
 [workspace.dependencies]
 benchbob-core = { path = "crates/core" }
 benchbob-boards = { path = "crates/boards" }
+benchbob-can = { path = "crates/can" }
 benchbob-drives = { path = "crates/drives" }
 benchbob-gpio = { path = "crates/gpio" }
 benchbob-serial = { path = "crates/serial" }

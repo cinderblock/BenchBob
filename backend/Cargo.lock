@@ -106,6 +106,7 @@ dependencies = [
  "async-trait",
  "axum",
  "benchbob-boards",
+ "benchbob-can",
  "benchbob-core",
  "benchbob-drives",
  "benchbob-gpio",
@@ -138,6 +139,26 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml",
+ "tracing",
+]
+
+[[package]]
+name = "benchbob-can"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "bytes",
+ "futures-util",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "tracing",
 ]
 
