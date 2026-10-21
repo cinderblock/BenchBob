@@ -357,12 +357,18 @@ async fn bridge(
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<WsOut>();
     let (in_tx, in_rx) = mpsc::unbounded_channel::<WsIn>();
     let session = WsSession { client: WsClient::new(out_tx), params, query, incoming: in_rx };
+    let client = session.client.clone();
     let task = tokio::spawn(handler(session));
     let (mut sink, mut stream) = socket.split();
     loop {
         tokio::select! {
             out = out_rx.recv() => match out {
-                Some(WsOut::Text(t)) => if sink.send(Message::Text(t.into())).await.is_err() { break },
+                Some(WsOut::Text(t)) => {
+                    let n = t.len();
+                    let sent = sink.send(Message::Text(t.into())).await;
+                    client.written(n);
+                    if sent.is_err() { break }
+                }
                 Some(WsOut::Close) | None => {
                     let _ = sink.send(Message::Close(None)).await;
                     break;

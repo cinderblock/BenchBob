@@ -104,18 +104,38 @@ pub enum WsIn {
 pub struct WsClient {
     id: u64,
     tx: mpsc::UnboundedSender<WsOut>,
+    /// Bytes queued but not yet written to the socket (Bun's `getBufferedAmount()`).
+    queued: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl WsClient {
     pub fn new(tx: mpsc::UnboundedSender<WsOut>) -> Self {
-        Self { id: NEXT_WS.fetch_add(1, Ordering::Relaxed), tx }
+        Self { id: NEXT_WS.fetch_add(1, Ordering::Relaxed), tx, queued: Default::default() }
     }
     pub fn id(&self) -> u64 {
         self.id
     }
     /// Queue a text message; false once the connection is gone.
     pub fn send(&self, text: impl Into<String>) -> bool {
-        self.tx.send(WsOut::Text(text.into())).is_ok()
+        let t = text.into();
+        let n = t.len();
+        let ok = self.tx.send(WsOut::Text(t)).is_ok();
+        if ok {
+            self.queued.fetch_add(n, Ordering::Relaxed);
+        }
+        ok
+    }
+    /// Bytes sent with [`send`](Self::send) that the connection hasn't written yet, so a
+    /// driver streaming to a slow client can drop instead of buffering without bound.
+    pub fn buffered(&self) -> usize {
+        self.queued.load(Ordering::Relaxed)
+    }
+    /// The server's side: `n` bytes went out.
+    pub fn written(&self, n: usize) {
+        let mut q = self.queued.load(Ordering::Relaxed);
+        while let Err(now) = self.queued.compare_exchange_weak(q, q.saturating_sub(n), Ordering::Relaxed, Ordering::Relaxed) {
+            q = now;
+        }
     }
     pub fn close(&self) {
         let _ = self.tx.send(WsOut::Close);
