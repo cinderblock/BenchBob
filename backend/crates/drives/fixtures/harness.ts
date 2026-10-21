@@ -113,7 +113,10 @@ const harness: any = {
   rm: async (p: string) => { rec({ rm: p }); },
   access: async (p: string) => { rec({ access: p }); if (!(SCN.readable || []).includes(p)) throw new Error("EACCES"); },
   // Date.now() is the scenario's "now" (instance ids, timestamps).
-  Date: class extends globalThis.Date { static now() { return SCN.now ?? 1792490400000; } },
+  Date: class extends globalThis.Date {
+    constructor(...a: any[]) { super(...((a.length ? a : [SCN.now ?? 1792490400000]) as [])); }
+    static now() { return SCN.now ?? 1792490400000; }
+  },
   rpi: null as any,
   update: null as any,
   diskRates: {} as Record<string, [number, number]>,
@@ -301,6 +304,107 @@ out("scenarios.expected.json", results);
 // ---------- fmtBytes ----------
 
 out("fmtbytes.expected.json", [0, 1, 512, 1023, 1024, 1280, 1536, 10239, 1048576, 1572864, 4194304 * 250, 15978201088, 62742792192, 1099511627776 * 3.25, 5e15].map((n) => [n, S.fmtBytes(n)]));
+
+// ---------- rpiboot.ts on a fixture tree ----------
+//
+// rpiboot.ts reads /sys, /usr/share/rpiboot and /lib/firmware/raspberrypi and works in
+// /tmp; here its paths point into a temporary copy of rpiboot-tree.json. Commands are
+// mocked; the two rpi-eeprom tools and rpiboot leave the files they would (effects()).
+
+{
+  const tree = JSON.parse(read(`${HERE}/rpiboot-tree.json`));
+  const root = `${work}/rpiboot-root`;
+  for (const [rel, text] of Object.entries(tree.files)) {
+    // A USB interface ("1-1.3:1.0") can't be a file name on Windows; it's skipped anyway.
+    if (process.platform === "win32" && rel.includes(":")) continue;
+    const p = `${root}/${rel}`;
+    mkdirSync(p.slice(0, p.lastIndexOf("/")), { recursive: true });
+    writeFileSync(p, text as string);
+  }
+  SCN = { answers: tree.answers };
+  const effects = (cmd: string[]) => {
+    const at = (flag: string) => cmd[cmd.indexOf(flag) + 1];
+    if (cmd[0] === "rpi-eeprom-config" && cmd[1] === "--config") writeFileSync(at("--out"), `PIEEPROM[${readFileSync(at("--config"), "utf8")}]${readFileSync(cmd[cmd.length - 1], "utf8")}`);
+    if (cmd[0] === "rpi-eeprom-digest" && cmd.includes("-i")) writeFileSync(at("-o"), `SIG[${readFileSync(at("-i"), "utf8")}]`);
+    if (cmd[1] === "rpiboot" && cmd.includes("-j")) writeFileSync(`${at("-j")}/a1b2c3d4.json`, '{"MAC_ADDR":"DC:A6:32:00:00:01","EEPROM_HASH":"BBBB","USER_BOARDREV":"b03141"}');
+  };
+  const bun2: any = {
+    spawn: (cmd: string[]) => { effects(cmd); return spawn(cmd); },
+    spawnSync: (cmd: string[]) => {
+      rec({ cmd });
+      effects(cmd);
+      const a = answer(cmd);
+      return { exitCode: a.code ?? 0, stdout: Buffer.from(a.out || ""), stderr: Buffer.from(a.err || "") };
+    },
+    file: (p: string) => RealBun.file(p),
+    CryptoHasher: RealBun.CryptoHasher,
+  };
+  (globalThis as any).__harness.Bun2 = bun2;
+  const rsrc = read(`${ROOT}/rpiboot.ts`)
+    .replace('import { statePath } from "./paths.ts";', "const __h2 = (globalThis as any).__harness; const Bun = __h2.Bun2, Date = __h2.Date;")
+    .replace('"/sys/bus/usb/devices"', JSON.stringify(`${root}/usb`))
+    .replace('"/usr/share/rpiboot"', JSON.stringify(`${root}/rpiboot`))
+    .replace('"/lib/firmware/raspberrypi"', JSON.stringify(`${root}/fw`))
+    .replace('"/tmp/benchbob-rpiboot"', JSON.stringify(`${root}/work`))
+    .replace('statePath("eeprom-history.json")', JSON.stringify(`${root}/state/eeprom-history.json`))
+    .replace('"/usr/bin/rpiboot"', JSON.stringify(`${root}/rpiboot-bin`));
+  writeFileSync(`${work}/rpiboot-parts.ts`, rsrc);
+  const R: any = await import(pathToFileURL(`${work}/rpiboot-parts.ts`).href);
+  const norm = (v: unknown) => JSON.parse(JSON.stringify(v ?? null).replaceAll(root, "<root>").replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<uuid>"));
+  const step = async (fn: () => Promise<unknown>) => {
+    LOG = [];
+    let value: unknown;
+    try { value = await fn(); } catch (e: any) { value = { error: e.message }; }
+    return norm({ value, log: LOG });
+  };
+  const sha = (rel: string) => new RealBun.CryptoHasher("sha256").update(readFileSync(`${root}/${rel}`)).digest("hex").toUpperCase();
+  const hooks = () => { const lines: string[] = []; return { lines, h: { onLine: (l: string) => lines.push(l), onSpawn() {}, isAborted: () => false } }; };
+  const dev = (path: string, chip: string) => ({ path, chip, label: "x", serial: null, product: null });
+  const r: Record<string, unknown> = {};
+  r.installed = await step(() => R.rpibootInstalled());
+  r.bootDevices = await step(() => R.getBootDevices());
+  for (const c of ["2711", "2712", "2835"]) r[`images${c}`] = await step(() => R.eepromImages(c));
+  for (const c of ["2711", "2712"]) r[`bootConf${c}`] = await step(() => R.defaultBootConf(c));
+  r.identify = [];
+  for (const [chip, md] of [
+    ["2711", null],
+    ["2711", { EEPROM_HASH: "BBBB", MAC_ADDR: "DC:A6:32:00:00:01" }],
+    ["2711", { EEPROM_HASH: sha("fw/bootloader-2711/stable/pieeprom-2023-01-10.bin"), MAC_ADDR: "DC:A6:32:00:00:01" }],
+    ["2711", { EEPROM_HASH: sha("rpiboot/firmware/2711/pieeprom.bin") }],
+    ["2712", { EEPROM_HASH: sha("rpiboot/firmware/2712/pieeprom.bin") }],
+    ["2712", { EEPROM_HASH: "zzz", MAC_ADDR: "dc:a6:32:00:00:01" }],
+    ["2712", { MAC_ADDR: "AA:BB" }],
+  ] as const) (r.identify as unknown[]).push(await step(() => R.identifyBootloader(chip, md)));
+  r.recordWrite = await step(async () => {
+    await R.recordWrite({ at: 10, chip: "2712", mac: "AA:BB", imageLabel: "new", buildDate: "2026-09-14", bootConf: "[all]\n", hashes: ["ABCD", "", "abcd", "EF"] });
+    await R.recordWrite({ at: 11, chip: "2711", mac: null, imageLabel: "n", buildDate: "x", bootConf: "", hashes: [] });
+    return readFileSync(`${root}/state/eeprom-history.json`, "utf8");
+  });
+  const images2711 = await R.eepromImages("2711"), images2712 = await R.eepromImages("2712");
+  const card = async (chip: string, image: any, conf: string) => {
+    const c = await R.buildCardFiles(chip, image, conf);
+    const contents = Object.fromEntries(c.files.map((f: string) => [f, readFileSync(`${c.dir}/${f}`, "utf8")]));
+    rmSync(c.dir, { recursive: true, force: true });
+    return { files: c.files, imageSha256: c.imageSha256, contents };
+  };
+  r.card2711 = await step(() => card("2711", images2711[0], "[all]\r\nBOOT_ORDER=0xf41\r\n\r\n"));
+  r.card2712 = await step(() => card("2712", images2712[1], "[all]\nBOOT_UART=1"));
+  r.readInfo = await step(async () => { const k = hooks(); const x = await R.readBootloaderInfo(dev("1-1.3", "2711"), k.h); return { ...x, hooked: k.lines }; });
+  r.readInfo2835 = await step(() => R.readBootloaderInfo(dev("2-1", "2835"), hooks().h));
+  r.write = await step(async () => { const k = hooks(); const x = await R.writeBootloader(dev("1-1.10", "2712"), images2712[0], "[all]\nX=1", k.h); return { ...x, hooked: k.lines }; });
+  r.msd2835 = await step(() => R.loadMassStorage(dev("2-1", "2835"), hooks().h));
+  r.msd2711 = await step(() => R.loadMassStorage(dev("1-1.3", "2711"), hooks().h));
+  r.workLeft = norm(readdirSafe(`${root}/work`));
+  out("rpiboot.expected.json", r);
+}
+
+function readdirSafe(p: string): string[] {
+  try {
+    return require("node:fs").readdirSync(p);
+  } catch {
+    return [];
+  }
+}
 
 rmSync(work, { recursive: true, force: true });
 console.log("fixtures written");

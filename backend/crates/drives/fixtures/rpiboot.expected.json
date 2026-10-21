@@ -1,0 +1,495 @@
+{
+  "installed": {
+    "value": true,
+    "log": []
+  },
+  "bootDevices": {
+    "value": [
+      {
+        "path": "1-1.10",
+        "chip": "2712",
+        "label": "BCM2712 (CM5 / Pi 5 family)",
+        "serial": null,
+        "product": null
+      },
+      {
+        "path": "1-1.3",
+        "chip": "2711",
+        "label": "BCM2711 (CM4 / Pi 4 family)",
+        "serial": "a1b2c3d4",
+        "product": "BCM2711 Boot"
+      },
+      {
+        "path": "2-1",
+        "chip": "2835",
+        "label": "BCM2835/2837 (CM1/CM3)",
+        "serial": null,
+        "product": null
+      }
+    ],
+    "log": []
+  },
+  "images2711": {
+    "value": [
+      {
+        "id": "default",
+        "label": "2025-05-08 (rpi-eeprom \"default\" channel)",
+        "path": "<root>/fw/bootloader-2711/default/pieeprom-2025-05-08.bin",
+        "recoveryBin": "<root>/fw/bootloader-2711/default/recovery.bin",
+        "buildDate": "2025-05-08",
+        "config": "[all]\nBOOT_UART=0\nBOOT_ORDER=0xf41\n"
+      },
+      {
+        "id": "rpiboot",
+        "label": "2024-05-08 (rpiboot's stock recovery image)",
+        "path": "<root>/rpiboot/firmware/2711/pieeprom.bin",
+        "recoveryBin": "<root>/rpiboot/firmware/2711/recovery.bin",
+        "buildDate": "2024-05-08",
+        "config": "[all]\nBOOT_UART=0\nBOOT_ORDER=0xf41\n"
+      }
+    ],
+    "log": [
+      {
+        "cmd": [
+          "rpi-eeprom-config",
+          "<root>/fw/bootloader-2711/default/pieeprom-2025-05-08.bin"
+        ]
+      },
+      {
+        "cmd": [
+          "rpi-eeprom-config",
+          "<root>/rpiboot/firmware/2711/pieeprom.bin"
+        ]
+      }
+    ]
+  },
+  "images2712": {
+    "value": [
+      {
+        "id": "default",
+        "label": "2025-01-22 (rpi-eeprom \"default\" channel)",
+        "path": "<root>/fw/bootloader-2712/default/pieeprom-2025-01-22.bin",
+        "recoveryBin": "<root>/fw/bootloader-2712/default/recovery.bin",
+        "buildDate": "2025-01-22",
+        "config": "[all]\nBOOT_UART=0\nBOOT_ORDER=0xf41\n"
+      },
+      {
+        "id": "latest",
+        "label": "2026-09-14 (rpi-eeprom \"latest\" channel)",
+        "path": "<root>/fw/bootloader-2712/latest/pieeprom-2026-09-14.bin",
+        "recoveryBin": "<root>/fw/bootloader-2712/latest/recovery.bin",
+        "buildDate": "2026-09-14",
+        "config": "[all]\nBOOT_UART=0\nBOOT_ORDER=0xf41\n"
+      },
+      {
+        "id": "rpiboot",
+        "label": "? (rpiboot's stock recovery image)",
+        "path": "<root>/rpiboot/firmware/2712/pieeprom.bin",
+        "recoveryBin": "<root>/rpiboot/firmware/2712/recovery.bin",
+        "buildDate": "",
+        "config": "[all]\nBOOT_UART=0\nBOOT_ORDER=0xf41\n"
+      }
+    ],
+    "log": [
+      {
+        "cmd": [
+          "rpi-eeprom-config",
+          "<root>/fw/bootloader-2712/default/pieeprom-2025-01-22.bin"
+        ]
+      },
+      {
+        "cmd": [
+          "rpi-eeprom-config",
+          "<root>/fw/bootloader-2712/latest/pieeprom-2026-09-14.bin"
+        ]
+      },
+      {
+        "cmd": [
+          "rpi-eeprom-config",
+          "<root>/rpiboot/firmware/2712/pieeprom.bin"
+        ]
+      }
+    ]
+  },
+  "images2835": {
+    "value": [],
+    "log": []
+  },
+  "bootConf2711": {
+    "value": "[all]\nBOOT_UART=1\nBOOT_ORDER=0xf25641\n",
+    "log": []
+  },
+  "bootConf2712": {
+    "value": "[all]\nBOOT_UART=1\n",
+    "log": []
+  },
+  "identify": [
+    {
+      "value": {
+        "source": "unknown",
+        "buildDate": null,
+        "label": "Unknown: the module didn't report an EEPROM hash",
+        "bootConf": null
+      },
+      "log": []
+    },
+    {
+      "value": {
+        "source": "benchbob",
+        "buildDate": "2025-05-08",
+        "label": "2025-05-08, written by BenchBob",
+        "bootConf": "[all]\nBOOT_ORDER=0xf41\n",
+        "writtenAt": 2
+      },
+      "log": []
+    },
+    {
+      "value": {
+        "source": "stock",
+        "buildDate": "2023-01-10",
+        "label": "2023-01-10, a stock release with its default settings",
+        "bootConf": "[all]\nBOOT_UART=0\nBOOT_ORDER=0xf41\n",
+        "lastWrite": {
+          "at": 2,
+          "chip": "2711",
+          "mac": "dc:a6:32:00:00:01",
+          "imageLabel": "ours",
+          "buildDate": "2025-05-08",
+          "bootConf": "[all]\nBOOT_ORDER=0xf41\n",
+          "hashes": [
+            "bbbb",
+            "cccc"
+          ]
+        }
+      },
+      "log": [
+        {
+          "cmd": [
+            "rpi-eeprom-config",
+            "<root>/fw/bootloader-2711/default/pieeprom-2024-04-15.bin"
+          ]
+        },
+        {
+          "cmd": [
+            "rpi-eeprom-config",
+            "<root>/fw/bootloader-2711/latest/pieeprom-2025-05-08.bin"
+          ]
+        },
+        {
+          "cmd": [
+            "rpi-eeprom-config",
+            "<root>/fw/bootloader-2711/stable/pieeprom-2023-01-10.bin"
+          ]
+        }
+      ]
+    },
+    {
+      "value": {
+        "source": "stock",
+        "buildDate": "2024-05-08",
+        "label": "2024-05-08, a stock release with its default settings",
+        "bootConf": "[all]\nBOOT_UART=0\nBOOT_ORDER=0xf41\n"
+      },
+      "log": []
+    },
+    {
+      "value": {
+        "source": "stock",
+        "buildDate": "",
+        "label": ", a stock release with its default settings",
+        "bootConf": "[all]\nBOOT_UART=0\nBOOT_ORDER=0xf41\n"
+      },
+      "log": []
+    },
+    {
+      "value": {
+        "source": "unknown",
+        "buildDate": null,
+        "label": "Unrecognised: not a stock release with default settings, and not written by BenchBob",
+        "bootConf": null,
+        "lastWrite": {
+          "at": 3,
+          "chip": "2712",
+          "mac": "dc:a6:32:00:00:01",
+          "imageLabel": "pi5",
+          "buildDate": "2026-09-14",
+          "bootConf": "[all]\n",
+          "hashes": [
+            "dddd"
+          ]
+        }
+      },
+      "log": []
+    },
+    {
+      "value": {
+        "source": "unknown",
+        "buildDate": null,
+        "label": "Unknown: the module didn't report an EEPROM hash",
+        "bootConf": null
+      },
+      "log": []
+    }
+  ],
+  "recordWrite": {
+    "value": "[\n  {\n    \"at\": 1,\n    \"chip\": \"2711\",\n    \"mac\": \"dc:a6:32:00:00:01\",\n    \"imageLabel\": \"old\",\n    \"buildDate\": \"2024-01-01\",\n    \"bootConf\": \"[all]\\n\",\n    \"hashes\": [\n      \"aaaa\"\n    ]\n  },\n  {\n    \"at\": 2,\n    \"chip\": \"2711\",\n    \"mac\": \"dc:a6:32:00:00:01\",\n    \"imageLabel\": \"ours\",\n    \"buildDate\": \"2025-05-08\",\n    \"bootConf\": \"[all]\\nBOOT_ORDER=0xf41\\n\",\n    \"hashes\": [\n      \"bbbb\",\n      \"cccc\"\n    ]\n  },\n  {\n    \"at\": 3,\n    \"chip\": \"2712\",\n    \"mac\": \"dc:a6:32:00:00:01\",\n    \"imageLabel\": \"pi5\",\n    \"buildDate\": \"2026-09-14\",\n    \"bootConf\": \"[all]\\n\",\n    \"hashes\": [\n      \"dddd\"\n    ]\n  },\n  {\n    \"at\": 10,\n    \"chip\": \"2712\",\n    \"mac\": \"aa:bb\",\n    \"imageLabel\": \"new\",\n    \"buildDate\": \"2026-09-14\",\n    \"bootConf\": \"[all]\\n\",\n    \"hashes\": [\n      \"abcd\",\n      \"ef\"\n    ]\n  },\n  {\n    \"at\": 11,\n    \"chip\": \"2711\",\n    \"mac\": null,\n    \"imageLabel\": \"n\",\n    \"buildDate\": \"x\",\n    \"bootConf\": \"\",\n    \"hashes\": []\n  }\n]\n",
+    "log": []
+  },
+  "card2711": {
+    "value": {
+      "files": [
+        "recovery.bin",
+        "pieeprom.bin",
+        "pieeprom.sig",
+        "vl805.bin",
+        "vl805.sig",
+        "README.txt"
+      ],
+      "imageSha256": "51ff5340a1b22811b1810cfa1d4332e6159befc076c1d89f1d072c0c011fc6c0",
+      "contents": {
+        "recovery.bin": "REC 2711 default",
+        "pieeprom.bin": "PIEEPROM[[all]\nBOOT_ORDER=0xf41\n]PIE 2711 default 2025-05-08",
+        "pieeprom.sig": "SIG[PIEEPROM[[all]\nBOOT_ORDER=0xf41\n]PIE 2711 default 2025-05-08]",
+        "vl805.bin": "VL 138c0",
+        "vl805.sig": "SIG[VL 138c0]",
+        "README.txt": "Raspberry Pi 4 / 400 bootloader update card\r\nMade by BenchBob on 2026-10-20\r\n\r\nBootloader release: 2025-05-08 (rpi-eeprom \"default\" channel)\r\n\r\nSettings written into the EEPROM (boot.conf):\r\n\r\n[all]\r\nBOOT_ORDER=0xf41\r\n\r\nTo update the bootloader:\r\n\r\n1. Power off the Raspberry Pi\r\n2. Insert this card\r\n3. Power on and wait at least 10 seconds\r\n\r\nSuccess: the green LED blinks rapidly forever, and an HDMI display (if\r\nattached) turns green. A different blink pattern, or red on HDMI, means the\r\nupdate failed and the old bootloader is still in place.\r\n\r\nThen power off and remove the card. If the card now holds RECOVERY.000\r\ninstead of recovery.bin, rename it back (or write the card again) before\r\nusing it on another Pi.\r\n"
+      }
+    },
+    "log": [
+      {
+        "cmd": [
+          "rpi-eeprom-config",
+          "--config",
+          "<root>/work/<uuid>/boot.conf",
+          "--out",
+          "<root>/work/<uuid>/pieeprom.bin",
+          "<root>/fw/bootloader-2711/default/pieeprom-2025-05-08.bin"
+        ]
+      },
+      {
+        "cmd": [
+          "rpi-eeprom-digest",
+          "-h"
+        ]
+      },
+      {
+        "cmd": [
+          "rpi-eeprom-digest",
+          "-c",
+          "2711",
+          "-i",
+          "<root>/work/<uuid>/pieeprom.bin",
+          "-o",
+          "<root>/work/<uuid>/pieeprom.sig"
+        ]
+      },
+      {
+        "cmd": [
+          "rpi-eeprom-digest",
+          "-i",
+          "<root>/work/<uuid>/vl805.bin",
+          "-o",
+          "<root>/work/<uuid>/vl805.sig"
+        ]
+      }
+    ]
+  },
+  "card2712": {
+    "value": {
+      "files": [
+        "recovery.bin",
+        "pieeprom.bin",
+        "pieeprom.sig",
+        "README.txt"
+      ],
+      "imageSha256": "6d57a6d604d4fa0c29280546d983bdd501e782cd0beaec7bd5e739f276c05774",
+      "contents": {
+        "recovery.bin": "REC 2712 latest",
+        "pieeprom.bin": "PIEEPROM[[all]\nBOOT_UART=1\n]PIE 2712 latest",
+        "pieeprom.sig": "SIG[PIEEPROM[[all]\nBOOT_UART=1\n]PIE 2712 latest]",
+        "README.txt": "Raspberry Pi 5 / 500 bootloader update card\r\nMade by BenchBob on 2026-10-20\r\n\r\nBootloader release: 2026-09-14 (rpi-eeprom \"latest\" channel)\r\n\r\nSettings written into the EEPROM (boot.conf):\r\n\r\n[all]\r\nBOOT_UART=1\r\n\r\nTo update the bootloader:\r\n\r\n1. Power off the Raspberry Pi\r\n2. Insert this card\r\n3. Power on and wait at least 10 seconds\r\n\r\nSuccess: the green LED blinks rapidly forever, and an HDMI display (if\r\nattached) turns green. A different blink pattern, or red on HDMI, means the\r\nupdate failed and the old bootloader is still in place.\r\n\r\nThen power off and remove the card. If the card now holds RECOVERY.000\r\ninstead of recovery.bin, rename it back (or write the card again) before\r\nusing it on another Pi.\r\n"
+      }
+    },
+    "log": [
+      {
+        "cmd": [
+          "rpi-eeprom-config",
+          "--config",
+          "<root>/work/<uuid>/boot.conf",
+          "--out",
+          "<root>/work/<uuid>/pieeprom.bin",
+          "<root>/fw/bootloader-2712/latest/pieeprom-2026-09-14.bin"
+        ]
+      },
+      {
+        "cmd": [
+          "rpi-eeprom-digest",
+          "-c",
+          "2712",
+          "-i",
+          "<root>/work/<uuid>/pieeprom.bin",
+          "-o",
+          "<root>/work/<uuid>/pieeprom.sig"
+        ]
+      }
+    ]
+  },
+  "readInfo": {
+    "value": {
+      "code": 0,
+      "log": [
+        "RPIBOOT: build-date 2025/01/01",
+        "Waiting for BCM2835/6/7/2711/2712...",
+        "Sending bootcode4.bin",
+        "warning: something",
+        "Second stage boot server done"
+      ],
+      "timedOut": false,
+      "metadata": {
+        "MAC_ADDR": "DC:A6:32:00:00:01",
+        "EEPROM_HASH": "BBBB",
+        "USER_BOARDREV": "b03141"
+      },
+      "hooked": [
+        "RPIBOOT: build-date 2025/01/01",
+        "Waiting for BCM2835/6/7/2711/2712...",
+        "Sending bootcode4.bin",
+        "warning: something",
+        "Second stage boot server done"
+      ]
+    },
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "rpiboot",
+          "-d",
+          "<root>/work/<uuid>",
+          "-j",
+          "<root>/work/<uuid>/metadata",
+          "-p",
+          "1-1.3"
+        ]
+      }
+    ]
+  },
+  "readInfo2835": {
+    "value": {
+      "error": "CM1/CM3 have no bootloader EEPROM"
+    },
+    "log": []
+  },
+  "write": {
+    "value": {
+      "code": 0,
+      "log": [
+        "RPIBOOT: build-date 2025/01/01",
+        "Waiting for BCM2835/6/7/2711/2712...",
+        "Sending bootcode4.bin",
+        "warning: something",
+        "Second stage boot server done"
+      ],
+      "timedOut": false,
+      "metadata": {
+        "MAC_ADDR": "DC:A6:32:00:00:01",
+        "EEPROM_HASH": "BBBB",
+        "USER_BOARDREV": "b03141"
+      },
+      "imageSha256": "c79234ceff3ddce537a78fb4774ca58bbf68aebcfa5e4f4afdb95b30866a0604",
+      "hooked": [
+        "Built pieeprom.bin from 2025-01-22 (rpi-eeprom \"default\" channel)",
+        "RPIBOOT: build-date 2025/01/01",
+        "Waiting for BCM2835/6/7/2711/2712...",
+        "Sending bootcode4.bin",
+        "warning: something",
+        "Second stage boot server done"
+      ]
+    },
+    "log": [
+      {
+        "cmd": [
+          "rpi-eeprom-config",
+          "--config",
+          "<root>/work/<uuid>/boot.conf",
+          "--out",
+          "<root>/work/<uuid>/pieeprom.bin",
+          "<root>/fw/bootloader-2712/default/pieeprom-2025-01-22.bin"
+        ]
+      },
+      {
+        "cmd": [
+          "rpi-eeprom-digest",
+          "-c",
+          "2712",
+          "-i",
+          "<root>/work/<uuid>/pieeprom.bin",
+          "-o",
+          "<root>/work/<uuid>/pieeprom.sig"
+        ]
+      },
+      {
+        "cmd": [
+          "sudo",
+          "rpiboot",
+          "-d",
+          "<root>/work/<uuid>",
+          "-j",
+          "<root>/work/<uuid>/metadata",
+          "-p",
+          "1-1.10"
+        ]
+      }
+    ]
+  },
+  "msd2835": {
+    "value": {
+      "code": 0,
+      "log": [
+        "RPIBOOT: build-date 2025/01/01",
+        "Waiting for BCM2835/6/7/2711/2712...",
+        "Sending bootcode4.bin",
+        "warning: something",
+        "Second stage boot server done"
+      ],
+      "timedOut": false,
+      "metadata": null
+    },
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "rpiboot",
+          "-p",
+          "2-1"
+        ]
+      }
+    ]
+  },
+  "msd2711": {
+    "value": {
+      "code": 0,
+      "log": [
+        "RPIBOOT: build-date 2025/01/01",
+        "Waiting for BCM2835/6/7/2711/2712...",
+        "Sending bootcode4.bin",
+        "warning: something",
+        "Second stage boot server done"
+      ],
+      "timedOut": false,
+      "metadata": null
+    },
+    "log": [
+      {
+        "cmd": [
+          "sudo",
+          "rpiboot",
+          "-d",
+          "<root>/rpiboot/mass-storage-gadget64",
+          "-p",
+          "1-1.3"
+        ]
+      }
+    ]
+  },
+  "workLeft": []
+}

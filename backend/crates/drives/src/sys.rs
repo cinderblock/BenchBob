@@ -322,6 +322,8 @@ pub mod mock {
     }
 
     pub type Snap = Box<dyn Fn() -> Value + Send + Sync>;
+    /// What a command leaves behind (files a tool writes), for tests on a real tree.
+    pub type Effect = Box<dyn Fn(&[&str]) + Send + Sync>;
 
     pub struct Mock {
         answers: Vec<Answer>,
@@ -329,6 +331,7 @@ pub mod mock {
         pub log: Mutex<Vec<Value>>,
         /// Snapshot of the operation being run, added to every log entry.
         pub snap: Mutex<Option<Snap>>,
+        pub effect: Mutex<Option<Effect>>,
         now: i64,
         fetch: Vec<String>,
         fetch_status: u16,
@@ -392,6 +395,7 @@ pub mod mock {
                 files: scn.get("files").cloned().unwrap_or(json!({})),
                 log: Mutex::new(Vec::new()),
                 snap: Mutex::new(None),
+                effect: Mutex::new(None),
                 now: scn.get("now").and_then(Value::as_i64).unwrap_or(1_792_490_400_000),
                 fetch: list(scn, "fetch").unwrap_or_default(),
                 fetch_status: scn.get("fetchStatus").and_then(Value::as_u64).unwrap_or(200) as u16,
@@ -399,6 +403,9 @@ pub mod mock {
         }
 
         fn answer(&self, cmd: &[&str]) -> Answer {
+            if let Some(f) = self.effect.lock().unwrap().as_ref() {
+                f(cmd);
+            }
             let line = cmd.join(" ");
             self.answers
                 .iter()

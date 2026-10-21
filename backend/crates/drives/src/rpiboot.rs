@@ -459,7 +459,7 @@ impl Rpi {
 #[async_trait]
 impl Firmware for Rpi {
     async fn installed(&self) -> bool {
-        self.sys.exists(&s(&self.paths.rpiboot_bin)).await
+        self.paths.rpiboot_bin.is_file()
     }
 
     async fn boot_devices(&self) -> Vec<BootDevice> {
@@ -706,5 +706,147 @@ mod tests {
         assert_eq!(decode_board_rev(Some("0002")), Value::Null);
         assert_eq!(decode_board_rev(Some("zz")), Value::Null);
         assert_eq!(decode_board_rev(None), Value::Null);
+    }
+}
+
+#[cfg(test)]
+mod tree_tests {
+    //! rpiboot.ts and this module on the same fixture tree (fixtures/rpiboot-tree.json),
+    //! compared with what fixtures/harness.ts recorded from the TypeScript.
+
+    use super::*;
+    use crate::sys::mock::{Mock, Shared};
+
+    fn write(p: &Path, text: &str) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rpiboot_matches_rpiboot_ts() {
+        let tree: Value = serde_json::from_str(include_str!("../fixtures/rpiboot-tree.json")).unwrap();
+        let want: Value = serde_json::from_str(include_str!("../fixtures/rpiboot.expected.json")).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_path_buf();
+        for (rel, text) in tree["files"].as_object().unwrap() {
+            write(&root.join(rel), text.as_str().unwrap());
+        }
+        let mock = Mock::new(&json!({ "answers": tree["answers"] }));
+        *mock.effect.lock().unwrap() = Some(Box::new(|cmd: &[&str]| {
+            let at = |flag: &str| cmd[cmd.iter().position(|c| *c == flag).unwrap() + 1];
+            let read = |p: &str| std::fs::read_to_string(p).unwrap();
+            if cmd[0] == "rpi-eeprom-config" && cmd.get(1) == Some(&"--config") {
+                std::fs::write(at("--out"), format!("PIEEPROM[{}]{}", read(at("--config")), read(cmd[cmd.len() - 1]))).unwrap();
+            }
+            if cmd[0] == "rpi-eeprom-digest" && cmd.contains(&"-i") {
+                std::fs::write(at("-o"), format!("SIG[{}]", read(at("-i")))).unwrap();
+            }
+            if cmd.get(1) == Some(&"rpiboot") && cmd.contains(&"-j") {
+                std::fs::write(
+                    format!("{}/a1b2c3d4.json", at("-j")),
+                    r#"{"MAC_ADDR":"DC:A6:32:00:00:01","EEPROM_HASH":"BBBB","USER_BOARDREV":"b03141"}"#,
+                )
+                .unwrap();
+            }
+        }));
+        let paths = Paths {
+            usb_root: root.join("usb"),
+            rpiboot_dir: root.join("rpiboot"),
+            eeprom_fw_dir: root.join("fw"),
+            work_root: root.join("work"),
+            history: root.join("state/eeprom-history.json"),
+            rpiboot_bin: root.join("rpiboot-bin"),
+        };
+        let rpi = Rpi::new(paths, Arc::new(Shared(mock.clone())));
+        let uuid = Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").unwrap();
+        let rs = s(&root);
+        let norm =
+            |v: Value| -> Value { serde_json::from_str(&uuid.replace_all(&v.to_string().replace(&rs, "<root>"), "<uuid>")).unwrap() };
+        let step = |value: Value| {
+            let log = mock.entries();
+            mock.log.lock().unwrap().clear();
+            norm(json!({ "value": value, "log": log }))
+        };
+        let run_json = |r: &RpibootRun, hooked: Option<Vec<String>>| {
+            let mut v = json!({ "code": r.code, "log": r.log, "timedOut": r.timed_out, "metadata": r.metadata });
+            if let Some(h) = &r.image_sha256 {
+                v["imageSha256"] = h.clone().into();
+            }
+            if let Some(h) = hooked {
+                v["hooked"] = json!(h);
+            }
+            v
+        };
+        let lines: Arc<Mutex<Vec<String>>> = Default::default();
+        let hooks = || {
+            lines.lock().unwrap().clear();
+            let l = lines.clone();
+            Hooks { on_line: Box::new(move |x: &str| l.lock().unwrap().push(x.into())), on_spawn: Box::new(|_| {}) }
+        };
+        let dev =
+            |path: &str, chip: &str| BootDevice { path: path.into(), chip: chip.into(), label: "x".into(), serial: None, product: None };
+        let err = |e: anyhow::Error| json!({ "error": e.to_string() });
+        let check = |name: &str, got: Value, want: &Value| {
+            assert_eq!(serde_json::to_string(&got).unwrap(), serde_json::to_string(want).unwrap(), "{name}");
+        };
+        let sha = |rel: &str| sha256_hex(&std::fs::read(root.join(rel)).unwrap()).to_uppercase();
+
+        check("installed", step(rpi.installed().await.into()), &want["installed"]);
+        check("bootDevices", step(Value::Array(rpi.boot_devices().await.iter().map(BootDevice::to_json).collect())), &want["bootDevices"]);
+        for c in ["2711", "2712", "2835"] {
+            let v = Value::Array(rpi.eeprom_images(c).await.iter().map(EepromImage::to_json).collect());
+            check(c, step(v), &want[format!("images{c}")]);
+        }
+        for c in ["2711", "2712"] {
+            check(c, step(rpi.default_boot_conf(c).await.into()), &want[format!("bootConf{c}")]);
+        }
+        let mds: Vec<(&str, Value)> = vec![
+            ("2711", Value::Null),
+            ("2711", json!({ "EEPROM_HASH": "BBBB", "MAC_ADDR": "DC:A6:32:00:00:01" })),
+            ("2711", json!({ "EEPROM_HASH": sha("fw/bootloader-2711/stable/pieeprom-2023-01-10.bin"), "MAC_ADDR": "DC:A6:32:00:00:01" })),
+            ("2711", json!({ "EEPROM_HASH": sha("rpiboot/firmware/2711/pieeprom.bin") })),
+            ("2712", json!({ "EEPROM_HASH": sha("rpiboot/firmware/2712/pieeprom.bin") })),
+            ("2712", json!({ "EEPROM_HASH": "zzz", "MAC_ADDR": "dc:a6:32:00:00:01" })),
+            ("2712", json!({ "MAC_ADDR": "AA:BB" })),
+        ];
+        for (i, (chip, md)) in mds.iter().enumerate() {
+            let v = rpi.identify(chip, md.as_object()).await;
+            check(&format!("identify {i}"), step(v), &want["identify"][i]);
+        }
+        rpi.record_write(json!({ "at": 10, "chip": "2712", "mac": "AA:BB", "imageLabel": "new", "buildDate": "2026-09-14", "bootConf": "[all]\n", "hashes": ["ABCD", "", "abcd", "EF"] }))
+            .await
+            .unwrap();
+        rpi.record_write(
+            json!({ "at": 11, "chip": "2711", "mac": null, "imageLabel": "n", "buildDate": "x", "bootConf": "", "hashes": [] }),
+        )
+        .await
+        .unwrap();
+        check("recordWrite", step(std::fs::read_to_string(root.join("state/eeprom-history.json")).unwrap().into()), &want["recordWrite"]);
+
+        let (i2711, i2712) = (rpi.eeprom_images("2711").await, rpi.eeprom_images("2712").await);
+        mock.log.lock().unwrap().clear();
+        for (name, chip, image, conf) in
+            [("card2711", "2711", &i2711[0], "[all]\r\nBOOT_ORDER=0xf41\r\n\r\n"), ("card2712", "2712", &i2712[1], "[all]\nBOOT_UART=1")]
+        {
+            let c = rpi.build_card_files(chip, image, conf).await.unwrap();
+            let contents: Map<String, Value> =
+                c.files.iter().map(|f| (f.clone(), std::fs::read_to_string(format!("{}/{f}", c.dir)).unwrap().into())).collect();
+            std::fs::remove_dir_all(&c.dir).unwrap();
+            check(name, step(json!({ "files": c.files, "imageSha256": c.image_sha256, "contents": contents })), &want[name]);
+        }
+        let r = rpi.read_bootloader_info(&dev("1-1.3", "2711"), &hooks()).await.unwrap();
+        check("readInfo", step(run_json(&r, Some(lines.lock().unwrap().clone()))), &want["readInfo"]);
+        let r = rpi.read_bootloader_info(&dev("2-1", "2835"), &hooks()).await.map(|r| run_json(&r, None)).unwrap_or_else(err);
+        check("readInfo2835", step(r), &want["readInfo2835"]);
+        let r = rpi.write_bootloader(&dev("1-1.10", "2712"), &i2712[0], "[all]\nX=1", &hooks()).await.unwrap();
+        check("write", step(run_json(&r, Some(lines.lock().unwrap().clone()))), &want["write"]);
+        for (name, d) in [("msd2835", dev("2-1", "2835")), ("msd2711", dev("1-1.3", "2711"))] {
+            let r = rpi.load_mass_storage(&d, &hooks()).await;
+            check(name, step(run_json(&r, None)), &want[name]);
+        }
+        let left: Vec<String> = std::fs::read_dir(root.join("work"))
+            .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .unwrap_or_default();
+        check("workLeft", json!(left), &want["workLeft"]);
     }
 }
