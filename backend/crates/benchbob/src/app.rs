@@ -1,17 +1,14 @@
-//! The request handler: routing by hand, as server.ts and core.ts do, because driver routes
-//! are dynamic ("most literal wins") and everything unmatched goes to the Bun server.
+//! The request handler: routing by hand, as the TypeScript server did, because driver
+//! routes are dynamic ("most literal wins").
 //!
 //! Order: CORS preflight, /mcp, the registry's routes (/api/periph/*, /ws/*, driver
 //! routes), the page and web/dist, /api docs, /api/update*, /api/status, /api/events,
-//! /api/boards; anything else is proxied (or 404 without a legacy server).
+//! /api/boards; anything else is 404.
 //!
 //! Every response carries permissive CORS (`Access-Control-Allow-Origin: *`, no
-//! credentials) so a desktop app on another origin can use any bob, and
-//! `X-BenchBob-Backend: native|legacy` saying who answered.
+//! credentials) so a desktop app on another origin can use any bob.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::body::Body;
@@ -24,12 +21,12 @@ use benchbob_core::driver::{WsIn, WsOut};
 use benchbob_core::http::{HttpError, Reply, json_response, parse_query, text_response, truthy};
 use benchbob_core::mcp::{self, ToolSource};
 use benchbob_core::{Registry, WsClient, WsSession};
+use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc;
 
 use crate::health::Health;
-use crate::legacy::{Legacy, merge_periph, merge_timeline};
 use crate::sse::Sse;
 use crate::status::Sampler;
 use crate::ui::{Ui, accepts_gzip, gzip};
@@ -43,7 +40,6 @@ pub struct App {
     pub registry: Registry,
     pub board: Arc<Board>,
     pub boards: Arc<Boards>,
-    pub legacy: Option<Arc<Legacy>>,
     pub sampler: tokio::sync::Mutex<Sampler>,
     pub health: Health,
     pub sse: Sse,
@@ -51,16 +47,7 @@ pub struct App {
     pub ui: Ui,
 }
 
-enum Who {
-    Native,
-    Legacy,
-}
-
 impl App {
-    fn legacy_build(&self) -> String {
-        self.legacy.as_ref().map(|l| l.build.lock().unwrap().clone()).unwrap_or_default()
-    }
-
     /// The drives service (block devices, flashing, rpiboot), for its status fields.
     pub fn drives(&self) -> Option<&benchbob_drives::Drives> {
         let l = self.registry.get("drives")?;
@@ -68,24 +55,16 @@ impl App {
     }
 
     pub fn build_version(&self) -> String {
-        self.ui.build(&self.legacy_build()).version
+        self.ui.build().version
     }
 
-    /// `peripherals` in the status: our drivers and the Bun server's.
+    /// `peripherals` in the status.
     pub fn periph(&self) -> Value {
-        let items = self.registry.status_items();
-        match &self.legacy {
-            Some(l) => merge_periph(items, l.periph().as_ref()),
-            None => benchbob_core::registry::assemble(items),
-        }
+        benchbob_core::registry::assemble(self.registry.status_items())
     }
 
-    /// The full status (server.ts getStatus), keys in the same order.
+    /// The full status (the TypeScript server's getStatus), keys in the same order.
     pub async fn status(&self) -> Value {
-        // Refreshes the Bun server's peripherals (and build version), merged in below.
-        if let Some(l) = &self.legacy {
-            let _ = l.status(Duration::from_millis(1500)).await;
-        }
         let temp = self.health.cpu_temp().await;
         let power = self.health.power().await;
         let (sensors, _, _) = self.health.sensors().await;
@@ -127,176 +106,101 @@ impl App {
         Value::Object(m)
     }
 
-    /// Which backend answers what, for `GET /api` and the CLI.
+    /// Which server this is, for `GET /api`.
     pub fn backend_info(&self) -> Value {
-        let mut native: Vec<String> = [
-            "GET /",
-            "GET /api",
-            "GET /api/status",
-            "GET /api/events",
-            "GET /api/boards",
-            "* /api/update*",
-            "POST /mcp",
-            "POST /api/periph/driver",
-            "GET /api/periph/timeline",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        if self.drives().is_some() {
-            native.extend(benchbob_drives::docs().keys().cloned());
-        }
-        for k in self.registry.docs().keys() {
-            native.push(k.clone());
-        }
         json!({
             "server": "benchbob (Rust)",
             "version": env!("CARGO_PKG_VERSION"),
-            "nativeDrivers": self.registry.ids(),
-            "native": native,
-            "legacy": self.legacy.as_ref().map(|l| l.base()),
-            "note": if self.legacy.is_some() {
-                "Routes not listed under native are proxied to the Bun server (X-BenchBob-Backend: legacy)"
-            } else {
-                "No legacy server configured (BENCHBOB_LEGACY_PORT): only native routes exist"
-            },
+            "drivers": self.registry.ids(),
         })
     }
 
-    pub async fn handle(self: Arc<Self>, req: Request<Body>, peer: Option<SocketAddr>) -> Response {
+    pub async fn handle(self: Arc<Self>, req: Request<Body>) -> Response {
         let preflight = req.method() == Method::OPTIONS && req.headers().contains_key(header::ACCESS_CONTROL_REQUEST_METHOD);
         if preflight {
             return cors(preflight_response(req.headers()));
         }
         let accept_gzip = accepts_gzip(req.headers());
-        let (who, res) = self.route(req, peer).await;
-        let mut res = match who {
-            Who::Native => compress(accept_gzip, res).await,
-            Who::Legacy => res,
-        };
-        res.headers_mut()
-            .insert("X-BenchBob-Backend", HeaderValue::from_static(if matches!(who, Who::Native) { "native" } else { "legacy" }));
-        cors(res)
+        let res = self.route(req).await;
+        cors(compress(accept_gzip, res).await)
     }
 
-    async fn route(self: &Arc<Self>, req: Request<Body>, peer: Option<SocketAddr>) -> (Who, Response) {
+    async fn route(self: &Arc<Self>, req: Request<Body>) -> Response {
         let path = req.uri().path().to_string();
         let method = req.method().clone();
         let query = parse_query(req.uri().query().unwrap_or(""));
 
         if path == "/mcp" {
-            let body = match crate::legacy::read_body(req.into_body(), BODY_LIMIT).await {
+            let body = match read_body(req.into_body(), BODY_LIMIT).await {
                 Ok(b) => b,
-                Err(e) => return (Who::Native, HttpError::bad_request(e).into_response()),
+                Err(e) => return HttpError::bad_request(e).into_response(),
             };
-            return (Who::Native, mcp::handle(&method, &body, &Tools { app: self.clone() }).await);
+            return mcp::handle(&method, &body, &Tools { app: self.clone() }).await;
         }
 
         if path == "/api/periph/driver" && method == Method::POST {
-            let body = crate::legacy::read_body(req.into_body(), BODY_LIMIT).await.unwrap_or_default();
+            let body = read_body(req.into_body(), BODY_LIMIT).await.unwrap_or_default();
             let a: Value = if body.is_empty() { json!({}) } else { serde_json::from_slice(&body).unwrap_or(Value::Null) };
             if a.is_null() {
-                return (Who::Native, HttpError::bad_request("Body is not valid JSON").into_response());
+                return HttpError::bad_request("Body is not valid JSON").into_response();
             }
             let id = a.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-            if self.registry.get(&id).is_none()
-                && let Some(l) = &self.legacy
-            {
-                let r = l.request_json(Method::POST, "/api/periph/driver", Some(&a), Duration::from_secs(30)).await;
-                return match r {
-                    Some((code, v)) => (Who::Legacy, json_response(code, &v)),
-                    None => {
-                        (Who::Legacy, json_response(502, &json!({ "ok": false, "message": "The legacy BenchBob server isn't answering" })))
-                    }
-                };
-            }
             let disabled = a.get("disabled").is_some_and(truthy);
             return match self.registry.set_disabled(&id, disabled).await {
-                Ok(()) => (Who::Native, json_response(200, &json!({ "ok": true }))),
-                Err(e) => (Who::Native, e.into_response()),
+                Ok(()) => json_response(200, &json!({ "ok": true })),
+                Err(e) => e.into_response(),
             };
         }
 
         if path == "/api/periph/timeline" {
-            let ours: Vec<Value> = self.registry.hub().timeline.list().into_iter().map(|e| serde_json::to_value(e).unwrap()).collect();
-            let theirs = match &self.legacy {
-                Some(l) => l.request_json(Method::GET, "/api/periph/timeline", None, Duration::from_secs(5)).await.map(|x| x.1),
-                None => None,
-            };
-            return (Who::Native, json_response(200, &merge_timeline(ours, theirs)));
+            let mut all: Vec<Value> = self.registry.hub().timeline.list().into_iter().map(|e| serde_json::to_value(e).unwrap()).collect();
+            all.sort_by_key(|e| e.get("t").and_then(Value::as_u64).unwrap_or(0));
+            return json_response(200, &Value::Array(all));
         }
 
         if path.starts_with("/ws/") {
             if let Some((handler, params)) = self.registry.find_socket(&path) {
                 let (mut parts, _) = req.into_parts();
                 return match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
-                    Ok(ws) => (Who::Native, ws.on_upgrade(move |socket| bridge(socket, handler, params, query)).into_response()),
-                    Err(e) => (Who::Native, text_response(400, format!("WebSocket upgrade failed: {e}"))),
+                    Ok(ws) => ws.on_upgrade(move |socket| bridge(socket, handler, params, query)).into_response(),
+                    Err(e) => text_response(400, format!("WebSocket upgrade failed: {e}")),
                 };
             }
-            if self.registry.owns_socket(&path) {
-                return (Who::Native, text_response(404, "Not Found"));
-            }
-            return match &self.legacy {
-                Some(l) => (Who::Legacy, l.proxy_ws(req, peer).await),
-                None => (Who::Native, text_response(404, "Not Found")),
-            };
+            return text_response(404, "Not Found");
         }
 
         if let Some(m) = self.registry.find_route(&method, &path) {
             if !m.loaded.started() {
-                return (
-                    Who::Native,
-                    json_response(409, &json!({ "ok": false, "message": format!("{} is disabled", m.loaded.driver.title()) })),
-                );
+                return json_response(409, &json!({ "ok": false, "message": format!("{} is disabled", m.loaded.driver.title()) }));
             }
             let (parts, body) = req.into_parts();
-            let body = match crate::legacy::read_body(body, BODY_LIMIT).await {
+            let body = match read_body(body, BODY_LIMIT).await {
                 Ok(b) => b,
                 Err(e) if e.contains("length limit") => {
-                    return (
-                        Who::Native,
-                        HttpError::new(413, format!("Request body too large (max {} MB)", BODY_LIMIT >> 20)).into_response(),
-                    );
+                    return HttpError::new(413, format!("Request body too large (max {} MB)", BODY_LIMIT >> 20)).into_response();
                 }
-                Err(e) => return (Who::Native, HttpError::bad_request(e).into_response()),
+                Err(e) => return HttpError::bad_request(e).into_response(),
             };
             let r = benchbob_core::Request { method, path, params: m.params.clone(), query, headers: parts.headers, body };
-            let res = match (m.route().handler)(r).await {
+            return match (m.route().handler)(r).await {
                 Ok(Reply::Json(v)) => json_response(200, &v),
                 Ok(Reply::Response(r)) => r,
                 Err(e) => e.into_response(),
             };
-            return (Who::Native, res);
         }
 
-        let web = self.ui.web_dir().is_some();
         if (path == "/" || path == "/index.html") && (method == Method::GET || method == Method::HEAD) {
-            let b = self.ui.build(&self.legacy_build());
-            let page = if web { b.web_html.as_ref().map(|h| (h, "web")) } else { b.legacy_html.as_ref().map(|h| (h, "legacy")) };
-            if let Some((html, which)) = page {
-                return (Who::Native, self.ui.page(html, &b.version, which, req.headers()));
-            }
+            let b = self.ui.build();
+            return self.ui.page(&b.html, &b.version, req.headers());
         }
-        if (path == "/legacy" || path == "/legacy/") && method == Method::GET {
-            let b = self.ui.build(&self.legacy_build());
-            if let Some(html) = &b.legacy_html {
-                return (Who::Native, self.ui.page(html, &b.version, "legacy", req.headers()));
-            }
-        }
-        if web
-            && !path.starts_with("/api")
+        if !path.starts_with("/api")
             && let Some(r) = self.ui.static_file(&method, &path, req.headers())
         {
-            return (Who::Native, r);
+            return r;
         }
 
         if path == "/api" || path == "/api/" {
             let host = req.headers().get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("localhost").to_string();
-            let theirs = match &self.legacy {
-                Some(l) => l.docs().await,
-                None => None,
-            };
             let mut native = crate::docs::own_endpoints();
             if self.drives().is_some() {
                 native.extend(benchbob_drives::docs());
@@ -306,23 +210,23 @@ impl App {
             }
             native.extend(crate::docs::periph_endpoints());
             native.extend(self.registry.docs());
-            let text = crate::docs::assemble(theirs, native, self.board.info(), self.backend_info(), &format!("http://{host}"));
+            let text = crate::docs::assemble(native, self.board.info(), self.backend_info(), &format!("http://{host}"));
             let mut r = Response::new(Body::from(text));
             r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
-            return (Who::Native, r);
+            return r;
         }
 
         if path.starts_with("/api/update") {
             let (parts, body) = req.into_parts();
-            let body = crate::legacy::read_body(body, BODY_LIMIT).await.unwrap_or_default();
+            let body = read_body(body, BODY_LIMIT).await.unwrap_or_default();
             if let Some(r) = self.update.route(&parts.method, &path, &body).await {
-                return (Who::Native, r);
+                return r;
             }
-            return self.fallback(Request::from_parts(parts, Body::from(body)), peer).await;
+            return text_response(404, "Not Found");
         }
 
         if path == "/api/status" {
-            return (Who::Native, json_response(200, &self.status().await));
+            return json_response(200, &self.status().await);
         }
 
         if path == "/api/events" {
@@ -332,21 +236,14 @@ impl App {
                 let s = me.status().await;
                 me.sse.send_to(id, &s, None);
             });
-            return (Who::Native, r);
+            return r;
         }
 
         if path == "/api/boards" && method == Method::GET {
-            return (Who::Native, json_response(200, &self.boards_doc()));
+            return json_response(200, &self.boards_doc());
         }
 
-        self.fallback(req, peer).await
-    }
-
-    async fn fallback(&self, req: Request<Body>, peer: Option<SocketAddr>) -> (Who, Response) {
-        match &self.legacy {
-            Some(l) => (Who::Legacy, l.proxy(req, peer).await),
-            None => (Who::Native, text_response(404, "Not Found")),
-        }
+        text_response(404, "Not Found")
     }
 
     fn boards_doc(&self) -> Value {
@@ -420,49 +317,18 @@ struct Tools {
 #[async_trait]
 impl ToolSource for Tools {
     async fn list(&self) -> Vec<Value> {
-        let native: Vec<(&str, Value)> = self.app.registry.tools().into_iter().map(|(d, t)| (d, mcp::describe(&t))).collect();
-        let Some(l) = &self.app.legacy else { return native.into_iter().map(|x| x.1).collect() };
-        let ours = self.app.registry.all_tool_names();
-        let theirs: Vec<Value> = l
-            .request_json(
-                Method::POST,
-                "/mcp",
-                Some(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })),
-                Duration::from_secs(10),
-            )
-            .await
-            .and_then(|(_, v)| v.get("result")?.get("tools")?.as_array().cloned())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|t| t.get("name").and_then(Value::as_str).is_none_or(|n| !ours.iter().any(|o| o == n)))
-            .collect();
-        // Bun lists tools in driver file-name order; put ours where their driver would be.
-        let mut out: Vec<(String, Value)> =
-            theirs.into_iter().map(|t| (t["name"].as_str().unwrap_or("").split('_').next().unwrap_or("").to_string(), t)).collect();
-        for (driver, t) in native {
-            let at = out.iter().position(|(d, _)| d.as_str() > driver).unwrap_or(out.len());
-            out.insert(at, (driver.to_string(), t));
-        }
-        out.into_iter().map(|x| x.1).collect()
+        self.app.registry.tools().into_iter().map(|(_, t)| mcp::describe(&t)).collect()
     }
 
     async fn call(&self, name: &str, args: Value) -> Option<Value> {
-        if let Some((_, t)) = self.app.registry.tools().into_iter().find(|(_, t)| t.name == name) {
-            return Some(mcp::call_tool(&t, args).await);
-        }
-        let l = self.app.legacy.as_ref()?;
-        let msg = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": name, "arguments": args } });
-        // Tools may legitimately wait (a serial prompt, a CAN capture): allow 2 minutes.
-        let (_, v) = l.request_json(Method::POST, "/mcp", Some(&msg), Duration::from_secs(120)).await?;
-        if let Some(r) = v.get("result") {
-            return Some(r.clone());
-        }
-        if v.pointer("/error/code").and_then(Value::as_i64) == Some(-32602) {
-            return None;
-        }
-        let m = v.pointer("/error/message").and_then(Value::as_str).unwrap_or("legacy server error").to_string();
-        Some(json!({ "content": [{ "type": "text", "text": m }], "isError": true }))
+        let (_, t) = self.app.registry.tools().into_iter().find(|(_, t)| t.name == name)?;
+        Some(mcp::call_tool(&t, args).await)
     }
+}
+
+/// Collect a request body (route handlers, MCP), up to `limit` bytes.
+pub async fn read_body(body: Body, limit: usize) -> Result<Bytes, String> {
+    axum::body::to_bytes(body, limit).await.map_err(|e| e.to_string())
 }
 
 fn preflight_response(h: &HeaderMap) -> Response {

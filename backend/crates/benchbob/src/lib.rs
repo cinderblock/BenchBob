@@ -6,7 +6,6 @@
 pub mod app;
 pub mod docs;
 pub mod health;
-pub mod legacy;
 pub mod sse;
 pub mod status;
 pub mod ui;
@@ -18,7 +17,7 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::State;
 use axum::http::Request;
 use benchbob_boards::{Board, Boards, pick, read_detect_input};
 use benchbob_core::Registry;
@@ -52,8 +51,7 @@ pub fn listen(port: u16) -> anyhow::Result<std::net::TcpListener> {
     Ok(s.into())
 }
 
-/// The drivers this server runs natively; every other panel is the Bun server's (started
-/// with BENCHBOB_NATIVE_DRIVERS set to these ids). A new panel crate is one line here.
+/// Every panel's driver. A new panel crate is one line here.
 pub fn drivers(board: &Arc<Board>) -> Vec<Arc<dyn benchbob_core::Driver>> {
     let i2c = benchbob_i2c::I2c::new();
     // 1-Wire lists the DS2482 bridges the I²C scan found and rescans after binding one.
@@ -97,13 +95,11 @@ pub async fn serve() -> anyhow::Result<()> {
     for d in drivers(&board) {
         registry.register(d);
     }
-    let legacy = env("BENCHBOB_LEGACY_PORT").and_then(|p| p.parse::<u16>().ok()).map(legacy::Legacy::new);
     let app = Arc::new(App {
         registry,
         health: health::Health::new(&board.def.health),
         board,
         boards,
-        legacy,
         sampler: Default::default(),
         sse: Default::default(),
         update: Default::default(),
@@ -122,13 +118,6 @@ pub async fn serve() -> anyhow::Result<()> {
         }));
     }
     app.update.start();
-    if let Some(l) = &app.legacy {
-        tracing::info!("proxying unported routes to the Bun server at {}", l.base());
-        // Seed its build version, so ours doesn't change (and reload every page) once it appears.
-        let _ = l.status(Duration::ZERO).await;
-        let (a, b) = (app.clone(), app.clone());
-        l.follow_events(Arc::new(move || a.sse.count() > 0), Arc::new(move || b.sse.broadcast(&b.periph(), Some("periph"))));
-    }
     app.registry.start().await;
 
     {
@@ -159,10 +148,10 @@ pub async fn serve() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::from_std(listen(port)?)?;
     let router = Router::new().fallback(handler).with_state(app);
     tracing::info!("BenchBob running on http://[::]:{port} (dual-stack: IPv6 + IPv4)");
-    axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    axum::serve(listener, router).await?;
     Ok(())
 }
 
-async fn handler(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, req: Request<Body>) -> axum::response::Response {
-    app.handle(req, Some(peer)).await
+async fn handler(State(app): State<Arc<App>>, req: Request<Body>) -> axum::response::Response {
+    app.handle(req).await
 }

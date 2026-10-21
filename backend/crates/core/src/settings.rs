@@ -2,9 +2,9 @@
 //! (`{ disabled: { id: true }, drivers: { id: { key: value } } }`, as core.ts writes it).
 //!
 //! Saving merges into what is on disk instead of overwriting it: only the entries of the
-//! drivers this process runs are replaced. Entries for drivers it doesn't know are kept,
-//! so in proxy mode the Bun server can own its drivers' entries in the same file, and
-//! switching back to Bun loses nothing. Writes are debounced (200 ms) like core.ts's.
+//! drivers this process runs are replaced. Entries for drivers it doesn't know are kept (a
+//! build without some panel, or a newer version's, loses nothing). Writes are debounced
+//! (200 ms) like core.ts's.
 
 use std::collections::HashSet;
 use std::path::PathBuf;

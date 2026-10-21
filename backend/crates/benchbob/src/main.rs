@@ -6,18 +6,13 @@ use benchbob_core::paths::version;
 
 const HELP: &str = "benchbob: the BenchBob server (dashboard, REST API, SSE, WebSockets, MCP)
 
-Usage: benchbob [--version | --native-drivers | --help]
-
-  --native-drivers        print the ids of the drivers this server runs itself
-                          (what BENCHBOB_NATIVE_DRIVERS tells the Bun server to skip)
+Usage: benchbob [--version | --help]
 
 Environment:
   PORT                    listen port (default 80), IPv6 + IPv4
   BENCHBOB_STATE_DIR      settings directory (else $STATE_DIRECTORY, else the app root)
-  BENCHBOB_ROOT           where index.html, ui/, web/dist and VERSION are
-                          (default: found above the executable)
-  BENCHBOB_LEGACY_PORT    proxy every route this server doesn't implement to the Bun
-                          server on 127.0.0.1:<port> (HTTP and WebSockets)
+  BENCHBOB_ROOT           where web/dist (the dashboard) and VERSION are (default: the
+                          nearest directory above the executable with a web/ directory)
   BENCHBOB_BOARD          force a board id instead of detecting it
   BENCHBOB_BOARDS_DIR     shipped board files (default /usr/share/benchbob/boards, else
                           the copies built in)
@@ -44,13 +39,6 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("benchbob {} (app {})", env!("CARGO_PKG_VERSION"), version());
-        return ExitCode::SUCCESS;
-    }
-    if args.iter().any(|a| a == "--native-drivers") {
-        // For packaging: the drivers the Bun server must leave alone (BENCHBOB_NATIVE_DRIVERS).
-        let boards = benchbob_boards::Boards::builtin();
-        let board = std::sync::Arc::new(benchbob_boards::pick(&boards, &benchbob_boards::DetectInput::default(), None));
-        println!("{}", benchbob::drivers(&board).iter().map(|d| d.id()).collect::<Vec<_>>().join(","));
         return ExitCode::SUCCESS;
     }
     if !args.is_empty() {

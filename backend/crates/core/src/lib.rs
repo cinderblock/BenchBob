@@ -5,8 +5,8 @@
 //!   MCP tools;
 //! - [`registry`]: discovers nothing (drivers are registered by the binary) but starts and
 //!   stops them, routes requests to them and assembles their status;
-//! - [`settings`]: `peripherals.json`, merged on write so another process (the Bun server
-//!   in proxy mode) can keep its own drivers' entries in the same file;
+//! - [`settings`]: `peripherals.json`, merged on write so entries for drivers this build
+//!   doesn't run survive;
 //! - [`udev`]: the udev device database, kept live from `udevadm monitor`;
 //! - [`mcp`]: the stateless Streamable HTTP JSON-RPC endpoint;
 //! - [`http`], [`run`], [`paths`]: request/response helpers, child processes, state dir;

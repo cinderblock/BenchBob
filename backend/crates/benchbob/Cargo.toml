@@ -32,9 +32,6 @@ axum.workspace = true
 bytes.workspace = true
 flate2.workspace = true
 futures-util = { workspace = true, features = ["sink"] }
-http-body-util.workspace = true
-hyper.workspace = true
-hyper-util.workspace = true
 indexmap.workspace = true
 regex.workspace = true
 serde.workspace = true
