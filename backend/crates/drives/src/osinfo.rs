@@ -1001,6 +1001,20 @@ mod tests {
         assert_eq!(g, w);
     }
 
+    /// A real disk's mounted ESP, for a side-by-side with osinfo.ts outside the repo:
+    /// BB_REAL_ROOT=<dir with drives/ESP> cargo test real_esp -- --ignored (writes rust.json).
+    #[test]
+    #[ignore]
+    fn real_esp() {
+        let root = std::env::var("BB_REAL_ROOT").expect("BB_REAL_ROOT");
+        let disk = json!({
+            "name": "sdx", "type": "disk", "tran": "usb", "pttype": "gpt",
+            "children": [{ "name": "sdx1", "fstype": "vfat", "label": null, "uuid": "3E44-6AFB", "partuuid": null, "parttype": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b", "partlabel": "EFI system partition", "mountpoint": format!("{root}/drives/ESP") }],
+        });
+        let v = OsInfo::new(format!("{root}/drives")).analyse(&disk, 0);
+        std::fs::write(format!("{root}/rust.json"), serde_json::to_string_pretty(&v).unwrap().replace(&root, "<root>")).unwrap();
+    }
+
     #[test]
     fn paths_stay_inside_the_drive() {
         let tmp = tempfile::tempdir().unwrap();
