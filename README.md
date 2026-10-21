@@ -225,8 +225,8 @@ holds only what a node serves (status, GPIO, I²C) and must stay under 60 KB gzi
 architecture (x86-64, arm64, ARMv7 and ARMv6), the same API and settings, and board
 definitions as TOML files you can add without rebuilding
 ([backend/boards/README.md](backend/boards/README.md)). It serves the dashboard, status,
-events, updates, MCP and the GPIO panel itself (with pin output on every board), and
-proxies every panel it doesn't have yet to the Bun server, so it can take port 80 early.
+events, updates, MCP, the GPIO panel (with pin output on every board) and drives,
+flashing, rpiboot and the file browser itself, and proxies every panel it doesn't have yet to the Bun server, so it can take port 80 early.
 The released package still runs Bun only; `RUST_BIN=… packaging/build-deb.sh` adds the
 Rust server, and `sudo benchbob-setup rust on` switches it in. See
 [backend/README.md](backend/README.md).
