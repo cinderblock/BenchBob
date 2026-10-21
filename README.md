@@ -86,21 +86,19 @@ claude mcp add --transport http benchbob http://benchbob.local/mcp
 
 ## Layout
 
-- `server.ts`: HTTP server, drives, flashing, rpiboot, status stream
-- `peripherals/core.ts`: driver registry, udev hotplug, routes, WebSockets, MCP
-- `peripherals/drivers/<id>.ts`: one file per panel (auto-discovered)
-- `peripherals/boards/`: one file per board family (pin headers, boot config, health), picked at startup
-- `peripherals/lib/`: parsers, FFI layers (termios, SocketCAN, I²C, gpiomem), tests
-- `web/`: the dashboard (Vite + React/TypeScript on preact/compat), built to `web/dist` and served at `/`
-- `index.html`, `ui/<id>.js`: the previous dashboard, served at `/legacy` until it's removed
-- `paths.ts`: where settings live (`/var/lib/benchbob` when installed), the version
-- `update.ts`: the release check and the dashboard's Update button
-- `packaging/`: the `.deb` build, the apt repository build, systemd unit, udev rule, drive handler, `benchbob-setup`
+- `backend/`: the server, in Rust: one crate per panel plus the core (driver registry, udev
+  hotplug, settings, MCP), drives/flashing/rpiboot, and the HTTP server that ties them
+  together; `backend/boards/` holds the board files (TOML). Its own
+  [README](backend/README.md)
+- `web/`: the dashboard (Vite + React/TypeScript on preact/compat), built to `web/dist` and
+  served at `/`
+- `packaging/`: the `.deb` build, the apt repository and SD image builds, the systemd unit,
+  udev rules, drive handler, `benchbob-setup`, `benchbob-update`, and the upgrade test
 - `firmware/`: node firmware for microcontroller boards (Rust + Embassy; its own README)
-- `backend/`: the Rust server that will replace the Bun one, and the board files (its own README)
 
-Serial, CAN, I²C and GPIO talk to the kernel through `bun:ffi`. The server has no npm
-dependencies: Bun runs the TypeScript directly. Only the web UI has a build step.
+The server is one statically linked binary per architecture (musl, no C dependencies) that
+talks to the kernel directly: termios, SocketCAN, I²C and GPIO ioctls, sysfs, udev. **Nothing
+runs Bun or Node on the box**: Bun is only the web UI's build tool.
 
 ## Hardware
 
@@ -111,7 +109,7 @@ and `BENCHBOB_BOARD=<id>` forces one.
 - **Tested:** Raspberry Pi 4 (desky, Debian 13). Other Raspberry Pis (3, 5, 400/500,
   CM3/4/5, Zero 2 W on a 64-bit OS) run the same code but haven't been tried here; the Pi 5
   reads levels through `pinctrl` instead of `/dev/gpiomem`.
-- **Any other 64-bit Linux box** (an x86 mini PC, a VM, an unknown ARM board): everything
+- **Any other Linux box** (an x86 mini PC, a VM, an unknown ARM board): everything
   but the pin header. Drives, USB, serial, CAN, I²C, 1-Wire, Wi-Fi, BLE, cameras, probes,
   SDR, GPS, UPS and network panels are plain Linux. GPIO lists the kernel's gpiochips and
   their lines, which also covers USB GPIO adapters (FT232H, CH341, MCP2221). Health comes from
@@ -122,9 +120,9 @@ and `BENCHBOB_BOARD=<id>` forces one.
   Sweet Potato and Renegade. Recognised without a pin map: Orange Pi 5 Pro / Max / Ultra and
   BeagleBone AI-64. The dashboard marks these "untested board". Check pins against the
   vendor's pinout before wiring anything.
-- **Can't run BenchBob:** 32-bit boards (BeagleBone Black/Green, Pi Zero W, Pi 1/2), because
-  Bun has no 32-bit ARM build. (The Rust server in `backend/` builds for them, but isn't
-  packaged for them yet.)
+- **32-bit ARM** (the armhf package: Pi Zero W, Pi 1 and 2 on 32-bit Raspberry Pi OS,
+  BeagleBone Black/Green, other ARMv7 boards): the same server built for ARMv6 hard-float,
+  which runs on ARMv7 too. Built and run under emulation, not yet on hardware.
 
 Off the Pi, GPIO is read through the kernel's character-device API, which can't read a level
 without requesting the line. So levels are shown only for lines you pick to watch, requested
@@ -136,14 +134,14 @@ whose vendor tool owns that config (Radxa OS's rsetup, Libre's `ldto`) are left 
 
 ## Install
 
-BenchBob runs on 64-bit Debian-family Linux: Raspberry Pi OS, Debian or Ubuntu, on arm64 or
-amd64. The Raspberry Pi gets the most (header, `config.txt`, bootloader tools); other
-machines get everything that isn't Pi-specific. There is no 32-bit build, because Bun has
-none.
+BenchBob runs on Debian-family Linux: Raspberry Pi OS, Debian or Ubuntu, on arm64, amd64 or
+armhf. The Raspberry Pi gets the most (header, `config.txt`, bootloader tools); other
+machines get everything that isn't Pi-specific. The package is the server binary, the web
+UI and the system glue: no runtime to install.
 
 ```sh
-curl -fLO https://github.com/cinderblock/BenchBob/releases/latest/download/benchbob_arm64.deb
-sudo apt install ./benchbob_arm64.deb    # benchbob_amd64.deb on a PC
+curl -fLO https://github.com/cinderblock/BenchBob/releases/latest/download/benchbob_$(dpkg --print-architecture).deb
+sudo apt install ./benchbob_*.deb
 ```
 
 The dashboard is then on port 80. apt also installs the tools behind each panel
@@ -151,6 +149,10 @@ The dashboard is then on port 80. apt also installs the tools behind each panel
 missing. Settings are kept in `/var/lib/benchbob`, and `/etc/default/benchbob` sets the
 port. For APFS drives, build the module once with `sudo benchbob-setup apfs`.
 
+Upgrading from 0.4.x, which ran the server on Bun, keeps the settings in
+`/var/lib/benchbob`, empties Bun's cache in `/var/cache/benchbob` and removes the Bun
+files; a box left in the old opt-in Rust mode (`benchbob-setup rust on`) has
+`benchbob-rust.service` and its drop-in removed, and `benchbob.service` takes port 80 back.
 Installing over a DeskyPi (`install.sh`) setup moves its settings over and retires
 `deskypi-web.service`.
 
@@ -173,8 +175,9 @@ check off. Without the apt source (if you delete it), the button installs the re
 straight from GitHub. The repository alone, without the package, is described at
 <https://cinderblock.github.io/BenchBob/>.
 
-Releases are cut by pushing a `v*` tag: CI builds and install-tests both packages,
-publishes the GitHub Release, and rebuilds the apt repository from the newest releases.
+Releases are cut by pushing a `v*` tag: CI builds the three packages, install-tests the
+amd64 and arm64 ones and their upgrade from 0.4.1 (`packaging/test-upgrade.sh`), publishes
+the GitHub Release, and rebuilds the apt repository from the newest releases.
 
 ### Privileges
 
@@ -186,22 +189,42 @@ to keep BenchBob on a trusted network.
 
 ## Develop
 
+You need [Rust](https://rustup.rs) for the server and [Bun](https://bun.sh) for the web UI.
+The server is Linux-only (on Windows, use WSL).
+
 ```sh
-bun test peripherals/ ./update.test.ts  # unit tests (also run on Windows)
-PORT=8090 bun run server.ts  # a side instance; BENCHBOB_PORT_OFFSET shifts peripheral ports
-./install.sh                 # on the box: build the .deb from this checkout and install it
-packaging/build-deb.sh arm64 # just build it (CI, any Debian box, WSL)
+cd backend
+cargo test --workspace                 # the server's tests
+cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --check
+cargo build --release -p benchbob
+(cd ../web && bun install && bun run build)   # the dashboard, into web/dist
+# A side instance from the checkout (it finds web/dist above the binary); settings go
+# where BENCHBOB_STATE_DIR says, and BENCHBOB_PORT_OFFSET shifts the peripheral ports.
+PORT=8090 BENCHBOB_PORT_OFFSET=1000 BENCHBOB_STATE_DIR=/tmp/bb target/release/benchbob
 ```
 
-Running from a checkout, settings are kept next to the code unless `BENCHBOB_STATE_DIR`
-says otherwise.
+Packages:
+
+```sh
+./install.sh                    # on the box: build the .deb from this checkout and install it
+packaging/build-deb.sh arm64    # just build one: amd64, arm64 or armhf (CI, any Debian box, WSL)
+```
+
+`build-deb.sh` builds the server with cargo for the package's architecture (static musl,
+linked with the `rust-lld` that ships with Rust: `rustup target add
+aarch64-unknown-linux-musl`, or `x86_64-…`, `arm-unknown-linux-musleabihf`) and the web UI
+with Bun. `RUST_BIN=<binary>` and `WEB_DIST=<dir>` pass in ones built elsewhere, which is
+what CI does. `sudo packaging/test-upgrade.sh <deb>` (on a throwaway machine) installs
+0.4.1 and upgrades it to that package three ways.
+
+Running from a checkout without `BENCHBOB_STATE_DIR`, settings are kept in the checkout.
 
 ### The web UI
 
 `web/` is the dashboard: React components built against `preact/compat` with Vite, one
 lazily loaded module per section and panel, so a bob only downloads the panels it reports.
 It talks to the bob's API as it stands; request and response types sit next to each
-panel's client (`api.ts`). Without a build, the server serves the old page at `/` too.
+panel's client (`api.ts`). Without a build, `/` says how to make one.
 
 ```sh
 cd web && bun install
@@ -219,16 +242,12 @@ permissive CORS for that. A page reloads itself when the bob that served it repo
 build (server or UI); a page served from elsewhere shows a notice instead. The MCU build
 holds only what a node serves (status, GPIO, I²C) and must stay under 60 KB gzipped.
 
-## Rust backend (in progress)
+## Board files
 
-`backend/` is the Rust server that replaces the Bun one: one static binary per
-architecture (x86-64, arm64, ARMv7 and ARMv6), the same API and settings, and board
-definitions as TOML files you can add without rebuilding
-([backend/boards/README.md](backend/boards/README.md)). Every panel is ported; next the
-package ships the Rust binary alone, with no Bun at runtime.
-The released package still runs Bun only; `RUST_BIN=… packaging/build-deb.sh` adds the
-Rust server, and `sudo benchbob-setup rust on` switches it in. See
-[backend/README.md](backend/README.md).
+Boards are data: TOML files in `/usr/share/benchbob/boards` (shipped) and
+`/etc/benchbob/boards.d` (yours; the same id overrides a shipped one), with a script
+contract for boot config and health. Adding a board needs no rebuild; see
+[backend/boards/README.md](backend/boards/README.md).
 
 ## Microcontroller nodes
 

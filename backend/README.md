@@ -1,40 +1,39 @@
-# BenchBob's Rust backend
+# BenchBob's server
 
-The server that replaces the Bun/TypeScript one, panel by panel. One statically linked
-binary per architecture, the same API (paths, JSON shapes and key order, SSE and
-WebSocket messages, MCP tool names), the same settings files, so either the old dashboard
-or the new web UI works against either server.
+BenchBob's backend, in Rust: one statically linked binary per architecture, which is all
+the package runs (no Bun, no Node). It replaced the Bun/TypeScript server panel by panel
+and kept its API (paths, JSON shapes and key order, SSE and WebSocket messages, MCP tool
+names) and its settings files, so an upgrade from a Bun-based release (0.4.x and earlier)
+keeps everything.
 
-> **Status:** every panel is native: drives (with flashing, rpiboot, the file browser, OS
-> detection and the catalog), GPIO, serial, CAN, I²C, 1-Wire, USB, wired network, Wi-Fi,
-> BLE, camera, debug probes, RTL-SDR, GPS and UPS. Next the package ships this binary
-> alone: no Bun at runtime and no proxy (see [Proxy mode](#proxy-mode), which is only
-> scaffolding until then). Releases are on hold until that package is ready.
+Every panel is here: drives (with flashing, rpiboot, the file browser, OS detection and the
+catalog), GPIO, serial, CAN, I²C, 1-Wire, USB, wired network, Wi-Fi, BLE, camera, debug
+probes, RTL-SDR, GPS and UPS.
 
-| What | Native here |
-| --- | --- |
-| Dashboard: `web/dist` at `/` when it exists (the old page at `/legacy`), else `index.html` with `ui/*.js` inlined; build-version stamping and reload | yes |
-| `GET /api` docs (examples rewritten to the caller's origin), `/api/status`, `/api/events` (SSE, per-client gzip) | yes |
-| `/api/update*` (release check, settings, install), `/mcp` (stateless Streamable HTTP), `/api/periph/driver`, `/api/periph/timeline` | yes |
-| `GET /api/boards`: the board files loaded, which one matched, files that failed (new) | yes |
-| GPIO panel: `/api/gpio*`, `/ws/gpio`, `gpio_*` MCP tools, plus `POST /api/gpio/line` (new) | yes |
-| Drives: the drive fields of `/api/status`, eject, scan, probe, deep scan, erase, flash (with cloud-init / firstrun.sh settings and Install BenchBob), `/api/rpiboot/*`, `/api/blcard*`, `/api/files`, `/api/download`, `/api/osinfo`, `/api/images`, `/api/catalog`, `/api/favorites`, `/api/quicklist`, `/api/defaults` | yes |
-| Serial panel: `/api/serial*`, `/ws/serial/:id`, the raw TCP and RFC 2217 bridges, `serial_*` MCP tools, esptool/avrdude flashing | yes |
-| CAN panel: `/api/can*`, `/ws/can/:iface`, `can_*` MCP tools, the socketcand server and its UDP beacon | yes |
-| I²C panel: `/api/i2c*`, `i2c_*` MCP tools | yes |
-| 1-Wire panel: `/api/onewire*`, `onewire_*` MCP tools | yes |
-| USB panel: `/api/usb*`, `usb_*` MCP tools (device tree, hotplug and kernel timeline, uhubctl port power, USB/IP and usbredir sharing) | yes |
-| Wired network panel: `/api/netdiag*`, `net_*` MCP tools (ethtool link, receive-only LLDP, iperf3, ping/DNS/HTTP/MTU checks) | yes |
-| Wi-Fi panel: `/api/wifi*` (radios, regulatory domain, scanner with watch leases and history, client tests, profiles), `wifi_*` MCP tools | yes |
-| BLE panel: `/api/ble*`, `/ws/ble`, `ble_*` MCP tools | yes |
-| Camera panel: `/api/camera*` (the MJPEG stream proxied, snapshots), `camera_*` MCP tools, on-demand ustreamer per camera | yes |
-| Debug probes panel: `/api/probes*`, `/ws/probes/:id`, `probes_*` MCP tools, OpenOCD GDB servers and one-shot sessions, UF2 and DFU flashing | yes |
-| RTL-SDR panel: `/api/sdr*`, `sdr_*` MCP tools, rtl_tcp and rtl_433 | yes |
-| GPS panel: `/api/gps*`, `gps_*` MCP tools, a temporary gpsd | yes |
-| UPS panel: `/api/ups*`, `ups_status`, a private NUT | yes |
+What it serves:
 
-Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
-`backend` block listing the native routes. Every response carries permissive CORS
+- Dashboard: `web/dist` at `/` (a page saying how to build it when there's none), build-version stamping and reload
+- `GET /api` docs (examples rewritten to the caller's origin), `/api/status`, `/api/events` (SSE, per-client gzip)
+- `/api/update*` (release check, settings, install), `/mcp` (stateless Streamable HTTP), `/api/periph/driver`, `/api/periph/timeline`
+- `GET /api/boards`: the board files loaded, which one matched, files that failed (new)
+- GPIO panel: `/api/gpio*`, `/ws/gpio`, `gpio_*` MCP tools, plus `POST /api/gpio/line` (new)
+- Drives: the drive fields of `/api/status`, eject, scan, probe, deep scan, erase, flash (with cloud-init / firstrun.sh settings and Install BenchBob), `/api/rpiboot/*`, `/api/blcard*`, `/api/files`, `/api/download`, `/api/osinfo`, `/api/images`, `/api/catalog`, `/api/favorites`, `/api/quicklist`, `/api/defaults`
+- Serial panel: `/api/serial*`, `/ws/serial/:id`, the raw TCP and RFC 2217 bridges, `serial_*` MCP tools, esptool/avrdude flashing
+- CAN panel: `/api/can*`, `/ws/can/:iface`, `can_*` MCP tools, the socketcand server and its UDP beacon
+- I²C panel: `/api/i2c*`, `i2c_*` MCP tools
+- 1-Wire panel: `/api/onewire*`, `onewire_*` MCP tools
+- USB panel: `/api/usb*`, `usb_*` MCP tools (device tree, hotplug and kernel timeline, uhubctl port power, USB/IP and usbredir sharing)
+- Wired network panel: `/api/netdiag*`, `net_*` MCP tools (ethtool link, receive-only LLDP, iperf3, ping/DNS/HTTP/MTU checks)
+- Wi-Fi panel: `/api/wifi*` (radios, regulatory domain, scanner with watch leases and history, client tests, profiles), `wifi_*` MCP tools
+- BLE panel: `/api/ble*`, `/ws/ble`, `ble_*` MCP tools
+- Camera panel: `/api/camera*` (the MJPEG stream proxied, snapshots), `camera_*` MCP tools, on-demand ustreamer per camera
+- Debug probes panel: `/api/probes*`, `/ws/probes/:id`, `probes_*` MCP tools, OpenOCD GDB servers and one-shot sessions, UF2 and DFU flashing
+- RTL-SDR panel: `/api/sdr*`, `sdr_*` MCP tools, rtl_tcp and rtl_433
+- GPS panel: `/api/gps*`, `gps_*` MCP tools, a temporary gpsd
+- UPS panel: `/api/ups*`, `ups_status`, a private NUT
+
+`GET /api` has a `backend` block: the server, its version and its drivers. Every response
+carries permissive CORS
 (`Access-Control-Allow-Origin: *`, no credentials; preflights and Chrome's Private
 Network Access are answered for every path), so a desktop app on another origin can talk
 to any bob.
@@ -61,12 +60,17 @@ to any bob.
 | `crates/sdr` (`benchbob-sdr`) | The RTL-SDR driver: stick table, DVB-driver check, rtl_tcp / rtl_433 state machine, rtl_433 sensor table, rtl_test/rtl_eeprom probing |
 | `crates/gps` (`benchbob-gps`) | The GPS driver: candidate ttys and their holders, gpsd as a child, the JSON watch client and fix/sky/PPS fold |
 | `crates/ups` (`benchbob-ups`) | The UPS driver: NUT's udev table, HID Power Device detection, private NUT driver + upsd, upsc polling, status decoding and power events |
-| `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
+| `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
 A new panel is a new crate implementing `benchbob_core::Driver`, added to `drivers()` in
-`crates/benchbob/src/lib.rs`. Its id then joins `benchbob --native-drivers`, which is what
-Rust mode tells the Bun server to stop running.
+`crates/benchbob/src/lib.rs`.
+
+Every child process goes through `benchbob_core::child` (`Ctx::spawn`, `run::run`, or
+`CommandExt::spawn_guarded`): when its handle is dropped while it runs (an aborted task, a
+`run()` timeout), it gets SIGTERM, then SIGKILL after a three-second grace. Never a bare
+SIGKILL or tokio's `kill_on_drop`: for `sudo -n prog` that kills sudo only and leaves `prog`
+running as root.
 
 ## Build
 
@@ -99,14 +103,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-The drives crate's tests replay the TypeScript server itself: `bun
-backend/crates/drives/fixtures/harness.ts` (from the repository root) cuts the sections
-under test out of server.ts, and loads rpiboot.ts and osinfo.ts, behind mocks of every
-command, file, fetch and clock; it records each command (with its stdin), stream read
-and file check alongside the operation's state, and writes `fixtures/*.expected.json`.
-The Rust tests run the same scenarios through `sys::mock` and must produce the same log
-and outcome, and the same cloud-init and firstrun.sh files byte for byte. Rerun the
-harness after changing the TypeScript it covers.
+The drives crate's tests replay what the TypeScript server did: a harness ran server.ts,
+rpiboot.ts and osinfo.ts behind mocks of every command, file, fetch and clock, and recorded
+each command (with its stdin), stream read and file check alongside the operation's state
+in `crates/drives/fixtures/*.expected.json`. The Rust tests run the same scenarios through
+`sys::mock` and must produce the same log and outcome, and the same cloud-init and
+firstrun.sh files byte for byte. The harness went with the TypeScript, so those files are
+frozen: change one by hand, deliberately, when a change means to alter that behaviour.
 The CAN tests that need a bus run on a vcan named by `BENCHBOB_CAN_TEST_VCAN` (create it once
 as root: `ip link add dev vcanbbtest0 type vcan && ip link set vcanbbtest0 mtu 72 up`;
 the tests themselves need no privileges) and are skipped without it.
@@ -114,26 +117,37 @@ The GPS driver's test against gpsd itself runs when `BENCHBOB_TEST_GPSD` names a
 binary (or a wrapper script), with `crates/gps/fixtures/nmea-feeder.py` as the receiver on a
 pty; the probes tests that drive the stand-in OpenOCD need python3.
 
-CI runs those on x86-64 and arm64, builds every target, smoke-tests the x86-64 binary,
-and installs a `.deb` built with it to switch Rust mode on and off.
+Core's test that a dropped `sudo` child's program dies needs passwordless sudo, and is
+skipped without it.
+
+CI runs those on x86-64 and arm64 (where the sudo test runs), builds every target,
+smoke-tests the x86-64 binary, packages amd64, arm64 and armhf, installs the first two and
+tests their upgrade from 0.4.1 (`packaging/test-upgrade.sh`).
 
 ## Run
 
+Installed, it is `benchbob.service`: `/usr/lib/benchbob/bin/benchbob` as the `benchbob` user
+on port 80, settings in `/var/lib/benchbob`, environment from `/etc/default/benchbob`.
+From a checkout (build the web UI first, `cd web && bun run build`, or `/` only says how):
+
 ```sh
-PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
+cargo build --release -p benchbob
+PORT=8091 BENCHBOB_PORT_OFFSET=1000 BENCHBOB_STATE_DIR=/tmp/bb target/release/benchbob
 ```
+
+A side instance next to an installed one wants its own `PORT`, `BENCHBOB_PORT_OFFSET` and
+`BENCHBOB_STATE_DIR`. It finds `web/dist` in the checkout above the binary; with
+`CARGO_TARGET_DIR` elsewhere, set `BENCHBOB_ROOT` to the checkout.
 
 | Variable | |
 | --- | --- |
 | `PORT` | listen port (default 80), IPv6 and IPv4 |
 | `BENCHBOB_STATE_DIR` | settings (else `$STATE_DIRECTORY`, else the app root), the same files as the Bun server's |
-| `BENCHBOB_ROOT` | where `index.html`, `ui/`, `web/dist` and `VERSION` are (default: the nearest directory above the executable with an `index.html`, e.g. `/usr/lib/benchbob`) |
-| `BENCHBOB_LEGACY_PORT` | proxy every route this server doesn't have to the Bun server on `127.0.0.1:<port>` |
+| `BENCHBOB_ROOT` | where `web/dist` and `VERSION` are (default: the nearest directory above the executable with a `web/` directory: `/usr/lib/benchbob`, or the checkout) |
 | `BENCHBOB_BOARD` | force a board id |
 | `BENCHBOB_BOARDS_DIR`, `BENCHBOB_BOARDS_D` | other board directories (shipped / user) |
 | `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port (socketcand: 29536 + offset; usbipd 3240, usbredir 4200 + n and the default iperf3 server port 5201, each + offset) |
 | `BENCHBOB_CAN_REC_DIR` | where CAN recordings go (default `/var/tmp/benchbob-can`, capped at 256 MB each) |
-| `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port |
 | `BENCHBOB_W1_ROOT` | read 1-Wire from a fixture tree instead of /sys/bus/w1/devices (`BENCHBOB_W1_FIXTURE_OUT=<dir> cargo test -p benchbob-onewire write_fixture_tree` writes one) |
 | `BENCHBOB_CONFIG_TXT`, `BENCHBOB_CMDLINE_TXT`, `BENCHBOB_BOOT_ENV`, `BENCHBOB_OVERLAY_DIR` | point the boot-config editors at test copies (reboot is then refused) |
 | `BENCHBOB_FLASH_DIR` | where the serial panel stages firmware files (default `/var/tmp/benchbob-serial`; a side instance can't write the packaged one's) |
@@ -142,27 +156,7 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_UPS_SIMULATE` | run NUT's dummy-ups on this `.dev` file as a UPS (edit `ups.status:` in it to drive OL → OB → LB) |
 | `RUST_LOG` | log filter (default `info`) |
 
-The old `DESKYPI_*` names still work. `benchbob --native-drivers` prints the ids of the
-drivers this build runs itself.
-
-## Proxy mode
-
-With `BENCHBOB_LEGACY_PORT`, any route not served here (HTTP, and WebSocket upgrades) is
-streamed to the Bun server. The documents that span every panel merge both servers'
-parts: `/api/status` (`peripherals` lists both servers' drivers in dashboard order), `/api/events` (it follows Bun's stream
-for `periph` events), `/api`, MCP `tools/list` and `tools/call`, and the timeline. The
-build version folds in Bun's, so a page reloads when either server changes.
-
-The Bun server runs with `BENCHBOB_NATIVE_DRIVERS=<ids>` (from `benchbob
---native-drivers`), which makes it skip those drivers and keep their entries in
-`peripherals.json` as this server wrote them; this server, in turn, only replaces its own
-drivers' entries. Both use the same state directory.
-
-In the package (built with `RUST_BIN=… packaging/build-deb.sh`), `sudo benchbob-setup rust
-on` enables `benchbob-rust.service` on port 80 and moves `benchbob.service` to port 8081
-with that variable (a drop-in, refreshed on every upgrade); `sudo benchbob-setup rust off`
-undoes it. The Bun server still listens on every interface on 8081 (it has no
-bind-address setting).
+The old `DESKYPI_*` names still work.
 
 ## CAN notes
 
@@ -203,6 +197,7 @@ bind-address setting).
 - Firmware given by URL is fetched with `curl`, like the update check.
 - When the flash tool can't be started at all, the port is reopened (the TypeScript left it
   closed).
+
 ## Camera, probes, RTL-SDR, GPS and UPS notes
 
 - Each starts its tool only when asked and stops it when done: ustreamer per camera (idle
@@ -243,8 +238,6 @@ bind-address setting).
   for `confirm: "ganged" | "unsafe"`, exactly as the Bun server does.
 - usbipd, usbredirect and the `dmesg -W` follower run through `sudo -n` and are stopped with
   SIGTERM, which sudo passes on (a SIGKILL would orphan them).
-- In proxy mode `GET /api/usb/timeline` and the panel's timeline hold this server's events
-  only; `GET /api/periph/timeline` merges both servers'.
 
 ## Wired network notes
 
@@ -258,6 +251,7 @@ bind-address setting).
   c-ares's error codes; the HTTP check uses `curl` and stops it once the headers arrive.
 - Slow checks (ping, DNS, HTTP, MTU, `iperf` with `wait`) answer at once and send a space
   every 4 s until the JSON follows, as the Bun server's `slowJson` does.
+
 ## Wi-Fi notes
 
 - Same API and behaviour as `peripherals/drivers/wifi.ts`. Scans never change an existing
@@ -286,6 +280,5 @@ bind-address setting).
   power are put back afterwards. The FIFO is opened read-write, so the read ends when btmon
   exits.
 - The decoder tests use the gitignored 10 s capture from desky
-  (`peripherals/lib/radios-fixtures/ble-scan.btsnoop`, or `BENCHBOB_BLE_CAPTURE`) when it is
-  there. A truncated payload decodes to nothing rather than ending the scan (the TypeScript
+  (`crates/ble/fixtures/ble-scan.btsnoop`, or `BENCHBOB_BLE_CAPTURE`) when it is there. A truncated payload decodes to nothing rather than ending the scan (the TypeScript
   threw).
