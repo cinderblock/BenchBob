@@ -119,3 +119,12 @@ No login, so anyone on the LAN can do this against port 80:
 Why it matters: root command execution (the commands run under sudo). `/api/blcard` and
 `/api/osinfo` already check `^[a-z][a-z0-9]*$`; the other routes need the same, and the
 flash file name a whitelist.
+
+## Web UI tests time out on a cold first run under load
+
+Seen 2026-10-21: the first `bun run test` in `web/` after edits failed `Bob.test.tsx >
+erases only after ERASE is typed` and `Flash.test.tsx > flashes the chosen image with the
+form's first-boot settings` with timeouts; both passed on their own and on every rerun.
+Parallel agents running suites at the same time hit the same thing. Likely `findBy*`
+lookups with short timeouts (Flash.test uses 1 s) racing lazy-loaded sections on a cold
+transform cache. Matters because CI on a slow runner may fail spuriously.
