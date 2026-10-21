@@ -11,6 +11,7 @@ publish.workspace = true
 benchbob-core.workspace = true
 benchbob-boards.workspace = true
 benchbob-gpio.workspace = true
+benchbob-i2c.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true

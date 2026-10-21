@@ -108,6 +108,7 @@ dependencies = [
  "benchbob-boards",
  "benchbob-core",
  "benchbob-gpio",
+ "benchbob-i2c",
  "bytes",
  "flate2",
  "futures-util",
@@ -174,6 +175,23 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "benchbob-i2c"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "benchbob-i2c-chips",
+ "libc",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

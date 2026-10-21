@@ -56,7 +56,7 @@ pub fn listen(port: u16) -> anyhow::Result<std::net::TcpListener> {
 /// The drivers this server runs natively; every other panel is the Bun server's (started
 /// with BENCHBOB_NATIVE_DRIVERS set to these ids). A new panel crate is one line here.
 pub fn drivers(board: &Arc<Board>) -> Vec<Arc<dyn benchbob_core::Driver>> {
-    vec![Arc::new(benchbob_gpio::Gpio::new(board.clone()))]
+    vec![Arc::new(benchbob_gpio::Gpio::new(board.clone())), Arc::new(benchbob_i2c::I2c::new())]
 }
 
 pub async fn serve() -> anyhow::Result<()> {

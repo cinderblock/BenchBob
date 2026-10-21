@@ -1,0 +1,24 @@
+[package]
+name = "benchbob-i2c"
+description = "BenchBob's I²C panel: bus discovery, i2cdetect-style scans, chip identification, live readings, raw register tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+benchbob-core.workspace = true
+benchbob-i2c-chips.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+libc.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
