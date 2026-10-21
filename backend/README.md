@@ -5,7 +5,7 @@ binary per architecture, the same API (paths, JSON shapes and key order, SSE and
 WebSocket messages, MCP tool names), the same settings files, so either the old dashboard
 or the new web UI works against either server.
 
-> **Status:** the foundation, the board layer and the GPIO panel are native. Everything
+> **Status:** the foundation, the board layer and the GPIO and serial panels are native. Everything
 > else is proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
 > own port 80 before it has every panel. The released `.deb` still runs Bun only.
 
@@ -16,6 +16,7 @@ or the new web UI works against either server.
 | `/api/update*` (release check, settings, install), `/mcp` (stateless Streamable HTTP), `/api/periph/driver`, `/api/periph/timeline` | yes |
 | `GET /api/boards`: the board files loaded, which one matched, files that failed (new) | yes |
 | GPIO panel: `/api/gpio*`, `/ws/gpio`, `gpio_*` MCP tools, plus `POST /api/gpio/line` (new) | yes |
+| Serial panel: `/api/serial*`, `/ws/serial/:id`, the raw TCP and RFC 2217 bridges, `serial_*` MCP tools, esptool/avrdude flashing | yes |
 | Drives, flashing, rpiboot, files, catalog, and every other panel | proxied |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
@@ -31,6 +32,7 @@ to any bob.
 | `crates/core` (`benchbob-core`) | The `Driver` trait (routes, WebSockets, MCP tools, status), the registry, `peripherals.json` settings (merged on write), udev hotplug, the event timeline, MCP, child processes, the state directory |
 | `crates/boards` (`benchbob-boards`) | The board file format, loading (`/usr/share/benchbob/boards`, then `/etc/benchbob/boards.d`) and detection |
 | `crates/gpio` (`benchbob-gpio`) | The GPIO driver: gpiochip v2 uAPI (with output requests), passive level readers (BCM2711 gpiomem, RP1), config.txt and boot-overlay editors, board scripts |
+| `crates/serial` (`benchbob-serial`) | The serial driver: termios2 ports, the ring buffer and fan-out, TCP / RFC 2217 / WebSocket bridges, auto-baud, DTR/RTS resets, esptool/avrdude jobs |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -128,3 +130,16 @@ bind-address setting).
   pinctrl, and has never run on hardware. `GET /api/gpio` reports it in `levelReader`
   (`tested: false`).
 - Consumers come from the uAPI, not from spawning `gpioinfo`.
+
+## Serial notes
+
+- Same API and behaviour as `peripherals/drivers/serial.ts`; the tests run the driver
+  against pseudo-terminals (`crates/serial/tests/pty.rs`).
+- Reads and writes go through tokio's `AsyncFd` on the O_NONBLOCK tty, so a full
+  transmit buffer waits for the tty to drain instead of polling every 5 ms.
+- `wait` in `POST /api/serial/:id/write` and `serial_write` is compiled with the `regex`
+  crate (flags i, m, s; `$` in multi-line mode also ends a line before ``). Lookaround
+  and backreferences aren't supported and answer 400 "Bad wait regex".
+- Firmware given by URL is fetched with `curl`, like the update check.
+- When the flash tool can't be started at all, the port is reopened (the TypeScript left it
+  closed).
