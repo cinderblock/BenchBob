@@ -389,6 +389,9 @@ jobs:
 
   # The apt repository on GitHub Pages, rebuilt from the newest app releases each time.
   # Also runnable by hand (workflow_dispatch) to republish without a new release.
+  # Pages keeps the first deployment of a commit: a manual run on the commit that then gets
+  # tagged leaves the tag run's deploy (with the new release in it) unserved. To republish,
+  # run this by hand on a newer commit.
   pages:
     if: always() && needs.package.result == 'success' && (needs.release.result == 'success' || (github.event_name == 'workflow_dispatch' && needs.release.result == 'skipped'))
     needs: [package, release]
