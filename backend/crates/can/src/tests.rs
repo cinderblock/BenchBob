@@ -94,7 +94,8 @@ impl T {
 async fn next_json(rx: &mut mpsc::UnboundedReceiver<WsOut>) -> Value {
     match tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.expect("ws message") {
         Some(WsOut::Text(t)) => serde_json::from_str(&t).unwrap(),
-        Some(WsOut::Close) => json!({ "closed": true }),
+        Some(WsOut::Close) | Some(WsOut::CloseWith(..)) => json!({ "closed": true }),
+        Some(WsOut::Binary(b)) => json!({ "binary": b.len() }),
         None => json!({ "gone": true }),
     }
 }

@@ -1,0 +1,193 @@
+# ==================== BeagleBone Black / Green (TI AM335x) ====================
+#
+# UNTESTED: nobody here has a BeagleBone. The pinout is BeagleBoard.org's and the kernel's;
+# what hasn't been checked is BenchBob running on the hardware (32-bit ARMv7: the Rust
+# server's armv7 / armhf build; the Bun server never ran here).
+#
+# Covers the BeagleBone Black, Black Wireless, Green and Green Wireless: the same P8/P9
+# headers, 46 pins each. (The original BeagleBone, PocketBeagle and BeagleBone Blue have
+# other compatibles and are not matched.)
+#
+# Sources, cross-checked:
+#  - Every GPIO pin's bank and line is the mainline device tree's gpio-line-names
+#    ("P9_22 [spi0_sclk]" on gpio0 line 2…). P8_24 (gpio1_1, eMMC data 1) is the one header
+#    pin the line names leave unlabelled; BeagleBoard.org's tables give it.
+#      https://github.com/torvalds/linux/blob/master/arch/arm/boot/dts/ti/omap/am335x-boneblack.dts
+#  - Pads, power pins and alternate functions: the System Reference Manual's expansion
+#    header tables (docs.beagleboard.org) and pinout.beagleboard.io.
+#      https://docs.beagleboard.org/boards/beaglebone/black/ch07.html
+#      https://pinout.beagleboard.io/
+#  - Overlays and the pins each takes: BeagleBoard.org's bb.org-overlays (src/arm/BB-*.dts).
+#      https://github.com/beagleboard/bb.org-overlays
+#  - Chips: the four gpio-omap banks, by device name (44e07000.gpio is gpio0, 4804c000
+#    gpio1, 481ac000 gpio2, 481ae000 gpio3, from am33xx-l4.dtsi). Their uAPI labels
+#    ("gpio-0-31"…) follow probe order, so they aren't used.
+#      https://github.com/torvalds/linux/blob/master/arch/arm/boot/dts/ti/omap/am33xx-l4.dtsi
+#
+# Three P9 pins connect two SoC balls each (P9_15, P9_41, P9_42); the line here is the ball
+# BeagleBoard.org documents first, and the note names the other one.
+#
+# Boot config: BeagleBoard.org's Debian images load U-Boot overlays from uEnv.txt
+# (uboot_overlay_addr0..7=/lib/firmware/<name>.dtbo, with enable_uboot_overlays=1).
+#   https://docs.beagleboard.org/boards/beaglebone/black/ch05.html
+
+id = "beaglebone-black"
+name = "BeagleBone Black"
+vendor = "BeagleBoard.org"
+soc = "TI AM3358"
+tested = false
+health = "sysfs"
+sources = [
+  "https://github.com/torvalds/linux/blob/master/arch/arm/boot/dts/ti/omap/am335x-boneblack.dts",
+  "https://github.com/torvalds/linux/blob/master/arch/arm/boot/dts/ti/omap/am33xx-l4.dtsi",
+  "https://docs.beagleboard.org/boards/beaglebone/black/ch07.html",
+  "https://pinout.beagleboard.io/",
+  "https://github.com/beagleboard/bb.org-overlays",
+]
+notes = [
+  "P8 pins 3–6 and 20–25 are the eMMC, and on the Black P8 27–46 drive the HDMI framer: they are in use unless those are disabled.",
+  "Overlay pin conflicts are checked on P9 only (the board file format names one header's pins); the P8 overlays say their pins in the description.",
+  "U-Boot only loads uEnv.txt overlays with enable_uboot_overlays=1.",
+]
+
+[detect]
+priority = 50
+# Green and the Wireless variants list ti,am335x-bone-black too.
+compatible = ['^ti,am335x-bone-black$', '^ti,am335x-bone-green$']
+
+[gpio]
+panel = "gpiochip"
+reader = "gpiochip"
+
+# Chip keys → the gpiochip's sysfs device name.
+[chips]
+gpio0 = ["44e07000.gpio"]
+gpio1 = ["4804c000.gpio"]
+gpio2 = ["481ac000.gpio"]
+gpio3 = ["481ae000.gpio"]
+
+[[header]]
+id = "p9"
+name = "P9 expansion header"
+pins = [
+  { pin = 1, kind = "gnd" },
+  { pin = 2, kind = "gnd" },
+  { pin = 3, kind = "3v3" },
+  { pin = 4, kind = "3v3" },
+  { pin = 5, kind = "5v", label = "VDD_5V (barrel jack only)" },
+  { pin = 6, kind = "5v", label = "VDD_5V (barrel jack only)" },
+  { pin = 7, kind = "5v", label = "SYS_5V" },
+  { pin = 8, kind = "5v", label = "SYS_5V" },
+  { pin = 9, kind = "other", label = "PWR_BUT" },
+  { pin = 10, kind = "other", label = "SYS_RESETn" },
+  { pin = 11, soc = "GPIO0_30 (gpmc_wait0)", chip = "gpio0", line = 30, funcs = ["UART4_RXD"] },
+  { pin = 12, soc = "GPIO1_28 (gpmc_be1n)", chip = "gpio1", line = 28 },
+  { pin = 13, soc = "GPIO0_31 (gpmc_wpn)", chip = "gpio0", line = 31, funcs = ["UART4_TXD"] },
+  { pin = 14, soc = "GPIO1_18 (gpmc_a2)", chip = "gpio1", line = 18, funcs = ["EHRPWM1A"] },
+  { pin = 15, soc = "GPIO1_16 (gpmc_a0)", chip = "gpio1", line = 16, note = "The mainline line names also list gpio2_0 as P9_15B" },
+  { pin = 16, soc = "GPIO1_19 (gpmc_a3)", chip = "gpio1", line = 19, funcs = ["EHRPWM1B"] },
+  { pin = 17, soc = "GPIO0_5 (spi0_cs0)", chip = "gpio0", line = 5, funcs = ["SPI0_CS0", "I2C1_SCL"] },
+  { pin = 18, soc = "GPIO0_4 (spi0_d1)", chip = "gpio0", line = 4, funcs = ["SPI0_D1", "I2C1_SDA"] },
+  { pin = 19, soc = "GPIO0_13 (uart1_rtsn)", chip = "gpio0", line = 13, funcs = ["I2C2_SCL", "DCAN0_RX", "UART1_RTSN"], note = "I²C2 (/dev/i2c-2) by default: the cape EEPROM bus" },
+  { pin = 20, soc = "GPIO0_12 (uart1_ctsn)", chip = "gpio0", line = 12, funcs = ["I2C2_SDA", "DCAN0_TX", "UART1_CTSN"], note = "I²C2 (/dev/i2c-2) by default: the cape EEPROM bus" },
+  { pin = 21, soc = "GPIO0_3 (spi0_d0)", chip = "gpio0", line = 3, funcs = ["SPI0_D0", "UART2_TXD", "I2C2_SCL", "EHRPWM0B"] },
+  { pin = 22, soc = "GPIO0_2 (spi0_sclk)", chip = "gpio0", line = 2, funcs = ["SPI0_SCLK", "UART2_RXD", "I2C2_SDA", "EHRPWM0A"] },
+  { pin = 23, soc = "GPIO1_17 (gpmc_a1)", chip = "gpio1", line = 17 },
+  { pin = 24, soc = "GPIO0_15 (uart1_txd)", chip = "gpio0", line = 15, funcs = ["UART1_TXD", "DCAN1_RX", "I2C1_SCL"] },
+  { pin = 25, soc = "GPIO3_21 (mcasp0_ahclkx)", chip = "gpio3", line = 21, note = "Black: the HDMI audio clock" },
+  { pin = 26, soc = "GPIO0_14 (uart1_rxd)", chip = "gpio0", line = 14, funcs = ["UART1_RXD", "DCAN1_TX", "I2C1_SDA"] },
+  { pin = 27, soc = "GPIO3_19 (mcasp0_fsr)", chip = "gpio3", line = 19 },
+  { pin = 28, soc = "GPIO3_17 (mcasp0_ahclkr)", chip = "gpio3", line = 17, funcs = ["SPI1_CS0", "ECAP2"], note = "Black: HDMI audio" },
+  { pin = 29, soc = "GPIO3_15 (mcasp0_fsx)", chip = "gpio3", line = 15, funcs = ["SPI1_D0", "EHRPWM0B"], note = "Black: HDMI audio" },
+  { pin = 30, soc = "GPIO3_16 (mcasp0_axr0)", chip = "gpio3", line = 16, funcs = ["SPI1_D1"] },
+  { pin = 31, soc = "GPIO3_14 (mcasp0_aclkx)", chip = "gpio3", line = 14, funcs = ["SPI1_SCLK", "EHRPWM0A"], note = "Black: HDMI audio" },
+  { pin = 32, kind = "other", label = "VDD_ADC (1.8 V)" },
+  { pin = 33, kind = "other", label = "AIN4" },
+  { pin = 34, kind = "gnd", label = "GNDA_ADC" },
+  { pin = 35, kind = "other", label = "AIN6" },
+  { pin = 36, kind = "other", label = "AIN5" },
+  { pin = 37, kind = "other", label = "AIN2" },
+  { pin = 38, kind = "other", label = "AIN3" },
+  { pin = 39, kind = "other", label = "AIN0" },
+  { pin = 40, kind = "other", label = "AIN1" },
+  { pin = 41, soc = "GPIO0_20 (xdma_event_intr1)", chip = "gpio0", line = 20, note = "Two balls: also gpio3_20 (mcasp0_axr1); keep the other one an input" },
+  { pin = 42, soc = "GPIO0_7 (ecap0_in_pwm0_out)", chip = "gpio0", line = 7, funcs = ["ECAP0", "SPI1_CS1", "UART3_TXD"], note = "Two balls: also gpio3_18 (mcasp0_aclkr); keep the other one an input" },
+  { pin = 43, kind = "gnd" },
+  { pin = 44, kind = "gnd" },
+  { pin = 45, kind = "gnd" },
+  { pin = 46, kind = "gnd" },
+]
+
+[[header]]
+id = "p8"
+name = "P8 expansion header"
+pins = [
+  { pin = 1, kind = "gnd" },
+  { pin = 2, kind = "gnd" },
+  { pin = 3, soc = "GPIO1_6 (gpmc_ad6)", chip = "gpio1", line = 6, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 4, soc = "GPIO1_7 (gpmc_ad7)", chip = "gpio1", line = 7, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 5, soc = "GPIO1_2 (gpmc_ad2)", chip = "gpio1", line = 2, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 6, soc = "GPIO1_3 (gpmc_ad3)", chip = "gpio1", line = 3, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 7, soc = "GPIO2_2 (gpmc_advn_ale)", chip = "gpio2", line = 2, funcs = ["TIMER4"] },
+  { pin = 8, soc = "GPIO2_3 (gpmc_oen_ren)", chip = "gpio2", line = 3, funcs = ["TIMER7"] },
+  { pin = 9, soc = "GPIO2_5 (gpmc_be0n_cle)", chip = "gpio2", line = 5, funcs = ["TIMER5"] },
+  { pin = 10, soc = "GPIO2_4 (gpmc_wen)", chip = "gpio2", line = 4, funcs = ["TIMER6"] },
+  { pin = 11, soc = "GPIO1_13 (gpmc_ad13)", chip = "gpio1", line = 13 },
+  { pin = 12, soc = "GPIO1_12 (gpmc_ad12)", chip = "gpio1", line = 12 },
+  { pin = 13, soc = "GPIO0_23 (gpmc_ad9)", chip = "gpio0", line = 23, funcs = ["EHRPWM2B"] },
+  { pin = 14, soc = "GPIO0_26 (gpmc_ad10)", chip = "gpio0", line = 26 },
+  { pin = 15, soc = "GPIO1_15 (gpmc_ad15)", chip = "gpio1", line = 15 },
+  { pin = 16, soc = "GPIO1_14 (gpmc_ad14)", chip = "gpio1", line = 14 },
+  { pin = 17, soc = "GPIO0_27 (gpmc_ad11)", chip = "gpio0", line = 27 },
+  { pin = 18, soc = "GPIO2_1 (gpmc_clk)", chip = "gpio2", line = 1 },
+  { pin = 19, soc = "GPIO0_22 (gpmc_ad8)", chip = "gpio0", line = 22, funcs = ["EHRPWM2A"] },
+  { pin = 20, soc = "GPIO1_31 (gpmc_csn2)", chip = "gpio1", line = 31, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 21, soc = "GPIO1_30 (gpmc_csn1)", chip = "gpio1", line = 30, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 22, soc = "GPIO1_5 (gpmc_ad5)", chip = "gpio1", line = 5, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 23, soc = "GPIO1_4 (gpmc_ad4)", chip = "gpio1", line = 4, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 24, soc = "GPIO1_1 (gpmc_ad1)", chip = "gpio1", line = 1, note = "eMMC on the Black and Green: in use unless the eMMC is disabled (the mainline line names leave this line unlabelled)" },
+  { pin = 25, soc = "GPIO1_0 (gpmc_ad0)", chip = "gpio1", line = 0, note = "eMMC on the Black and Green: in use unless the eMMC is disabled" },
+  { pin = 26, soc = "GPIO1_29 (gpmc_csn0)", chip = "gpio1", line = 29 },
+  { pin = 27, soc = "GPIO2_22 (lcd_vsync)", chip = "gpio2", line = 22, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 28, soc = "GPIO2_24 (lcd_pclk)", chip = "gpio2", line = 24, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 29, soc = "GPIO2_23 (lcd_hsync)", chip = "gpio2", line = 23, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 30, soc = "GPIO2_25 (lcd_ac_bias_en)", chip = "gpio2", line = 25, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 31, soc = "GPIO0_10 (lcd_data14)", chip = "gpio0", line = 10, funcs = ["UART5_CTSN"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 32, soc = "GPIO0_11 (lcd_data15)", chip = "gpio0", line = 11, funcs = ["UART5_RTSN"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 33, soc = "GPIO0_9 (lcd_data13)", chip = "gpio0", line = 9, funcs = ["UART4_RTSN"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 34, soc = "GPIO2_17 (lcd_data11)", chip = "gpio2", line = 17, funcs = ["EHRPWM1B", "UART3_RTSN"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 35, soc = "GPIO0_8 (lcd_data12)", chip = "gpio0", line = 8, funcs = ["UART4_CTSN"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 36, soc = "GPIO2_16 (lcd_data10)", chip = "gpio2", line = 16, funcs = ["EHRPWM1A", "UART3_CTSN"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 37, soc = "GPIO2_14 (lcd_data8)", chip = "gpio2", line = 14, funcs = ["UART5_TXD", "UART2_CTSN"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 38, soc = "GPIO2_15 (lcd_data9)", chip = "gpio2", line = 15, funcs = ["UART5_RXD", "UART2_RTSN"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 39, soc = "GPIO2_12 (lcd_data6)", chip = "gpio2", line = 12, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 40, soc = "GPIO2_13 (lcd_data7)", chip = "gpio2", line = 13, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 41, soc = "GPIO2_10 (lcd_data4)", chip = "gpio2", line = 10, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 42, soc = "GPIO2_11 (lcd_data5)", chip = "gpio2", line = 11, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 43, soc = "GPIO2_8 (lcd_data2)", chip = "gpio2", line = 8, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 44, soc = "GPIO2_9 (lcd_data3)", chip = "gpio2", line = 9, note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 45, soc = "GPIO2_6 (lcd_data0)", chip = "gpio2", line = 6, funcs = ["EHRPWM2A"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+  { pin = 46, soc = "GPIO2_7 (lcd_data1)", chip = "gpio2", line = 7, funcs = ["EHRPWM2B"], note = "Black: HDMI (LCD bus to the HDMI framer) unless HDMI is disabled" },
+]
+
+[boot]
+files = [{ kind = "uEnv", path = "/boot/uEnv.txt" }]
+overlay_dirs = ["/lib/firmware"]
+overlay_ref = "/lib/firmware/"
+# bb.org-overlays' header overlays. Pins are P9's (the first header); P8 ones say theirs.
+overlays = [
+  { name = "BB-I2C1-00A0", what = "I²C1 on P9.17 (SCL) / P9.18 (SDA)", pins = [17, 18] },
+  { name = "BB-I2C2-00A0", what = "I²C2 on P9.19 (SCL) / P9.20 (SDA); the base device tree already enables it", pins = [19, 20] },
+  { name = "BB-SPIDEV0-00A0", what = "SPI0 spidev: P9.17 CS0, P9.18 D1, P9.21 D0, P9.22 SCLK", pins = [17, 18, 21, 22] },
+  { name = "BB-SPIDEV1-00A0", what = "SPI1 spidev: P9.28 CS0, P9.29 D0, P9.30 D1, P9.31 SCLK", pins = [28, 29, 30, 31] },
+  { name = "BB-UART1-00A0", what = "UART1 (/dev/ttyS1) on P9.24 (TX) / P9.26 (RX)", pins = [24, 26] },
+  { name = "BB-UART2-00A0", what = "UART2 (/dev/ttyS2) on P9.21 (TX) / P9.22 (RX)", pins = [21, 22] },
+  { name = "BB-UART4-00A0", what = "UART4 (/dev/ttyS4) on P9.13 (TX) / P9.11 (RX)", pins = [11, 13] },
+  { name = "BB-UART5-00A0", what = "UART5 (/dev/ttyS5) on P8.37 (TX) / P8.38 (RX); Black: needs HDMI off", pins = [] },
+  { name = "BB-CAN0-00A0", what = "DCAN0 on P9.19 (RX) / P9.20 (TX), instead of I²C2", pins = [19, 20] },
+  { name = "BB-CAN1-00A0", what = "DCAN1 on P9.24 (RX) / P9.26 (TX)", pins = [24, 26] },
+  { name = "BB-PWM0-00A0", what = "EHRPWM0 on P9.22 (A) / P9.21 (B)", pins = [21, 22] },
+  { name = "BB-PWM1-00A0", what = "EHRPWM1 on P9.14 (A) / P9.16 (B)", pins = [14, 16] },
+  { name = "BB-PWM2-00A0", what = "EHRPWM2 on P8.19 (A) / P8.13 (B)", pins = [] },
+  { name = "BB-W1-P9.12-00A0", what = "1-Wire (w1-gpio) on P9.12", pins = [12] },
+]

@@ -14,6 +14,8 @@ benchbob-can.workspace = true
 benchbob-drives.workspace = true
 benchbob-gpio.workspace = true
 benchbob-serial.workspace = true
+benchbob-i2c.workspace = true
+benchbob-onewire.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true

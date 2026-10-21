@@ -221,15 +221,14 @@ holds only what a node serves (status, GPIO, I²C) and must stay under 60 KB gzi
 
 ## Rust backend (in progress)
 
-`backend/` is the Rust server that will replace the Bun one: one static binary per
+`backend/` is the Rust server that replaces the Bun one: one static binary per
 architecture (x86-64, arm64, ARMv7 and ARMv6), the same API and settings, and board
 definitions as TOML files you can add without rebuilding
-([backend/boards/README.md](backend/boards/README.md)). It serves the dashboard, status,
-events, updates, MCP, the GPIO panel (with pin output on every board) and drives,
-flashing, rpiboot and the file browser itself, and proxies every panel it doesn't have yet to the Bun server, so it can take port 80 early.
-events, updates, MCP, the GPIO panel (with pin output on every board) and the CAN panel
-(socketcand server included) itself, and
-proxies every panel it doesn't have yet to the Bun server, so it can take port 80 early.
+([backend/boards/README.md](backend/boards/README.md)). It already serves the dashboard,
+status, events, updates and MCP, and the drives (flashing, rpiboot, files), GPIO (with pin
+output on every board), serial, CAN, I²C and 1-Wire panels; the rest are being ported and
+are proxied to the Bun server meanwhile. Once they're done the package ships the Rust
+binary alone, with no Bun at runtime.
 The released package still runs Bun only; `RUST_BIN=… packaging/build-deb.sh` adds the
 Rust server, and `sudo benchbob-setup rust on` switches it in. See
 [backend/README.md](backend/README.md).

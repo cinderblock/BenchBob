@@ -6,6 +6,9 @@
 #   benchbob-drives  drives, flashing, rpiboot, bootloader cards, files, OS detection
 #   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
 #   benchbob-serial  the serial panel: termios2 ports, bridges, auto-baud, flashing
+#   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
+#   benchbob-i2c-chips  I²C chip identification + decoders (no_std, shared with firmware)
+#   benchbob-onewire the 1-Wire panel: w1 sysfs masters/slaves, family decoders, DS2482 bridges
 #   benchbob         the server binary: HTTP, UI, status, SSE, update, legacy proxy
 # Each later panel (serial, CAN, I²C…) becomes its own crate registered in the binary.
 
@@ -27,6 +30,9 @@ benchbob-can = { path = "crates/can" }
 benchbob-drives = { path = "crates/drives" }
 benchbob-gpio = { path = "crates/gpio" }
 benchbob-serial = { path = "crates/serial" }
+benchbob-i2c = { path = "crates/i2c" }
+benchbob-i2c-chips = { path = "crates/i2c-chips" }
+benchbob-onewire = { path = "crates/onewire" }
 
 anyhow = "1"
 async-trait = "0.1"
@@ -39,6 +45,7 @@ hyper = { version = "1", features = ["http1", "client", "server"] }
 hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1"] }
 indexmap = { version = "2", features = ["serde"] }
 libc = "0.2"
+libm = "0.2.16"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 # preserve_order: object keys come out in insertion order, as JavaScript's do, so the

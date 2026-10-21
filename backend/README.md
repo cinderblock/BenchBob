@@ -5,13 +5,12 @@ binary per architecture, the same API (paths, JSON shapes and key order, SSE and
 WebSocket messages, MCP tool names), the same settings files, so either the old dashboard
 or the new web UI works against either server.
 
-> **Status:** the foundation, the board layer, the GPIO panel and everything server.ts did
-> itself (drives, flashing, rpiboot, files, OS detection, the catalog) are native. The
-> other panels are proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
-> **Status:** the foundation, the board layer and the GPIO and serial panels are native. Everything
-> **Status:** the foundation, the board layer and the GPIO and CAN panels are native. Everything
-> else is proxied to the Bun server (see [Proxy mode](#proxy-mode)), so this server can
-> own port 80 before it has every panel. The released `.deb` still runs Bun only.
+> **Status:** the foundation, the board layer and the drives (with flashing, rpiboot, the
+> file browser, OS detection and the catalog), GPIO, serial, CAN, I²C and 1-Wire panels are
+> native. USB, wired network, Wi-Fi, BLE, camera, debug probes, RTL-SDR, GPS and UPS are
+> still proxied to the Bun server (see [Proxy mode](#proxy-mode)), which goes away once
+> they're ported: the goal is this binary alone, with no Bun at runtime. Until then the
+> released `.deb` runs Bun, and releases are on hold until the Rust-only package is ready.
 
 | What | Native here |
 | --- | --- |
@@ -21,10 +20,11 @@ or the new web UI works against either server.
 | `GET /api/boards`: the board files loaded, which one matched, files that failed (new) | yes |
 | GPIO panel: `/api/gpio*`, `/ws/gpio`, `gpio_*` MCP tools, plus `POST /api/gpio/line` (new) | yes |
 | Drives: the drive fields of `/api/status`, eject, scan, probe, deep scan, erase, flash (with cloud-init / firstrun.sh settings and Install BenchBob), `/api/rpiboot/*`, `/api/blcard*`, `/api/files`, `/api/download`, `/api/osinfo`, `/api/images`, `/api/catalog`, `/api/favorites`, `/api/quicklist`, `/api/defaults` | yes |
-| Every other panel (serial, CAN, I²C, Wi-Fi, BLE, camera…) | proxied |
 | Serial panel: `/api/serial*`, `/ws/serial/:id`, the raw TCP and RFC 2217 bridges, `serial_*` MCP tools, esptool/avrdude flashing | yes |
 | CAN panel: `/api/can*`, `/ws/can/:iface`, `can_*` MCP tools, the socketcand server and its UDP beacon | yes |
-| Drives, flashing, rpiboot, files, catalog, and every other panel | proxied |
+| I²C panel: `/api/i2c*`, `i2c_*` MCP tools | yes |
+| 1-Wire panel: `/api/onewire*`, `onewire_*` MCP tools | yes |
+| USB, wired network, Wi-Fi, BLE, camera, probes, RTL-SDR, GPS, UPS | proxied (being ported) |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
 `backend` block listing the native routes. Every response carries permissive CORS
@@ -42,6 +42,9 @@ to any bob.
 | `crates/gpio` (`benchbob-gpio`) | The GPIO driver: gpiochip v2 uAPI (with output requests), passive level readers (BCM2711 gpiomem, RP1), config.txt and boot-overlay editors, board scripts |
 | `crates/serial` (`benchbob-serial`) | The serial driver: termios2 ports, the ring buffer and fan-out, TCP / RFC 2217 / WebSocket bridges, auto-baud, DTR/RTS resets, esptool/avrdude jobs |
 | `crates/can` (`benchbob-can`) | The CAN driver: SocketCAN raw sockets (libc), `ip link` config, auto-bitrate, vcan, SLCAN, per-ID table, captures, periodic jobs, candump recordings, the socketcand server |
+| `crates/i2c-chips` (`benchbob-i2c-chips`) | I²C chip identification and decoders (~40 chips), the `I2cIo` bus trait and a FakeBus simulator; `no_std` + `alloc`, so the firmware nodes can use it too |
+| `crates/i2c` (`benchbob-i2c`) | The I²C driver: /dev/i2c-N ioctls, i2cdetect-style scans, polling, raw register tools |
+| `crates/onewire` (`benchbob-onewire`) | The 1-Wire driver: w1 sysfs masters and slaves, family decoders, DS2482 bridges, the iButton touch log, a fixture tree |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -111,6 +114,8 @@ PORT=8091 BENCHBOB_STATE_DIR=/tmp/bb BENCHBOB_ROOT=/path/to/checkout ./benchbob
 | `BENCHBOB_BOARDS_DIR`, `BENCHBOB_BOARDS_D` | other board directories (shipped / user) |
 | `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port (socketcand: 29536 + offset) |
 | `BENCHBOB_CAN_REC_DIR` | where CAN recordings go (default `/var/tmp/benchbob-can`, capped at 256 MB each) |
+| `BENCHBOB_PORT_OFFSET` | shift every peripheral listener port |
+| `BENCHBOB_W1_ROOT` | read 1-Wire from a fixture tree instead of /sys/bus/w1/devices (`BENCHBOB_W1_FIXTURE_OUT=<dir> cargo test -p benchbob-onewire write_fixture_tree` writes one) |
 | `BENCHBOB_CONFIG_TXT`, `BENCHBOB_CMDLINE_TXT`, `BENCHBOB_BOOT_ENV`, `BENCHBOB_OVERLAY_DIR` | point the boot-config editors at test copies (reboot is then refused) |
 | `BENCHBOB_FLASH_DIR` | where the serial panel stages firmware files (default `/var/tmp/benchbob-serial`; a side instance can't write the packaged one's) |
 | `RUST_LOG` | log filter (default `info`) |
@@ -175,3 +180,15 @@ bind-address setting).
 - Firmware given by URL is fetched with `curl`, like the update check.
 - When the flash tool can't be started at all, the port is reopened (the TypeScript left it
   closed).
+## I²C and 1-Wire notes
+
+- **I²C scans** use i2cdetect's auto mode (read-byte at 0x30–0x37 and 0x50–0x5F, quick-write
+  elsewhere) and skip addresses a kernel driver owns. Identification sends only register
+  pointers and read commands, in the chip table's order (pure reads first where a pointer
+  would be a command). Auto-polling runs read-only decoders; Measure and auto-measure may
+  write; raw writes and write transfers over REST need `confirm: true` (the MCP tools
+  don't ask; their descriptions say they change device state).
+- The chip table (`benchbob-i2c-chips`) builds without std; the firmware can implement
+  `I2cIo` over its own I²C peripheral and reuse every probe and decoder.
+- **1-Wire** root-only sysfs writes (search, bulk read, outputs, resolution, DS2482
+  bind/unbind) fall back to `sudo -n tee`, as the Bun server's do.
