@@ -13,6 +13,7 @@ benchbob-boards.workspace = true
 benchbob-can.workspace = true
 benchbob-drives.workspace = true
 benchbob-gpio.workspace = true
+benchbob-gps.workspace = true
 benchbob-serial.workspace = true
 benchbob-i2c.workspace = true
 benchbob-onewire.workspace = true

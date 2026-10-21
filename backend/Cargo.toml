@@ -5,6 +5,7 @@
 #   benchbob-boards  board definitions (TOML data files), loading and detection
 #   benchbob-drives  drives, flashing, rpiboot, bootloader cards, files, OS detection
 #   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
+#   benchbob-gps     the GPS panel: USB receivers through a temporary gpsd
 #   benchbob-serial  the serial panel: termios2 ports, bridges, auto-baud, flashing
 #   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
 #   benchbob-i2c-chips  I²C chip identification + decoders (no_std, shared with firmware)
@@ -30,6 +31,7 @@ benchbob-boards = { path = "crates/boards" }
 benchbob-can = { path = "crates/can" }
 benchbob-drives = { path = "crates/drives" }
 benchbob-gpio = { path = "crates/gpio" }
+benchbob-gps = { path = "crates/gps" }
 benchbob-serial = { path = "crates/serial" }
 benchbob-ups = { path = "crates/ups" }
 benchbob-i2c = { path = "crates/i2c" }

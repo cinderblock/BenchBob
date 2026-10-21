@@ -110,6 +110,7 @@ dependencies = [
  "benchbob-core",
  "benchbob-drives",
  "benchbob-gpio",
+ "benchbob-gps",
  "benchbob-i2c",
  "benchbob-onewire",
  "benchbob-serial",
@@ -223,6 +224,20 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "benchbob-gps"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "libc",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
