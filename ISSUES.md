@@ -84,7 +84,7 @@ bring it up on any new Wi-Fi radio (e.g. a USB dongle plugged in for the Wi-Fi p
 Wi-Fi panel sets a dongle unmanaged while it uses it, but between plug-in and first use NM
 can grab it.
 
-## Bun server: drive names and image URLs reach a shell unchecked (command injection)
+## Bun server: drive names and image URLs reach a shell unchecked (command injection) — fixed in `e0ec561` (not yet released: releases are on hold until the Rust-only package)
 
 Found 2026-10-20 while porting server.ts to Rust (the Rust drives crate validates both).
 No login, so anyone on the LAN can do this against port 80:
