@@ -8,6 +8,8 @@ or the new web UI works against either server.
 > **Status:** the foundation, the board layer and the drives (with flashing, rpiboot, the
 > file browser, OS detection and the catalog), GPIO, serial, CAN, I²C, 1-Wire, USB and wired
 > network panels are native. Wi-Fi, BLE, camera, debug probes, RTL-SDR, GPS and UPS are
+> file browser, OS detection and the catalog), GPIO, serial, CAN, I²C, 1-Wire, Wi-Fi and
+> BLE panels are native. USB, wired network, camera, debug probes, RTL-SDR, GPS and UPS are
 > still proxied to the Bun server (see [Proxy mode](#proxy-mode)), which goes away once
 > they're ported: the goal is this binary alone, with no Bun at runtime. Until then the
 > released `.deb` runs Bun, and releases are on hold until the Rust-only package is ready.
@@ -27,6 +29,9 @@ or the new web UI works against either server.
 | USB panel: `/api/usb*`, `usb_*` MCP tools (device tree, hotplug and kernel timeline, uhubctl port power, USB/IP and usbredir sharing) | yes |
 | Wired network panel: `/api/netdiag*`, `net_*` MCP tools (ethtool link, receive-only LLDP, iperf3, ping/DNS/HTTP/MTU checks) | yes |
 | Wi-Fi, BLE, camera, probes, RTL-SDR, GPS, UPS | proxied (being ported) |
+| Wi-Fi panel: `/api/wifi*` (radios, regulatory domain, scanner with watch leases and history, client tests, profiles), `wifi_*` MCP tools | yes |
+| BLE panel: `/api/ble*`, `/ws/ble`, `ble_*` MCP tools | yes |
+| USB, wired network, camera, probes, RTL-SDR, GPS, UPS | proxied (being ported) |
 
 Responses say who answered (`X-BenchBob-Backend: native` or `legacy`), and `GET /api` has a
 `backend` block listing the native routes. Every response carries permissive CORS
@@ -49,6 +54,8 @@ to any bob.
 | `crates/onewire` (`benchbob-onewire`) | The 1-Wire driver: w1 sysfs masters and slaves, family decoders, DS2482 bridges, the iButton touch log, a fixture tree |
 | `crates/usb` (`benchbob-usb`) | The USB driver: the sysfs device tree with udev nodes and panel hints, hotplug and `dmesg -W` events, uhubctl power with the ganged/internal-link/protection planner, USB/IP (usbipd) and usbredir sharing, auto-share rules |
 | `crates/netdiag` (`benchbob-netdiag`) | The wired-network driver: ethtool link/EEE/error counters, a private receive-only lldpd, the iperf3 server and client with presets and logins, ping, a small DNS client for per-resolver timing, HTTP (curl) and path-MTU checks |
+| `crates/wifi` (`benchbob-wifi`) | The Wi-Fi driver: `iw`/`nmcli` parsers, radios and regulatory channels, the scanner and per-BSS history, the OUI lookup, client tests in a network namespace (wpa_supplicant, udhcpc, ping/DNS/HTTP/iperf3) and their crash recovery |
+| `crates/ble` (`benchbob-ble`) | The BLE driver: btmon's btsnoop stream, HCI advertising reports, AD structures, beacon and sensor decoders, the advertiser table, the bluetoothctl discovery session |
 | `crates/benchbob` | The binary: HTTP server, UI, status, SSE, update, docs, health, the legacy proxy |
 | `boards/` | The shipped board files ([format and script contract](boards/README.md)) |
 
@@ -179,7 +186,8 @@ bind-address setting).
 - Reads and writes go through tokio's `AsyncFd` on the O_NONBLOCK tty, so a full
   transmit buffer waits for the tty to drain instead of polling every 5 ms.
 - `wait` in `POST /api/serial/:id/write` and `serial_write` is compiled with the `regex`
-  crate (flags i, m, s; `$` in multi-line mode also ends a line before ``). Lookaround
+  crate (flags i, m, s; `$` in multi-line mode also ends a line before `
+`). Lookaround
   and backreferences aren't supported and answer 400 "Bad wait regex".
 - Firmware given by URL is fetched with `curl`, like the update check.
 - When the flash tool can't be started at all, the port is reopened (the TypeScript left it
@@ -220,3 +228,34 @@ bind-address setting).
   c-ares's error codes; the HTTP check uses `curl` and stops it once the headers arrive.
 - Slow checks (ping, DNS, HTTP, MTU, `iperf` with `wait`) answer at once and send a space
   every 4 s until the JSON follows, as the Bun server's `slowJson` does.
+## Wi-Fi notes
+
+- Same API and behaviour as `peripherals/drivers/wifi.ts`. Scans never change an existing
+  connection; a client test moves the whole phy into its own network namespace
+  (`benchbob-wt-<n>`, with the owning process's pid in `/etc/netns/<ns>/benchbob-owner`),
+  so its address, routes and DNS never reach the main namespace, and gives it back
+  afterwards. A radio is only borrowed when it carries no default route, or a lower-metric
+  default route via another interface that is up exists (the TypeScript's rule; on desky
+  that means wlan0, the backup uplink, *can* be borrowed while eth0 is up).
+- At start the driver returns phys from leftover `benchbob-wt-*` and `deskypi-wt-*`
+  namespaces whose owner is gone, deletes them, removes stale `benchbob-wifi-*` /
+  `deskypi-wifi-*` temp dirs (they hold a key), and tells NetworkManager again to leave
+  dongles alone.
+- The OUI list is read with CRLF line ends too (IEEE's and Debian's oui.txt have them; the
+  Bun server found no vendors in it).
+- Tested on desky against `mac80211_hwsim` (two simulated radios, a WPA2-PSK access point
+  run by wpa_supplicant in AP mode with busybox udhcpd/httpd and iperf3 in its own
+  namespace): pass, wrong key, cancel, a killed server and a legacy leftover namespace.
+  `BENCHBOB_WIFI_CAPTURE=<dir> cargo test -p benchbob-wifi capture_dump -- --ignored` dumps
+  the parsers' results for captured `iw` output, to diff against wifi-parse.ts.
+
+## BLE notes
+
+- Same API and behaviour as `peripherals/drivers/ble.ts`: `sudo btmon -w <fifo>` plus a
+  `bluetoothctl` discovery session with `duplicate-data on`; the radio's rfkill block and
+  power are put back afterwards. The FIFO is opened read-write, so the read ends when btmon
+  exits.
+- The decoder tests use the gitignored 10 s capture from desky
+  (`peripherals/lib/radios-fixtures/ble-scan.btsnoop`, or `BENCHBOB_BLE_CAPTURE`) when it is
+  there. A truncated payload decodes to nothing rather than ending the scan (the TypeScript
+  threw).

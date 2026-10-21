@@ -2,6 +2,7 @@
 #
 # Its own workspace, separate from firmware/ (no_std, embedded targets). Crates:
 #   benchbob-core    driver registry, settings, udev hotplug, MCP, HTTP helpers
+#   benchbob-ble     the Bluetooth LE panel: btmon capture, advertisers, beacon decoders
 #   benchbob-boards  board definitions (TOML data files), loading and detection
 #   benchbob-drives  drives, flashing, rpiboot, bootloader cards, files, OS detection
 #   benchbob-gpio    the GPIO panel: gpiochip uAPI, passive level readers, boot config
@@ -11,6 +12,7 @@
 #   benchbob-netdiag the wired-network panel: ethtool, receive-only LLDP, iperf3, quick checks
 #   benchbob-onewire the 1-Wire panel: w1 sysfs masters/slaves, family decoders, DS2482 bridges
 #   benchbob-usb     the USB panel: device tree, hotplug timeline, uhubctl power, USB/IP, usbredir
+#   benchbob-wifi    the Wi-Fi panel: radios, regulatory channels, scanner, netns client tests
 #   benchbob         the server binary: HTTP, UI, status, SSE, update, legacy proxy
 # Each later panel (serial, CAN, I²C…) becomes its own crate registered in the binary.
 
@@ -27,6 +29,7 @@ publish = false
 
 [workspace.dependencies]
 benchbob-core = { path = "crates/core" }
+benchbob-ble = { path = "crates/ble" }
 benchbob-boards = { path = "crates/boards" }
 benchbob-can = { path = "crates/can" }
 benchbob-drives = { path = "crates/drives" }
@@ -37,6 +40,7 @@ benchbob-i2c-chips = { path = "crates/i2c-chips" }
 benchbob-netdiag = { path = "crates/netdiag" }
 benchbob-onewire = { path = "crates/onewire" }
 benchbob-usb = { path = "crates/usb" }
+benchbob-wifi = { path = "crates/wifi" }
 
 anyhow = "1"
 async-trait = "0.1"

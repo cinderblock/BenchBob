@@ -1,0 +1,23 @@
+[package]
+name = "benchbob-ble"
+description = "BenchBob's Bluetooth LE panel: btmon capture, advertiser table, beacon and sensor decoders"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+benchbob-core.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+indexmap.workspace = true
+libc.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

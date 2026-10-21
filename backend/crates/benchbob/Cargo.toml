@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 benchbob-core.workspace = true
+benchbob-ble.workspace = true
 benchbob-boards.workspace = true
 benchbob-can.workspace = true
 benchbob-drives.workspace = true
@@ -18,6 +19,7 @@ benchbob-i2c.workspace = true
 benchbob-netdiag.workspace = true
 benchbob-onewire.workspace = true
 benchbob-usb.workspace = true
+benchbob-wifi.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
