@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { Bob } from "./Bob";
 import { BobConnection } from "../lib/connection";
 import { BobStore } from "../lib/store";
@@ -84,6 +84,20 @@ describe("<Bob>", () => {
     store.feed(status({ buildVersion: "bbbbbbbb" }));
     expect(await screen.findByText(/backend changed version/)).toBeTruthy();
     expect(store.get().reloadPending).toBe(false);
+  });
+
+  it("says it's reloading in a banner when its own page's build is replaced", async () => {
+    const { store } = make();
+    store.feed(status());
+    expect(await screen.findByText("testbob")).toBeTruthy();
+    // Keep the reload it schedules from firing; findBy* polls with setTimeout, so check synchronously.
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      act(() => (store as any).set({ reloadPending: true }));
+      expect(screen.getByText(/reloading…/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("erases only after ERASE is typed", async () => {

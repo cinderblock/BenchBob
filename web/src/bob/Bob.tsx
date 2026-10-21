@@ -1,10 +1,10 @@
 // The whole dashboard for one bob. Everything bob-specific (the status stream, panel
-// sockets, the modal, toasts, which panels are open) lives under one <Bob>, so a page can
+// sockets, the modal, which panels are open) lives under one <Bob>, so a page can
 // render several side by side: a desktop app with a tab or column per bob.
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import registry from "@registry";
-import { BobContext, useBob, useSnapshot, type BobApi, type ModalOptions, type ToastKind } from "./context";
+import { BobContext, useSnapshot, type BobApi, type ModalOptions } from "./context";
 import { BobConnection } from "../lib/connection";
 import { BobStore } from "../lib/store";
 import { readLocal, scopedKey, writeLocal } from "../lib/storage";
@@ -25,12 +25,6 @@ export interface BobProps {
   store?: BobStore;
 }
 
-interface Toast {
-  id: number;
-  msg: string;
-  kind: ToastKind;
-}
-
 interface ModalState {
   content: ReactNode;
   opts: ModalOptions;
@@ -43,14 +37,6 @@ export function Bob({ connection, pageBuild, setTitle = true, nodeOnly = false, 
     store.start();
     return () => store.stop();
   }, [store]);
-
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const toastId = useRef(0);
-  const toast = useCallback((msg: string, kind: ToastKind = "info") => {
-    const id = ++toastId.current;
-    setToasts((t) => [...t, { id, msg, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
-  }, []);
 
   const [modal, setModal] = useState<ModalState | null>(null);
   const modalRef = useRef<ModalState | null>(null);
@@ -77,7 +63,6 @@ export function Bob({ connection, pageBuild, setTitle = true, nodeOnly = false, 
       conn: connection,
       store,
       api: (method, path, body) => connection.json(method, path, body),
-      toast,
       openModal,
       closeModal,
       confirm: (title, msg, dev) =>
@@ -131,7 +116,7 @@ export function Bob({ connection, pageBuild, setTitle = true, nodeOnly = false, 
       key,
     };
     return a;
-  }, [connection, store, toast, openModal, closeModal, key]);
+  }, [connection, store, openModal, closeModal, key]);
 
   // Scroll to a panel the user just unfolded, once it has rendered.
   useEffect(() => {
@@ -167,13 +152,6 @@ export function Bob({ connection, pageBuild, setTitle = true, nodeOnly = false, 
             </div>
           </div>
         )}
-        <div className="toasts">
-          {toasts.map((t) => (
-            <div key={t.id} className={`toast toast-${t.kind}`} role="status">
-              {t.msg}
-            </div>
-          ))}
-        </div>
       </div>
     </BobContext.Provider>
   );
@@ -181,7 +159,6 @@ export function Bob({ connection, pageBuild, setTitle = true, nodeOnly = false, 
 
 function Dashboard({ open, setTitle, modalOpen }: { open: Set<string>; setTitle: boolean; modalOpen: boolean }) {
   const snap = useSnapshot();
-  const { toast } = useBob();
   const s = snap.status;
 
   useEffect(() => {
@@ -192,13 +169,20 @@ function Dashboard({ open, setTitle, modalOpen }: { open: Set<string>; setTitle:
 
   // The dashboard is left open for hours, so a deploy would otherwise leave a stale page
   // talking to a newer backend. Reload, but not out from under a dialog being filled in.
-  const reloading = useRef(false);
+  const [reloading, setReloading] = useState(false);
   useEffect(() => {
-    if (!snap.reloadPending || modalOpen || reloading.current) return;
-    reloading.current = true;
-    toast("New dashboard version — reloading", "info");
+    if (!snap.reloadPending || modalOpen || reloading) return;
+    setReloading(true);
     setTimeout(() => location.reload(), 1500);
-  }, [snap.reloadPending, modalOpen]);
+  }, [snap.reloadPending, modalOpen, reloading]);
+  const reloadBanner = reloading && (
+    <div className="power-banner update" role="status">
+      <span className="pb-icon">↻</span>
+      <div>
+        <strong>New dashboard version:</strong> reloading…
+      </div>
+    </div>
+  );
 
   const L = registry.linux;
   const N = registry.node;
@@ -207,6 +191,7 @@ function Dashboard({ open, setTitle, modalOpen }: { open: Set<string>; setTitle:
     <>
       <Header />
       <main>
+        {reloadBanner}
         {snap.kind === "linux" && s && L && (
           <>
             <PowerBanner p={s.power} />

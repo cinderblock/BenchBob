@@ -1,12 +1,10 @@
 // What every section and panel gets from the <Bob> it renders in: the connection, the
-// live store, and the page-level helpers (toasts, the modal, panel navigation). All of it
+// live store, and the page-level helpers (the modal, panel navigation). All of it
 // is per bob, so two <Bob>s in one page are independent.
 
 import { createContext, useContext, useSyncExternalStore, type ReactNode } from "react";
 import type { BobConnection } from "../lib/connection";
 import type { BobSnapshot, BobStore } from "../lib/store";
-
-export type ToastKind = "success" | "error" | "info";
 
 export interface ModalOptions {
   /** Extra classes on .modal: "wide", "wide flash". */
@@ -23,7 +21,6 @@ export interface BobApi {
    * (ui/status.tsx: useAction, AsyncButton), never silently.
    */
   api<T = any>(method: string, path: string, body?: unknown): Promise<T>;
-  toast(msg: string, kind?: ToastKind): void;
   /** Open a dialog. `content` renders inside this bob's context, so it can use hooks. */
   openModal(content: ReactNode, opts?: ModalOptions): void;
   closeModal(): void;
