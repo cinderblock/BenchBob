@@ -86,6 +86,16 @@ bring it up on any new Wi-Fi radio (e.g. a USB dongle plugged in for the Wi-Fi p
 Wi-Fi panel sets a dongle unmanaged while it uses it, but between plug-in and first use NM
 can grab it.
 
+## Rust server: dropping a `sudo` child's handle orphans the root program
+
+`benchbob_core::Ctx::spawn` and `run::run` set tokio's `kill_on_drop`, which sends SIGKILL.
+For a `sudo -n prog` child that kills sudo only, and `prog` keeps running as root (sudo
+passes on SIGTERM, but can't pass on SIGKILL). This happens whenever such a handle is
+dropped early: an aborted task that holds it, or `run()` hitting its timeout (e.g. a hung
+`sudo uhubctl`). Seen on desky 2026-10-21 with the USB panel's `sudo dmesg -W` (fixed for
+that one in `9063982`). A general fix belongs in core: SIGTERM, a short grace, then SIGKILL,
+for every child.
+
 ## Bun server: drive names and image URLs reach a shell unchecked (command injection) — fixed in `e0ec561` (not yet released: releases are on hold until the Rust-only package)
 
 Found 2026-10-20 while porting server.ts to Rust (the Rust drives crate validates both).
