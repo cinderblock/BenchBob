@@ -11,6 +11,8 @@
 //! - [`mcp`]: the stateless Streamable HTTP JSON-RPC endpoint;
 //! - [`http`], [`run`], [`paths`]: request/response helpers, child processes, state dir;
 //! - [`proc`]: long-running children read line by line (the on-demand tools' servers);
+//! - [`child`]: how children end when dropped: SIGTERM, a grace period, then SIGKILL (never a
+//!   bare SIGKILL, which would orphan the program a `sudo` runs);
 //! - [`util`]: udev strings and USB names, JavaScript numbers and dates, base64.
 //!
 //! Contract every driver keeps (as in the TypeScript server): `status()` is called every
@@ -18,6 +20,7 @@
 //! long-lived is released in `stop()`; call `ctx.changed()` after a change worth showing
 //! right away.
 
+pub mod child;
 pub mod driver;
 pub mod http;
 pub mod mcp;

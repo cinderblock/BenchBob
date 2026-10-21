@@ -1420,10 +1420,8 @@ pub(crate) async fn http_probe(url: &str, timeout: Duration) -> Result<(u16, i64
     cmd.args(["-sS", "-o", "/dev/null", "-D", "-", "--max-time", &timeout.as_secs().to_string(), "--url", url])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    let mut child = cmd
-        .spawn()
+        .stderr(Stdio::piped());
+    let mut child = benchbob_core::child::CommandExt::spawn_guarded(&mut cmd)
         .map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { "curl isn't installed".to_string() } else { e.to_string() })?;
     let out = child.stdout.take();
     let err = child.stderr.take();

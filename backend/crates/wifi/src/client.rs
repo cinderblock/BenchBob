@@ -783,7 +783,7 @@ impl ClientTest {
                 }
                 Err(e) => Err(e.to_string()),
             },
-            None => match c.kill_on_drop(true).spawn() {
+            None => match benchbob_core::child::CommandExt::spawn_guarded(&mut c) {
                 Ok(mut ch) => {
                     let pid = ch.id().unwrap_or(0);
                     let (o, e) = (ch.stdout.take(), ch.stderr.take());

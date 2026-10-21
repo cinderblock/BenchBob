@@ -300,10 +300,11 @@ pub struct Ctx {
     pub children: Arc<Mutex<std::collections::HashSet<u32>>>,
 }
 
-/// A child process started with [`Ctx::spawn`]: killed when the driver stops, and when
-/// this handle is dropped.
+/// A child process started with [`Ctx::spawn`]: SIGTERMed when the driver stops, and ended
+/// (SIGTERM, then SIGKILL after a grace period; see [`crate::child`]) when this handle is
+/// dropped while it runs.
 pub struct Child {
-    pub child: tokio::process::Child,
+    pub child: crate::child::Guarded,
     pid: Option<u32>,
     set: Arc<Mutex<std::collections::HashSet<u32>>>,
 }
@@ -321,9 +322,9 @@ impl Ctx {
         Self { id, hub, children: Default::default() }
     }
 
-    /// Spawn a child that is killed on stop()/shutdown (and when its handle is dropped).
+    /// Spawn a child that is ended on stop()/shutdown, and when its handle is dropped.
     pub fn spawn(&self, cmd: &mut tokio::process::Command) -> std::io::Result<Child> {
-        let child = cmd.kill_on_drop(true).spawn()?;
+        let child = crate::child::CommandExt::spawn_guarded(cmd)?;
         let pid = child.id();
         if let Some(p) = pid {
             self.children.lock().unwrap().insert(p);

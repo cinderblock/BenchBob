@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use benchbob_core::child::CommandExt;
 use benchbob_core::run::{Opts, Output};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
@@ -66,7 +67,7 @@ pub trait Sys: Send + Sync + 'static {
 pub struct Real;
 
 struct RealProc {
-    child: tokio::process::Child,
+    child: benchbob_core::child::Guarded,
     out: Option<tokio::process::ChildStdout>,
     err: Option<tokio::process::ChildStderr>,
     pid: Option<u32>,
@@ -158,9 +159,9 @@ impl Sys for Real {
     async fn run_input(&self, cmd: &[&str], stdin: Option<&[u8]>) -> Output {
         let Some((prog, args)) = cmd.split_first() else { return Output { code: 127, ..Default::default() } };
         let mut c = tokio::process::Command::new(prog);
-        c.args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+        c.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
         c.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
-        let mut child = match c.spawn() {
+        let mut child = match c.spawn_guarded() {
             Ok(ch) => ch,
             Err(e) => {
                 let why = if e.kind() == std::io::ErrorKind::NotFound { "not installed".to_string() } else { e.to_string() };
@@ -184,15 +185,12 @@ impl Sys for Real {
 
     async fn run_bytes(&self, cmd: &[&str]) -> Vec<u8> {
         let Some((prog, args)) = cmd.split_first() else { return Vec::new() };
-        tokio::process::Command::new(prog)
-            .args(args)
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .output()
-            .await
-            .map(|o| o.stdout)
-            .unwrap_or_default()
+        let child =
+            tokio::process::Command::new(prog).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn_guarded();
+        match child {
+            Ok(mut c) => c.wait_with_output().await.map(|o| o.stdout).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
     }
 
     fn spawn(&self, cmd: &[&str]) -> std::io::Result<Box<dyn Proc>> {
@@ -202,8 +200,7 @@ impl Sys for Real {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()?;
+            .spawn_guarded()?;
         let pid = child.id();
         Ok(Box::new(RealProc { out: child.stdout.take(), err: child.stderr.take(), child, pid }))
     }
