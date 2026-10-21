@@ -797,3 +797,233 @@ fn summarise(parts: &[Value]) -> Vec<Value> {
     }
     systems
 }
+
+#[cfg(test)]
+mod tests {
+    //! osinfo.ts and this module on the same fixture disk (fixtures/osinfo-tree.json: an
+    //! ESP with Windows, Ubuntu, systemd-boot and firmware loaders and a BCD store, a
+    //! Windows partition with SOFTWARE/SYSTEM hives, a Linux rootfs, a Raspberry Pi bootfs
+    //! and a macOS volume), compared with what fixtures/harness.ts recorded.
+
+    use super::*;
+    use crate::regf::build::{V, hive, k};
+
+    const OS1: &str = "{a1a1a1a1-0000-4000-8000-000000000001}";
+    const OS2: &str = "{a1a1a1a1-0000-4000-8000-000000000002}";
+    /// The Windows partition's PARTUUID, as osinfo-tree.json's disk lists it.
+    const WIN_PARTUUID: &str = "5e3b7d10-2c4a-4f1e-9a77-0d1c2b3a4f50";
+
+    fn device_blob(extra: &[u8]) -> Vec<u8> {
+        let mut b = vec![0u8; 16];
+        b.extend_from_slice(&[6, 0, 0, 0, 0x48, 0, 0, 0]);
+        b.extend_from_slice(extra);
+        b.extend_from_slice(&[0u8; 24]);
+        b
+    }
+
+    /// The fixture hives, base64, for osinfo-hives.json (run with --ignored to rewrite).
+    #[test]
+    #[ignore]
+    fn write_fixture_hives() {
+        let el = |id: &'static str, v: V| k(id, vec![("Element", v)], vec![]);
+        let obj = |guid: &'static str, ty: u32, els: Vec<crate::regf::build::K>| {
+            k(guid, vec![], vec![k("Description", vec![("Type", V::Dword(ty))], vec![]), k("Elements", vec![], els)])
+        };
+        let win = guid_bytes(WIN_PARTUUID).unwrap();
+        let wim: Vec<u8> = "\\Recovery\\WindowsRE\\Winre.wim\0".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        let bcd = hive(&k(
+            "ROOT",
+            vec![],
+            vec![
+                k("Description", vec![("KeyName", V::Sz("BCD00000000"))], vec![]),
+                k(
+                    "Objects",
+                    vec![],
+                    vec![
+                        obj(
+                            "{9dea862c-5cdd-4e70-acc1-f32b344d4795}",
+                            0x1010_0002,
+                            vec![
+                                el("23000003", V::Sz(OS1)),
+                                el("24000001", V::Multi(vec![OS1, OS2])),
+                                el("25000004", V::Bin(30u64.to_le_bytes().to_vec())),
+                            ],
+                        ),
+                        obj(
+                            "{b2b2b2b2-0000-4000-8000-000000000003}",
+                            0x1020_0005,
+                            vec![el("12000004", V::Sz("Windows Memory Diagnostic"))],
+                        ),
+                        obj(
+                            "{A1A1A1A1-0000-4000-8000-000000000001}",
+                            0x1020_0003,
+                            vec![
+                                el("11000001", V::Bin(device_blob(&win))),
+                                el("12000002", V::Sz("\\Windows\\system32\\winload.efi")),
+                                el("12000004", V::Sz("Windows 11")),
+                            ],
+                        ),
+                        obj(
+                            OS2,
+                            0x1020_0003,
+                            vec![el("11000001", V::Bin(device_blob(&[0xee; 16]))), el("12000004", V::Sz("Windows 10 (other disk)"))],
+                        ),
+                        obj(
+                            "{c3c3c3c3-0000-4000-8000-000000000004}",
+                            0x1020_0003,
+                            vec![el("11000001", V::Bin(device_blob(&wim))), el("12000004", V::Sz("Windows Boot Loader"))],
+                        ),
+                        obj("{d4d4d4d4-0000-4000-8000-000000000005}", 0x1020_0003, vec![el("12000004", V::Dword(7))]),
+                        obj("{e5e5e5e5-0000-4000-8000-000000000006}", 0x2020_0003, vec![]),
+                    ],
+                ),
+            ],
+        ));
+        let software = hive(&k(
+            "ROOT",
+            vec![],
+            vec![k(
+                "Microsoft",
+                vec![],
+                vec![k(
+                    "Windows NT",
+                    vec![],
+                    vec![k(
+                        "CurrentVersion",
+                        vec![
+                            ("ProductName", V::Sz("Windows 10 Pro")),
+                            ("CurrentBuild", V::Sz("22631")),
+                            ("UBR", V::Dword(4317)),
+                            ("EditionID", V::Sz("Professional")),
+                            ("DisplayVersion", V::Sz("23H2")),
+                            ("InstallDate", V::Dword(1_700_000_000)),
+                        ],
+                        vec![],
+                    )],
+                )],
+            )],
+        ));
+        let system = hive(&k(
+            "ROOT",
+            vec![],
+            vec![
+                k("Select", vec![("Current", V::Dword(2))], vec![]),
+                k(
+                    "ControlSet002",
+                    vec![],
+                    vec![k(
+                        "Control",
+                        vec![],
+                        vec![k("ComputerName", vec![], vec![k("ComputerName", vec![("ComputerName", V::Sz("BENCH-PC"))], vec![])])],
+                    )],
+                ),
+            ],
+        ));
+        let b64 = |b: &[u8]| {
+            const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut s = String::new();
+            for c in b.chunks(3) {
+                let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+                for i in 0..4 {
+                    s.push(if i <= c.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+                }
+            }
+            s
+        };
+        let out = json!({ "BCD": b64(&bcd), "SOFTWARE": b64(&software), "SYSTEM": b64(&system) });
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/osinfo-hives.json"),
+            serde_json::to_string_pretty(&out).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+
+    /// Make the tree: text files, PE stubs ({ "pe": machine, "tag": … }) and hives.
+    pub fn materialise(root: &Path) -> Value {
+        let tree: Value = serde_json::from_str(include_str!("../fixtures/osinfo-tree.json")).unwrap();
+        let hives: Value = serde_json::from_str(include_str!("../fixtures/osinfo-hives.json")).unwrap();
+        for (rel, spec) in tree["files"].as_object().unwrap() {
+            let p = root.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            let bytes = if let Some(t) = spec.as_str() {
+                t.as_bytes().to_vec()
+            } else if let Some(m) = spec.get("pe") {
+                let mut b = vec![0u8; 0x60];
+                b[0..2].copy_from_slice(b"MZ");
+                b[0x3c..0x40].copy_from_slice(&0x40u32.to_le_bytes());
+                b[0x40..0x44].copy_from_slice(b"PE\0\0");
+                b[0x44..0x46].copy_from_slice(&(u16::from_str_radix(m.as_str().unwrap(), 16).unwrap()).to_le_bytes());
+                b.extend_from_slice(spec["tag"].as_str().unwrap().as_bytes());
+                b
+            } else {
+                crate::sys::mock::b64(hives[spec["hive"].as_str().unwrap()].as_str().unwrap())
+            };
+            std::fs::write(&p, bytes).unwrap();
+        }
+        for d in tree["dirs"].as_array().into_iter().flatten() {
+            std::fs::create_dir_all(root.join(d.as_str().unwrap())).unwrap();
+        }
+        let disk = tree["disk"].to_string().replace("{root}", &root.to_string_lossy());
+        serde_json::from_str(&disk).unwrap()
+    }
+
+    /// readdir order isn't the same on every filesystem (both servers list in its order):
+    /// compare loaders' file lists and systemd-boot entries sorted.
+    fn sorted_files(mut v: Value) -> Value {
+        for p in v["partitions"].as_array_mut().unwrap() {
+            if let Some(Value::Array(es)) = p.pointer_mut("/esp/systemdBoot/entries") {
+                es.sort_by(|a, b| a["file"].as_str().cmp(&b["file"].as_str()));
+            }
+            if let Some(Value::Array(ls)) = p.pointer_mut("/esp/loaders") {
+                for l in ls {
+                    if let Some(Value::Array(f)) = l.get_mut("files") {
+                        f.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                    }
+                }
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn disk_matches_osinfo_ts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let disk = materialise(tmp.path());
+        let info = OsInfo { files_root: format!("{}/drives", tmp.path().to_string_lossy()), sys_block: tmp.path().join("sysblock") };
+        let got = info.analyse(&disk, 1_792_490_400_000);
+        let got: Value = serde_json::from_str(&got.to_string().replace(&tmp.path().to_string_lossy().to_string(), "<root>")).unwrap();
+        let want: Value = serde_json::from_str(include_str!("../fixtures/osinfo.expected.json")).unwrap();
+        let (g, w) =
+            (serde_json::to_string_pretty(&sorted_files(got)).unwrap(), serde_json::to_string_pretty(&sorted_files(want)).unwrap());
+        if let Some((i, (a, b))) = g.lines().zip(w.lines()).enumerate().find(|(_, (a, b))| a != b) {
+            panic!("line {i} differs:\n  rust {a}\n  ts   {b}");
+        }
+        assert_eq!(g, w);
+    }
+
+    #[test]
+    fn paths_stay_inside_the_drive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("drive");
+        std::fs::create_dir_all(root.join("usr/lib")).unwrap();
+        std::fs::create_dir_all(root.join("etc")).unwrap();
+        std::fs::write(root.join("usr/lib/os-release"), "PRETTY_NAME=\"Drive OS\"\n").unwrap();
+        // Absolute links resolve against the drive, never the host; `..` stops at its root.
+        std::os::unix::fs::symlink("/usr/lib/os-release", root.join("etc/os-release")).unwrap();
+        std::os::unix::fs::symlink("../../../../../../usr/lib", root.join("etc/up")).unwrap();
+        std::os::unix::fs::symlink("loop", root.join("loop")).unwrap();
+        assert_eq!(resolve_under(&root, "etc/os-release").unwrap(), root.join("usr/lib/os-release"));
+        assert_eq!(resolve_under(&root, "ETC/UP/OS-RELEASE").unwrap(), root.join("usr/lib/os-release"));
+        assert!(resolve_under(&root, "loop/x").is_none());
+        assert_eq!(OsInfo::analyse_linux(&root).unwrap()["name"], "Drive OS");
+    }
+
+    #[test]
+    fn key_values_and_guids() {
+        let kv = parse_key_values("NAME=\"Debian GNU/Linux\"\nVERSION_ID='13'\nID=debian\r\n 9X=bad\n");
+        assert_eq!(kv.get("NAME").unwrap(), "Debian GNU/Linux");
+        assert_eq!(kv.get("VERSION_ID").unwrap(), "13");
+        assert!(kv.get("ID").is_none(), "a CRLF line doesn't match in JavaScript either");
+        assert_eq!(guid_bytes("{00112233-4455-6677-8899-aabbccddeeff}").unwrap()[..8], [0x33, 0x22, 0x11, 0x00, 0x55, 0x44, 0x77, 0x66]);
+    }
+}

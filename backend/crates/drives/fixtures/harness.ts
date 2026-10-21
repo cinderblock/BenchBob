@@ -398,6 +398,40 @@ out("fmtbytes.expected.json", [0, 1, 512, 1023, 1024, 1280, 1536, 10239, 1048576
   out("rpiboot.expected.json", r);
 }
 
+// ---------- osinfo.ts on a fixture disk ----------
+
+{
+  const tree = JSON.parse(read(`${HERE}/osinfo-tree.json`));
+  const hives = JSON.parse(read(`${HERE}/osinfo-hives.json`));
+  const root = `${work}/osinfo-root`;
+  for (const [rel, spec] of Object.entries<any>(tree.files)) {
+    const p = `${root}/${rel}`;
+    mkdirSync(p.slice(0, p.lastIndexOf("/")), { recursive: true });
+    let bytes: Uint8Array;
+    if (typeof spec === "string") bytes = new TextEncoder().encode(spec);
+    else if (spec.pe) {
+      const b = new Uint8Array(0x60);
+      const v = new DataView(b.buffer);
+      b.set([0x4d, 0x5a], 0);
+      v.setUint32(0x3c, 0x40, true);
+      b.set([0x50, 0x45, 0, 0], 0x40);
+      v.setUint16(0x44, parseInt(spec.pe, 16), true);
+      bytes = new Uint8Array([...b, ...new TextEncoder().encode(spec.tag)]);
+    } else bytes = new Uint8Array(Buffer.from(hives[spec.hive], "base64"));
+    writeFileSync(p, bytes);
+  }
+  for (const d of tree.dirs || []) mkdirSync(`${root}/${d}`, { recursive: true });
+  const disk = JSON.parse(JSON.stringify(tree.disk).replaceAll("{root}", root));
+  const osrc = read(`${ROOT}/osinfo.ts`)
+    .replace('from "./regf.ts";', `from ${JSON.stringify(pathToFileURL(`${ROOT}/regf.ts`).href)};\nconst Date = (globalThis as any).__harness.Date;`)
+    .replace("/sys/class/block/", `${root}/sysblock/`);
+  writeFileSync(`${work}/osinfo-parts.ts`, osrc);
+  const O: any = await import(pathToFileURL(`${work}/osinfo-parts.ts`).href);
+  SCN = {};
+  const info = await O.analyseDisk(disk, `${root}/drives`);
+  out("osinfo.expected.json", JSON.parse(JSON.stringify(info).replaceAll(root, "<root>")));
+}
+
 function readdirSafe(p: string): string[] {
   try {
     return require("node:fs").readdirSync(p);

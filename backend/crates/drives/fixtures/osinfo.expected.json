@@ -1,0 +1,298 @@
+{
+  "device": "sdz",
+  "partitionTable": "gpt",
+  "partitions": [
+    {
+      "name": "sdz1",
+      "role": "EFI System",
+      "fstype": "vfat",
+      "label": "SYSTEM",
+      "path": "ESP",
+      "note": null,
+      "esp": {
+        "loaders": [
+          {
+            "dir": "fedora",
+            "name": "Fedora (GRUB)",
+            "kind": "os",
+            "files": [
+              "grubaa64.efi"
+            ],
+            "arch": "ARM64",
+            "shim": false,
+            "target": {
+              "uuid": "deadbeef-0000-0000-0000-000000000000",
+              "partition": null,
+              "system": null
+            }
+          },
+          {
+            "dir": "Microsoft",
+            "name": "Windows Boot Manager",
+            "kind": "os",
+            "files": [
+              "bootmgfw.efi",
+              "bootmgr.efi"
+            ],
+            "arch": "x64",
+            "shim": false
+          },
+          {
+            "dir": "ubuntu",
+            "name": "Ubuntu (GRUB)",
+            "kind": "os",
+            "files": [
+              "grubx64.efi",
+              "mmx64.efi",
+              "shimx64.efi"
+            ],
+            "arch": "x64",
+            "shim": true,
+            "target": {
+              "uuid": "0F0E0D0C-1111-2222-3333-444455556666",
+              "partition": "sdz4",
+              "system": "Ubuntu 24.04.1 LTS"
+            }
+          },
+          {
+            "dir": "systemd",
+            "name": "systemd-boot",
+            "kind": "bootmanager",
+            "files": [
+              "systemd-bootaa64.efi"
+            ],
+            "arch": "ARM64",
+            "shim": false
+          },
+          {
+            "dir": "BOOT",
+            "name": "Fallback loader",
+            "kind": "fallback",
+            "files": [
+              "BOOTX64.EFI",
+              "fbx64.efi"
+            ],
+            "arch": "x64",
+            "shim": false
+          },
+          {
+            "dir": "Dell",
+            "name": "Dell firmware tools",
+            "kind": "firmware",
+            "files": [
+              "diags.efi"
+            ],
+            "arch": null,
+            "shim": false
+          },
+          {
+            "dir": "Zeta",
+            "name": "Zeta",
+            "kind": "unknown",
+            "files": [],
+            "arch": null,
+            "shim": false
+          }
+        ],
+        "fallback": {
+          "file": "BOOT/BOOTX64.EFI",
+          "arch": "x64",
+          "sameAs": "ubuntu/shimx64.efi"
+        },
+        "windowsBoot": {
+          "timeout": 30,
+          "entries": [
+            {
+              "description": "Windows 11",
+              "path": "\\Windows\\system32\\winload.efi",
+              "partition": "sdz3",
+              "kind": "os",
+              "isDefault": true,
+              "inMenu": true
+            },
+            {
+              "description": "Windows 10 (other disk)",
+              "path": null,
+              "partition": null,
+              "kind": "os",
+              "isDefault": false,
+              "inMenu": true
+            },
+            {
+              "description": "(unnamed)",
+              "path": null,
+              "partition": null,
+              "kind": "os",
+              "isDefault": false,
+              "inMenu": false
+            },
+            {
+              "description": "Windows Boot Loader",
+              "path": null,
+              "partition": null,
+              "kind": "recovery",
+              "isDefault": false,
+              "inMenu": false
+            },
+            {
+              "description": "Windows Memory Diagnostic",
+              "path": null,
+              "partition": null,
+              "kind": "tool",
+              "isDefault": false,
+              "inMenu": false
+            }
+          ]
+        },
+        "systemdBoot": {
+          "default": "arch.conf",
+          "entries": [
+            {
+              "title": "Arch Linux",
+              "version": "6.1.2",
+              "file": "arch.conf"
+            },
+            {
+              "title": "plain",
+              "version": null,
+              "file": "plain.CONF"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "sdz2",
+      "role": "Microsoft reserved",
+      "fstype": null,
+      "label": "Microsoft reserved partition",
+      "path": null,
+      "note": null
+    },
+    {
+      "name": "sdz3",
+      "role": "Basic data",
+      "fstype": "ntfs",
+      "label": "Windows",
+      "path": "Windows",
+      "note": null,
+      "windows": {
+        "product": "Windows 11 Pro",
+        "edition": "Professional",
+        "version": "23H2",
+        "build": "22631.4317",
+        "installed": 1700000000000,
+        "computerName": "BENCH-PC"
+      }
+    },
+    {
+      "name": "sdz4",
+      "role": "Linux filesystem",
+      "fstype": "ext4",
+      "label": "rootfs",
+      "path": "rootfs",
+      "note": null,
+      "linux": {
+        "name": "Ubuntu 24.04.1 LTS",
+        "id": "ubuntu",
+        "version": "24.04",
+        "hostname": "bench-box"
+      }
+    },
+    {
+      "name": "sdz5",
+      "role": "Basic data",
+      "fstype": "vfat",
+      "label": "bootfs",
+      "path": "bootfs",
+      "note": null,
+      "pi": {
+        "image": "Raspberry Pi reference 2025-05-13",
+        "rootPartuuid": "77777777-02",
+        "rootPartition": "sdz4"
+      }
+    },
+    {
+      "name": "sdz6",
+      "role": "Apple HFS+",
+      "fstype": "hfsplus",
+      "label": "Macintosh HD",
+      "path": "mac",
+      "note": null,
+      "macos": {
+        "name": "macOS",
+        "version": "14.5"
+      }
+    },
+    {
+      "name": "sdz7",
+      "role": "Basic data",
+      "fstype": "BitLocker",
+      "label": null,
+      "path": null,
+      "note": "BitLocker-encrypted — contents can't be read"
+    },
+    {
+      "name": "sdz8",
+      "role": "Linux",
+      "fstype": "ext4",
+      "label": "data",
+      "path": null,
+      "note": "Not mounted — contents not inspected"
+    },
+    {
+      "name": "sdz9",
+      "role": null,
+      "fstype": "ext4",
+      "label": null,
+      "path": null,
+      "note": null
+    },
+    {
+      "name": "sdz10",
+      "role": "LUKS",
+      "fstype": "crypto_LUKS",
+      "label": null,
+      "path": null,
+      "note": "LUKS-encrypted — contents can't be read"
+    }
+  ],
+  "systems": [
+    {
+      "kind": "windows",
+      "name": "Windows 11 Pro 23H2",
+      "detail": "build 22631.4317 · PC name BENCH-PC",
+      "partition": "sdz3",
+      "bootsVia": [
+        "Windows Boot Manager: \"Windows 11\""
+      ]
+    },
+    {
+      "kind": "pi",
+      "name": "Ubuntu 24.04.1 LTS",
+      "detail": "hostname bench-box",
+      "partition": "sdz4",
+      "bootsVia": [
+        "EFI/ubuntu",
+        "Raspberry Pi bootfs (sdz5)"
+      ]
+    },
+    {
+      "kind": "macos",
+      "name": "macOS 14.5",
+      "detail": null,
+      "partition": "sdz6",
+      "bootsVia": []
+    },
+    {
+      "kind": "windows",
+      "name": "Windows 10 (other disk)",
+      "detail": "from the Windows boot menu; partition not readable",
+      "partition": null,
+      "bootsVia": [
+        "Windows Boot Manager"
+      ]
+    }
+  ],
+  "analysedAt": 1792490400000
+}
