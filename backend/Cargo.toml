@@ -8,7 +8,9 @@
 #   benchbob-serial  the serial panel: termios2 ports, bridges, auto-baud, flashing
 #   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
 #   benchbob-i2c-chips  I²C chip identification + decoders (no_std, shared with firmware)
+#   benchbob-netdiag the wired-network panel: ethtool, receive-only LLDP, iperf3, quick checks
 #   benchbob-onewire the 1-Wire panel: w1 sysfs masters/slaves, family decoders, DS2482 bridges
+#   benchbob-usb     the USB panel: device tree, hotplug timeline, uhubctl power, USB/IP, usbredir
 #   benchbob         the server binary: HTTP, UI, status, SSE, update, legacy proxy
 # Each later panel (serial, CAN, I²C…) becomes its own crate registered in the binary.
 
@@ -32,7 +34,9 @@ benchbob-gpio = { path = "crates/gpio" }
 benchbob-serial = { path = "crates/serial" }
 benchbob-i2c = { path = "crates/i2c" }
 benchbob-i2c-chips = { path = "crates/i2c-chips" }
+benchbob-netdiag = { path = "crates/netdiag" }
 benchbob-onewire = { path = "crates/onewire" }
+benchbob-usb = { path = "crates/usb" }
 
 anyhow = "1"
 async-trait = "0.1"

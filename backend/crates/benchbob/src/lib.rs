@@ -63,8 +63,10 @@ pub fn drivers(board: &Arc<Board>) -> Vec<Arc<dyn benchbob_core::Driver>> {
         Arc::new(benchbob_drives::Drives::new()),
         Arc::new(benchbob_gpio::Gpio::new(board.clone())),
         Arc::new(i2c),
+        Arc::new(benchbob_netdiag::Netdiag::new()),
         Arc::new(onewire),
         Arc::new(benchbob_serial::Serial::new()),
+        Arc::new(benchbob_usb::Usb::new()),
     ]
 }
 

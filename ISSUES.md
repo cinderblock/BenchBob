@@ -62,7 +62,9 @@ on eth0 while the live one ran. Afterwards `ip maddr show dev eth0` no longer li
 `01:80:c2:00:00:0e` and the live lldpd reported "no neighbor" until netdiag was restarted
 (disable/enable in Peripherals…). Only happens with two BenchBob instances on one Pi, but
 netdiag could notice "listening for minutes, link up, no LLDP multicast address" and
-restart lldpd itself.
+restart lldpd itself. The Rust server's netdiag now does (`benchbob-netdiag`, `lldp_heal`:
+no `0180c200000e` for a linked port in /proc/net/dev_mcast after two minutes); the Bun
+server still doesn't.
 
 ## Full status refresh spawns ~12 processes every 2 s while a dashboard is open
 
@@ -83,6 +85,16 @@ The netplan-generated `netplan-wlan0-TwillTech` profile has no interface name, s
 bring it up on any new Wi-Fi radio (e.g. a USB dongle plugged in for the Wi-Fi panel). The
 Wi-Fi panel sets a dongle unmanaged while it uses it, but between plug-in and first use NM
 can grab it.
+
+## Rust server: dropping a `sudo` child's handle orphans the root program
+
+`benchbob_core::Ctx::spawn` and `run::run` set tokio's `kill_on_drop`, which sends SIGKILL.
+For a `sudo -n prog` child that kills sudo only, and `prog` keeps running as root (sudo
+passes on SIGTERM, but can't pass on SIGKILL). This happens whenever such a handle is
+dropped early: an aborted task that holds it, or `run()` hitting its timeout (e.g. a hung
+`sudo uhubctl`). Seen on desky 2026-10-21 with the USB panel's `sudo dmesg -W` (fixed for
+that one in `9063982`). A general fix belongs in core: SIGTERM, a short grace, then SIGKILL,
+for every child.
 
 ## Bun server: drive names and image URLs reach a shell unchecked (command injection) — fixed in `e0ec561` (not yet released: releases are on hold until the Rust-only package)
 

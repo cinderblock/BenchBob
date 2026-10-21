@@ -111,8 +111,10 @@ dependencies = [
  "benchbob-drives",
  "benchbob-gpio",
  "benchbob-i2c",
+ "benchbob-netdiag",
  "benchbob-onewire",
  "benchbob-serial",
+ "benchbob-usb",
  "bytes",
  "flate2",
  "futures-util",
@@ -250,6 +252,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "benchbob-netdiag"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "bytes",
+ "futures-util",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "benchbob-onewire"
 version = "0.1.0"
 dependencies = [
@@ -285,6 +307,23 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "benchbob-usb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "indexmap",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

@@ -146,9 +146,58 @@ impl UdevDb {
     }
 }
 
+/// udev's \x20-style escapes in ID_MODEL_ENC etc. (core.ts `udevDecode`), trimmed.
+pub fn udev_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'\\'
+            && i + 3 < b.len()
+            && b[i + 1] == b'x'
+            && let Ok(v) = u8::from_str_radix(std::str::from_utf8(&b[i + 2..i + 4]).unwrap_or("zz"), 16)
+        {
+            // String.fromCharCode: a code unit, i.e. Latin-1 for one byte.
+            out.extend((v as char).to_string().as_bytes());
+            i += 4;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).trim().to_string()
+}
+
+/// Vendor and product for display (core.ts `usbName`): the database names, else the
+/// descriptor strings.
+pub fn usb_name(p: &Props) -> (String, String) {
+    let pick = |db: &str, enc: &str, raw: &str| {
+        let get = |k: &str| p.get(k).cloned().unwrap_or_default();
+        let d = get(db);
+        if !d.is_empty() {
+            return d;
+        }
+        let e = udev_decode(&get(enc));
+        if !e.is_empty() {
+            return e;
+        }
+        get(raw)
+    };
+    (pick("ID_VENDOR_FROM_DATABASE", "ID_VENDOR_ENC", "ID_VENDOR"), pick("ID_MODEL_FROM_DATABASE", "ID_MODEL_ENC", "ID_MODEL"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usb_names() {
+        let p: Props = [("ID_VENDOR_ENC", "Silicon\\x20Labs"), ("ID_MODEL", "CP2102_USB")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        assert_eq!(usb_name(&p), ("Silicon Labs".to_string(), "CP2102_USB".to_string()));
+    }
 
     #[test]
     fn export_db_and_monitor_blocks() {
