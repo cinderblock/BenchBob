@@ -140,6 +140,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "benchbob-can"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-core",
+ "bytes",
+ "futures-util",
+ "libc",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "benchbob-core"
 version = "0.1.0"
 dependencies = [
