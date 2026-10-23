@@ -475,18 +475,30 @@ impl Inner {
     }
 
     /// Past over-current events from the kernel log since boot, so a service restart
-    /// doesn't forget a recent trip.
+    /// doesn't forget a recent trip. The journal first: the kernel's ring buffer is small
+    /// and a chatty driver can wrap it within hours. dmesg covers systems without one.
     async fn load_oc_history(&self) {
-        let Some(d) = bin("dmesg") else { return };
-        let r = run(&["sudo", "-n", &d, "--time-format", "iso"], Opts::timeout_ms(10000)).await;
-        if r.code != 0 {
-            return;
+        let mut found: Vec<(String, u64)> = Vec::new();
+        if let Some(j) = bin("journalctl") {
+            let argv = ["sudo", "-n", &j, "-k", "-b", "--no-pager", "-o", "short-iso-precise", "-g", "over-current"];
+            let r = run(&argv, Opts::timeout_ms(15000)).await;
+            for (ts, text) in r.out.split('\n').filter_map(model::journal_kernel_line) {
+                if let (Some(port), Some(at)) = (model::over_current_port(text), model::kernel_ts_ms(ts)) {
+                    found.push((port, at));
+                }
+            }
+        }
+        if let Some(d) = bin("dmesg") {
+            let r = run(&["sudo", "-n", &d, "--time-format", "iso"], Opts::timeout_ms(10000)).await;
+            for k in r.out.split('\n').filter_map(model::filter_kernel_line) {
+                if let (Some(port), Some(at)) = (model::over_current_port(&k.text), model::kernel_ts_ms(&k.ts)) {
+                    found.push((port, at));
+                }
+            }
         }
         let mut st = self.st.lock().unwrap();
-        for k in r.out.split('\n').filter_map(model::filter_kernel_line) {
-            if let (Some(port), Some(at)) = (model::over_current_port(&k.text), model::kernel_ts_ms(&k.ts)) {
-                Self::record_oc(&mut st, port, at);
-            }
+        for (port, at) in found {
+            Self::record_oc(&mut st, port, at);
         }
     }
 

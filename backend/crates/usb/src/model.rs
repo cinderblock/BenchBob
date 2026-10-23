@@ -1216,6 +1216,14 @@ pub fn over_current_port(text: &str) -> Option<String> {
     Some(format!("{}:{}", &m[1], &m[2]))
 }
 
+/// `(timestamp, message)` from a `journalctl -k -o short-iso-precise` line
+/// (`2026-10-22T15:16:20.123456-07:00 deskypi kernel: usb …`).
+pub fn journal_kernel_line(line: &str) -> Option<(&str, &str)> {
+    let (ts, rest) = line.trim().split_once(' ')?;
+    let (_host, rest) = rest.split_once(' ')?;
+    Some((ts, rest.strip_prefix("kernel: ")?))
+}
+
 /// Epoch ms of a dmesg ISO timestamp (`2026-10-22T15:16:24,432836-07:00`).
 pub fn kernel_ts_ms(ts: &str) -> Option<u64> {
     benchbob_core::util::parse_iso(&ts.replacen(',', ".", 1)).and_then(|ms| u64::try_from(ms).ok())

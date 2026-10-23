@@ -627,6 +627,10 @@ fn over_current_messages() {
     // 2026-10-22 15:16:24.432 PDT
     assert_eq!(kernel_ts_ms("2026-10-22T15:16:24,432836-07:00"), Some(1_792_707_384_432));
     assert_eq!(kernel_ts_ms(""), None);
+    let j = journal_kernel_line("2026-10-22T15:16:20.123456-07:00 deskypi kernel: usb usb2-port1: over-current change #1").unwrap();
+    assert_eq!(j, ("2026-10-22T15:16:20.123456-07:00", "usb usb2-port1: over-current change #1"));
+    assert_eq!(kernel_ts_ms(j.0), Some(1_792_707_380_123));
+    assert_eq!(journal_kernel_line("-- No entries --"), None);
 }
 
 #[test]
