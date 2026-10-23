@@ -2,8 +2,9 @@
 
 Status: **design — nothing built or changed yet.** Written 2026-10-23; revised 2026-10-23
 9:30 AM PDT (16:30Z) after the user's first answers (no DHCP responders, no Bootimus test,
-fallback-menu and controller-size questions).
-Working name for the new server: **BootBob** (placeholder, see open question 1).
+fallback-menu and controller-size questions), and again 3:40 PM PDT (22:40Z) after round 2
+(proxyDHCP as opt-in, network check, BenchBob integration, storage, NBD + NFS).
+Name: **BootBob**, in its own new repo (decided round 2).
 
 ## Goal
 
@@ -29,7 +30,8 @@ Working name for the new server: **BootBob** (placeholder, see open question 1).
 
 | Thing | Value |
 | --- | --- |
-| steamboat | Intel NUC, Ubuntu 25.04, kernel 6.14, 8 cores, 30 GiB RAM, 468 GB NVMe (ext4 root, ~360 GB free). `cameron@steamboat` |
+| steamboat | Intel NUC8i5BEH, Ubuntu 25.04, kernel 6.14, 8 cores, 30 GiB RAM, 477 GB NVMe (ext4 root, ~360 GB free). Plus a **spare 112 GB SATA SSD** (`sda`, ADATA SU655): `sda1` 512 MB vfat + `sda2` 111 GB ext4, **not mounted**, contents unknown (looks like an old OS install; not inspected). avahi-daemon inactive. `cameron@steamboat` |
+| uberfall | Lenovo TS430 at TSL, Ubuntu 24.04, 4×11 TB, company storage. Candidate remote store for big images and backups |
 | steamboat LAN | `eno1` untagged: **10.255.0.5/20** (TSL main LAN). Also VLANs 3 (10.55.0.5/16), 4, 99, and `slot1..6` (wifi-tsl tester). No DHCP/TFTP listeners today. Port 53 only on 10.55.0.5 and loopback |
 | steamboat services | Caddy in Docker (`network_mode: host`, owns :80/:443), app stacks under `ops/servers/steamboat/stacks/` deployed by CI from pinned image digests (see ops `CLAUDE.md`, `add-app` skill) |
 | TSL DHCP/DNS | UniFi gateway (UXG-Pro), managed by `ops/unifi` IaC. DHCP options for netboot are not modelled there today |
@@ -103,8 +105,9 @@ Decided by the user 2026-10-23, with no Bootimus test. Reasons:
 2. Native Pi netboot with a **dynamic TFTP server** (files generated per device, per boot)
    is what makes "assign an image to this Pi" and "boot into X once" trivial. Existing
    servers serve static trees.
-3. Bootimus's "no router change" works by running proxyDHCP, and FOG wants to own DHCP.
-   Both are ruled out here (see "DHCP policy").
+3. Bootimus's "no router change" works by running proxyDHCP by default, and FOG wants to
+   own DHCP. Here proxyDHCP is at most an opt-in, never the default or the main way to
+   configure things (see "DHCP policy").
 4. It matches BenchBob: same language, same axum/tokio stack, same UI conventions and
    theme, and BenchBob's EEPROM builder already exists for the Pi side.
 
@@ -113,31 +116,96 @@ that phones home), **wimboot**, distro kernels/installers, `partclone`, `nbd`/NF
 sensible. Borrow ideas from Bootimus (ISO auto-detection, autoinstall templates) and FOG
 (imaging flow).
 
-## DHCP policy: nothing on the LAN but UniFi ever answers DHCP
+## DHCP policy: the network's own DHCP server is the normal path
 
-The user guards DHCP in the switch config and won't have any other server sending DHCP
-replies. That rules out proxyDHCP: it *is* a DHCP responder (UDP 67/4011), and the switch
-guard would drop it anyway. The boot server **never transmits DHCP**. Instead:
+The user guards DHCP in the switch config. The default and recommended way to configure
+netboot is the **network's real DHCP server** (UniFi here) handing out the boot options.
+BootBob **never answers DHCP unless the admin explicitly turns that on.**
 
 | Client | How it finds the server | Router change? |
 | --- | --- | --- |
-| **Raspberry Pi 4/5** | `TFTP_IP=10.255.0.5` in its EEPROM (BenchBob's EEPROM builder can make this image). It gets an ordinary UniFi lease for its address | **None** |
-| **PCs, PXE from firmware** | UniFi's per-network **Network Boot** setting (next-server `10.255.0.5` plus one boot filename) on the main LAN. The filename is an iPXE build with an embedded script, so iPXE's own DHCP pass doesn't loop back to the firmware filename | **Yes, one setting.** Staged in the ops repo for per-change approval in Phase 1. `ops/unifi` only models reservations and DNS today, so it needs a small code addition (or a documented manual setting) |
-| **PCs, UEFI HTTP boot** | Many UEFI setups let you type a boot URI by hand (`http://10.255.0.5:8067/ipxe.efi`). No DHCP options needed | None (a firmware setting on each machine) |
-| **Anything, last resort** | A USB stick or ISO with our iPXE build | None |
+| **PCs, PXE from firmware** (the main path) | UniFi's per-network **Network Boot** setting (next-server `10.255.0.5` plus one boot filename) on the main LAN. The filename is an iPXE build with an embedded script, so iPXE's own DHCP pass doesn't loop back to the firmware filename | **Yes, one setting.** Approved in principle (round 2); the exact change is staged in the ops repo for a per-change yes in Phase 1. `ops/unifi` only models reservations and DNS today, so it needs a small code addition |
+| **Clients that can store their own boot server** (Pi EEPROM `TFTP_IP`, a UEFI HTTP-boot URI) | A setting on the client itself, so DHCP is irrelevant. BootBob helps manage these, see "Client-side boot settings" | None |
+| **Anything, last resort** | A USB stick with our iPXE build and the server's URL embedded. BenchBob can burn it, see "BenchBob integration" | None |
+| **Opt-in: proxyDHCP** | BootBob answers PXE requests alongside the real DHCP server (UDP 67/4011, PXE options only, never addresses). **Off by default**, not offered in setup, enabled only in an advanced setting with a warning that a DHCP guard will (rightly) drop it. For networks where nobody can change the router | None |
 
-One boot filename for every PC firmware type is a problem: BIOS needs `undionly.kpxe`,
-UEFI x64 needs `snponly.efi`, and arm64 needs its own build. Options, best first:
+**Why one boot filename is a snag (not a feature, just a constraint).** UniFi's Network Boot
+setting has a single filename field for every machine. But BIOS PCs need `undionly.kpxe`,
+UEFI x86-64 PCs need `snponly.efi`, and arm64 needs a third build, and a machine given the
+wrong one simply fails to boot. Proper DHCP servers pick the file by the client's arch;
+UniFi's UI can't. The fix is on our side, invisible to the user: the server **listens**
+for DHCP broadcasts on `eno1` (approved round 2). A PXE `DISCOVER` names the client's arch
+(option 93). When the TFTP request for the one filename arrives, the server maps client
+IP → MAC (kernel neighbour table) → arch and serves the right binary under that name. The
+same listener lets the UI show every machine that *tries* to netboot, even ones that never
+get as far as iPXE (wanted, round 2). Check in Phase 1 that the switch's DHCP guard still
+floods client broadcasts to steamboat's port (`tcpdump -ni eno1 port 67`, receive-only).
 
-1. **Passive DHCP observer** (recommended; needs the user's OK, open question 5). The
-   server opens a receive-only raw socket on `eno1` and records PXE `DISCOVER`s, which
-   are broadcast and so reach steamboat: MAC, client arch (option 93), vendor class. It
-   never sends anything. When the TFTP request for the boot filename arrives, the server
-   maps client IP → MAC (kernel neighbour table, same L2) → arch, and serves the right
-   binary under the one name. Bonus: the UI sees every machine that *tries* to netboot,
-   even before it reaches iPXE. Check in Phase 1 that the switch's DHCP guard still floods
-   client broadcasts to steamboat's port (`tcpdump -ni eno1 port 67`, receive-only).
-2. Without that: UEFI x64 only by default, and legacy-BIOS boxes use the USB stick.
+## Network check ("doctor")
+
+BootBob tests that the network is set up right and suggests fixes (requested round 2).
+Sniffing DHCP and pretending to be a DHCP client are approved (round 2).
+
+- **Active probe as a client.** For each firmware arch, send a `DHCPDISCOVER` dressed as
+  that firmware (vendor class `PXEClient:Arch:000NN:…`, option 93) from a locally
+  administered MAC, read the `OFFER`, and **never send `REQUEST`**, so no lease is ever
+  bound. Also try `DHCPINFORM` from steamboat's own address, which asks for options without
+  allocating anything. Compare next-server / option 66 / filename / option 67 with what
+  BootBob expects.
+- **Reachability.** TFTP-read and HTTP-fetch the boot files at the address the offer
+  names. The best vantage point is another machine (BenchBob, or a booted controller),
+  since the server testing itself proves little.
+- **Passive evidence.** A PXE `DISCOVER` followed by no TFTP request from that MAC means
+  "this machine tried to netboot but its offer didn't send it to us". Shown per device.
+- **Conflict check.** Any `OFFER` carrying PXE options that didn't come from UniFi (or from
+  BootBob's own opt-in proxyDHCP) is flagged as a rogue boot server. It also confirms the
+  switch guard is doing its job.
+- **Fixes.** Each failed check comes with the exact fix: the UniFi values to enter, the
+  ops-repo snippet for `ops/unifi`, or "this Pi's EEPROM lacks `TFTP_IP`; burn the setter
+  image". Fixes are shown, never applied to the network by BootBob.
+
+## Client-side boot settings
+
+Clients that can store their own boot server bypass DHCP entirely. BootBob should help
+manage them (round 2: "not sure how yet, maybe bootloader-setting setter images"). Ideas,
+to firm up in Phase 2:
+
+- **Pi EEPROM setter, SD card.** A tiny SD image of `recovery.bin` + `pieeprom.upd` +
+  `pieeprom.sig` carrying `BOOT_ORDER`, `TFTP_IP`, `TFTP_PREFIX` for *this* server. Insert,
+  power on, the green LED flashes, done. BenchBob already builds EEPROM images
+  (`backend/crates/drives/src/rpiboot.rs`), so it can burn this directly. A Compute Module
+  gets the same config over `rpiboot`.
+- **Pi EEPROM setter, netboot.** A Pi already netbooting (or the Pi controller) runs a
+  one-shot job that applies a new EEPROM config. `recovery.bin` can't load over TFTP, so
+  this relies on `rpi-eeprom-update` writing the SPI flash from Linux via `flashrom`.
+  **To verify** on Pi 4 (Pi 5 does this by default).
+- **PC UEFI setter.** From the controller, add a UEFI boot entry with an HTTP-boot URI
+  device path pointing at BootBob (`efibootmgr` or our own EFI-variable writer), so the
+  machine netboots even on a network with no boot options. Firmware support varies;
+  **to verify** on real hardware.
+- The server keeps a record of which clients carry which settings, and the doctor flags
+  stale ones (e.g. after a server IP change).
+
+## BenchBob integration
+
+Requested round 2: it should be easy to burn boot media on a LAN's BenchBob for that LAN's
+BootBob server.
+
+- BootBob advertises itself over **mDNS** on `eno1` only: `_bootbob._tcp` with TXT records
+  for version, the HTTP URL, server IP, and capabilities (`ipxe`, `pi-tftp`, `bios`,
+  `proxydhcp`). BootBob can be its own responder (e.g. the `mdns-sd` crate), so steamboat
+  needs no avahi. Multicast DNS isn't DHCP, but it is a new listener, so it's an open
+  question.
+- BenchBob browses for `_bootbob._tcp`. When it finds a server, its flash picker gains a
+  **"Network boot: BootBob @ steamboat"** group:
+  - USB iPXE stick for this server (PCs that can't PXE, or networks without boot options)
+  - Pi EEPROM setter SD for this server
+  - "Set this Pi's own EEPROM to netboot from this server" (for desky itself)
+- BootBob builds these on request (iPXE with the server's URL embedded, EEPROM configs), so
+  BenchBob only downloads and writes them. BenchBob can also run the doctor's checks from
+  its own vantage point.
+- The image catalogue (installers, rescue) that BootBob serves is also offered to BenchBob
+  as burnable images, so the two share one catalogue.
 
 ## Architecture
 
@@ -145,10 +213,15 @@ UEFI x64 needs `snponly.efi`, and arm64 needs its own build. Options, best first
 
 | Piece | Notes |
 | --- | --- |
-| **Passive DHCP observer** (optional) | Receive-only raw socket on `eno1`. Records PXE `DISCOVER`s (MAC, option 93 arch, vendor class). **Never transmits.** Feeds arch selection and "tried to netboot" discovery. Parsing: `dhcproto` |
+| **DHCP listener** | Raw socket on `eno1`. Records PXE `DISCOVER`s (MAC, option 93 arch, vendor class). Feeds arch selection, "tried to netboot" discovery and the doctor. Parsing: `dhcproto` |
+| **Doctor** | Client-style DHCP probes (`DISCOVER`/`INFORM`, never `REQUEST`), reachability checks, rogue-offer detection, suggested fixes. See "Network check" |
+| **proxyDHCP** (opt-in, off by default) | UDP 67/4011, PXE options only. Advanced setting with a warning |
+| **mDNS** | Advertises `_bootbob._tcp` on `eno1` for BenchBob |
 | **Dynamic TFTP** (UDP 69) | Every read goes through our resolver: `(client MAC/serial, path) → bytes`. Serves the right iPXE binary to each PC under the one UniFi filename, and for Pis builds the boot tree on the fly from the assigned image (from a directory, or straight out of a `.img`'s FAT partition à la nobodd), with generated `cmdline.txt`/`config.txt`. Must handle blksize/tsize/windowsize options for speed |
 | **HTTP** (one port, e.g. 8067) | iPXE scripts (`/boot/ipxe?mac=${mac}&uuid=${uuid}&arch=${buildarch}…`), kernels/initrds/squashfs, ISO-extracted trees, the REST API, WebSockets for agents and the UI, the web UI itself (embedded). Caddy fronts it as `pxe.tsl` for humans only; machines hit the port directly |
-| **Root storage** | Per-device writable roots cloned from golden images. See "Network roots" |
+| **Stores** | One or more image stores, local or remote, with on-demand download and caching. Per-device writable roots. See "Storage" and "Network roots" |
+| **NBD server** (built in) | Our own, serving copy-on-write per-device roots over a shared base image |
+| **NFS** (managed) | BootBob writes its own exports file and reloads the store host's kernel NFS server |
 | **State** | SQLite: devices (MAC, Pi serial, SMBIOS UUID, arch, last seen, inventory), classes/rules, images, assignments, one-shot "next boot", jobs (backup/restore/install), audit log |
 | **Optional SMB** | For Windows installs (WinPE maps the extracted ISO). Samba in a sidecar container is fine |
 
@@ -303,19 +376,63 @@ that use GRUB. The Pi's own bootloader screen can't be skinned (it can be hidden
 | **Backup** | From the controller: per-partition `partclone` (filesystem-aware, skips free space) → zstd → streamed over HTTP to steamboat, with partition table, EFI vars and inventory stored alongside. Scheduled or on demand from the web UI |
 | **Restore** | Reverse of backup, from the controller or as a one-shot boot job ("restore image X to disk Y, then boot local"). Multicast later if ever needed |
 
-### Network roots (full systems)
+### Network roots (full systems): both NBD and NFS, NBD preferred
 
-- **NBD (recommended default):** each device gets an ext4/btrfs disk image file, exported
-  over NBD; the kernel mounts it via an initramfs with `nbd-client`
-  (`nbdroot=… root=/dev/nbd0p2`). Behaves like a local disk: apt, Docker/overlayfs,
-  xattrs and locking all just work, and small-file I/O is faster than NFS. Offline edits
-  by loop-mounting on the server. Cheap clones need a reflink/snapshot filesystem: a
-  dedicated **btrfs** (or XFS-reflink) volume on steamboat, as a partition/LV or, worst
-  case, a loop file. steamboat's root is ext4, so this is a real decision (question 4).
-- **NFS root:** no initramfs needed with Pi kernels, server can see files live, but
-  overlayfs/Docker don't work on NFS root, and apt/dpkg is slower. Supported, not default.
-- Later: our own NBD server inside BootBob (the protocol is small) for copy-on-write
-  overlays over a shared golden image, live I/O stats, and snapshot-before-upgrade.
+Decided round 2: support both, prefer NBD, and BootBob manages the server side of each.
+
+- **NBD (default):** the device's initramfs runs `nbd-client`
+  (`nbdroot=… root=/dev/nbd0p2`). Behaves like a local disk: apt, Docker/overlayfs, xattrs
+  and locking all just work, and small-file I/O is faster than NFS.
+  - **Our own NBD server inside BootBob** (moved up from "later"; the protocol is small).
+    Each device's root is a read-only **base image plus a sparse per-device overlay**
+    file. Copy-on-write is then done by BootBob, not the filesystem. That's what lets any
+    store, on any filesystem, hold per-device roots. It also gives live I/O stats per
+    device, instant "reset to golden", and snapshot-before-upgrade (freeze the overlay,
+    start a new one).
+  - Offline edits: BootBob exposes a device's root to the server itself (loopback NBD)
+    for mounting.
+- **NFS:** no initramfs needed with Pi kernels and the server sees files live, but
+  overlayfs/Docker don't work on an NFS root, and apt/dpkg is slower. BootBob manages it
+  by unpacking the image into a directory on the store and writing **its own**
+  `/etc/exports.d/bootbob.exports`, then running `exportfs -ra`. It never edits other
+  exports. The store host needs `nfs-kernel-server` installed once, via an approved ops
+  change.
+
+### Storage: multiple stores, fetched on demand, cached
+
+Requested round 2: support other hosts as NFS/NBD servers, multiple stores (small local,
+big remote), and downloading images on the fly with a cache.
+
+- **A store** is anywhere BootBob keeps images, roots and backups:
+  - **local:** a directory on the BootBob host
+  - **remote BootBob store:** the same binary in `store` mode on another host (NBD + NFS
+    exports + HTTP blob API), registered with the main server
+  - **read-only HTTP/NFS:** an existing server, for catalogue files only
+- **Placement** is per image or per class, with sane defaults: small, hot things locally
+  (iPXE, controller, Pi golden images, active device roots), big or cold things remotely
+  (backups, Windows ISOs, big golden images).
+- **Clients talk to the store directly.** The boot script or `cmdline.txt` names the
+  store's host and port, so NBD traffic from a device goes straight to its store and never
+  hairpins through steamboat.
+- **On-demand download and cache.** A catalogue entry can be just an upstream URL plus a
+  checksum (distro ISOs, netboot kernels, cloud images, Pi OS from BenchBob's existing
+  catalogue). The first boot that needs it streams it: BootBob downloads and serves at the
+  same time, verifies the checksum, and keeps it. A size-capped LRU cache with pinning
+  manages each store. Remote-store content can be cached locally the same way (tiering).
+- **btrfs is now optional.** Since the NBD server does copy-on-write itself, btrfs/XFS
+  reflinks are a nice speed-up for NFS-style directory clones, not a requirement.
+
+**Is there enough space?** Rough sizes: iPXE and the controller are tiny; a Pi OS golden
+image is 4–8 GB; a per-device overlay is 1–5 GB; an installer ISO is 1–7 GB (Windows 11
+~6 GB); a backup is tens to hundreds of GB each.
+
+- **Recommended local store:** steamboat's **spare 112 GB SATA SSD** (`sda`, not mounted),
+  as a dedicated store, *if its old contents are disposable* (open question 1). Plenty for
+  golden images, a dozen device roots and a working cache of installers. Otherwise, a
+  directory on the NVMe with a ~150 GB cache cap (of ~360 GB free).
+- **Recommended remote store: uberfall** (4×11 TB at TSL) for backups and big images,
+  once its link speed to the lab LAN is checked. Adding it needs an approved ops change
+  (a `bootbob-store` stack).
 
 ### macOS findings (honest)
 
@@ -330,7 +447,8 @@ that use GRUB. The Pi's own bootloader screen can't be skinned (it can be hidden
 
 ## DeskyPi: going diskless
 
-Steps once the server serves Pi boots (Phase 2):
+Decided round 2: desky goes diskless eventually, as dogfooding, once the server is solid.
+The SD stays as a rescue card until then. Steps once the server serves Pi boots (Phase 2):
 
 1. Make a golden Pi OS trixie image from desky's current SD (BenchBob can already read
    cards). Add `nbd-client` + initramfs support, fix `fstab` (no `mmcblk0p*` mounts),
@@ -357,12 +475,13 @@ Steps once the server serves Pi boots (Phase 2):
 
 ## Phased plan
 
-- **Phase 0, decide** *(current step: awaiting the remaining open questions)*
+- **Phase 0, decide** *(current step: awaiting the last few open questions)*
   - Build vs adopt: decided, build. No Bootimus test.
-  - Answer the open questions. Pick a name and repo.
+  - Name: BootBob, new repo. Remaining: repo visibility, the spare SSD, mDNS.
 - **Phase 1, server skeleton:**
   - Rust workspace (axum, tokio, SQLite).
-  - Dynamic TFTP, HTTP, and the passive DHCP observer if approved.
+  - Dynamic TFTP, HTTP, and the DHCP listener (arch selection, "tried to netboot").
+  - Doctor: client-style DHCP probes, reachability, rogue-offer check, suggested fixes.
   - Device discovery and a boot log.
   - Minimal web UI with theme.
   - PC path: our iPXE build → the server-generated **fallback menu**, with reboot, power
@@ -373,9 +492,15 @@ Steps once the server serves Pi boots (Phase 2):
     `servers/steamboat/stacks/bootbob/` pinned by digest.
   - **Each of these needs per-change approval:** the ops stack, the Caddy `pxe.tsl` site,
     the UniFi DNS name, and the UniFi Network Boot setting.
-- **Phase 2, Pi-native boot + diskless desky:** per-device TFTP trees from images, NBD
-  export of per-device roots, golden-image tooling, the EEPROM with `TFTP_IP`, then the
-  DeskyPi steps above.
+- **Phase 2, Pi-native boot, stores, BenchBob integration:**
+  - Per-device TFTP trees from images.
+  - Our NBD server with copy-on-write overlays; managed NFS exports.
+  - Stores (local first, then remote `store` mode), on-demand download and cache.
+  - Golden-image tooling.
+  - Client-side boot settings: Pi EEPROM setter (SD and netboot).
+  - mDNS advertisement; BenchBob's "Network boot" flash group (USB iPXE stick, EEPROM
+    setter). BenchBob change: offer the SD slot as a drive (`devices.rs`).
+  - Then dogfood: the DeskyPi steps above.
 - **Phase 3, the controller:** mini-Linux build (x86-64, arm64, Pi), Rust agent with Slint
   UI + ratatui fallback, WebSocket control, kexec / one-shot next-boot, web screen +
   terminal.
@@ -386,7 +511,8 @@ Steps once the server serves Pi boots (Phase 2):
 - **Phase 6, backup & restore:** partclone streaming, image catalogue, scheduled backups,
   restore jobs.
 - **Phase 7, polish:** optional password, passkeys, Secure Boot chain (iPXE shim),
-  Pi HTTP boot with our signing key, UEFI-on-Pi option, multicast restore, macOS-BSDP.
+  Pi HTTP boot with our signing key, UEFI-on-Pi option, multicast restore, macOS-BSDP,
+  opt-in proxyDHCP, PC UEFI HTTP-boot setter.
 
 ## Decisions already made (don't re-ask)
 
@@ -396,9 +522,29 @@ Steps once the server serves Pi boots (Phase 2):
 - Any steamboat / Caddy / UniFi / DNS change goes through the ops repo and needs explicit
   per-change approval. Approved ops changes go straight to master (no PRs).
 - **Build our own.** No Bootimus or other trial run first. (2026-10-23)
-- **No DHCP responders on the LAN, ever:** no proxyDHCP, no dnsmasq in DHCP mode. The user
-  guards DHCP in the switch config. Pis use `TFTP_IP`. PCs use UniFi's Network Boot
-  setting (approved per change), a hand-entered UEFI HTTP-boot URI, or a USB iPXE stick.
+- **DHCP:** the network's real DHCP server (UniFi) is the default and main way to configure
+  netboot. BootBob never answers DHCP by default. **proxyDHCP is acceptable as an opt-in**,
+  off by default, never the main configuration path. (Round 1 said "never"; corrected
+  round 2.) The UniFi Network Boot setting is OK in principle; the exact change still
+  needs a per-change yes. (2026-10-23)
+- Sniffing DHCP and sending client-style DHCP probes are OK. (2026-10-23)
+- The app should **test network settings and suggest fixes** (the doctor). (2026-10-23)
+- Clients that store their own boot server (Pi EEPROM, UEFI URI) are managed by BootBob,
+  e.g. via setter images. (2026-10-23)
+- **BenchBob integration:** BootBob advertises over mDNS (pending open question 3);
+  BenchBob offers burnable boot media for the LAN's server. (2026-10-23)
+- **Network roots:** both NBD and NFS, NBD preferred, server side managed by BootBob.
+  (2026-10-23)
+- **Storage:** multiple stores (local and remote hosts), on-demand download with caching.
+  (2026-10-23)
+- **Legacy BIOS:** supported. It costs one ~100 KB `undionly.kpxe` on the server and
+  nothing in the controller (the same x86-64 kernel boots from BIOS and UEFI), so no
+  build flag is needed. If something later turns out to inflate sizes, it goes behind an
+  off-by-default build flag. (2026-10-23)
+- Secure Boot off on lab machines until Phase 7. macOS deferred (old-Intel rescue only).
+  (2026-10-23)
+- Name **BootBob**, its own new repo. (2026-10-23)
+- desky goes diskless eventually (dogfooding) with `0xf2` + `TFTP_IP`; SD kept as rescue.
   (2026-10-23)
 - The fallback iPXE menu has **reboot** (and power off). Hosts waiting at it show up in the
   web UI and can be re-pointed live. (2026-10-23)
@@ -408,28 +554,18 @@ Steps once the server serves Pi boots (Phase 2):
 
 ## Open questions for the user
 
-1. **Name and home.** A new repo (recommend, e.g. `BootBob`, matching BenchBob), or a
-   crate inside this repo? A new repo seems right: it's a server product with its own
-   release cycle, and BenchBob is a client of it.
-2. **Network root default:** NBD (recommended) or NFS?
-3. **Storage on steamboat:** OK to carve a btrfs volume for images (reflink clones,
-   snapshots)? Options: a loop-file btrfs (simplest, slightly slower), or a second drive
-   if the NUC has a free slot (best). How much space for images and backups?
-4. **PCs and UniFi's Network Boot setting:** OK in principle to set next-server plus one
-   boot filename on the main LAN? It would be staged as an ops change for your yes when
-   Phase 1 is ready. This is UniFi's own DHCP adding two fields, not another server.
-   Without it, PCs can only netboot via a hand-entered UEFI HTTP-boot URI or a USB iPXE
-   stick.
-5. **Passive DHCP observer:** OK for the server to *listen* for DHCP broadcasts on `eno1`
-   (receive-only, never sends)? It lets the server learn each PC's firmware type and spot
-   machines trying to netboot. Recommended. Without it, legacy-BIOS PCs need the USB stick.
-6. **Legacy BIOS:** support it at all, or UEFI-only? This decides how much question 5
-   matters.
-7. **Secure Boot:** OK to require it off on machines in phases 1–6, and add the iPXE
-   shim later?
-8. **macOS:** OK to treat as deferred / old-Intel-rescue-only given the findings?
-9. **desky EEPROM:** OK with network-only boot (`0xf2`) plus `TFTP_IP=10.255.0.5`, keeping
-   the current SD as a rescue card?
+Round 1's nine questions are all answered (see decisions). New, from round 2:
+
+1. **steamboat's spare SSD** (`sda`, 112 GB, unmounted, an old ext4 + vfat install): is
+   its content disposable? If so, it becomes BootBob's local store (recommended). Nothing
+   gets mounted or wiped without a staged, approved change. If not, use a capped directory
+   on the NVMe.
+2. **uberfall as the big remote store:** OK in principle (backups, ISOs, big images)? The
+   exact ops change would be staged later.
+3. **mDNS on steamboat's `eno1`:** OK for BootBob to answer and advertise
+   `_bootbob._tcp` (multicast, UDP 5353)? Recommended; it's how BenchBob finds it.
+4. **Repo:** create `cinderblock/BootBob` on GitHub, private or public? Local work can
+   start before that.
 
 ## Progress log
 
@@ -442,8 +578,11 @@ Steps once the server serves Pi boots (Phase 2):
 - [x] User round 1 (2026-10-23): build our own with no Bootimus test, no DHCP responders,
       a fallback menu with reboot and live re-pointing, and a small API-driven controller.
       Revised the plan: DHCP policy, fallback-menu design, controller size table.
-- [ ] User answers to the remaining open questions.
-- [ ] Phase 0 onward.
+- [x] User round 2 (2026-10-23): proxyDHCP opt-in only, the doctor, client-side boot
+      settings, BenchBob integration over mDNS, NBD + NFS, multiple stores with caching,
+      BIOS supported, all nine round-1 questions answered. Found steamboat's spare SSD.
+- [ ] Answers to the four new open questions.
+- [ ] Phase 1 onward.
 
 ## Things not to do
 
@@ -451,9 +590,13 @@ Steps once the server serves Pi boots (Phase 2):
   approved ops change.
 - Don't put SD back in desky's `BOOT_ORDER` once it's diskless.
 - Don't make the Pi path depend on UEFI-on-Pi; BenchBob needs the native firmware.
-- **Don't run anything that sends DHCP on the LAN**: no proxyDHCP, no dnsmasq in DHCP mode,
-  not even briefly for a test. Test DHCP-dependent flows on an isolated VM network.
-- Don't bind the TFTP/HTTP servers or the DHCP observer to all of steamboat's interfaces
+- **Don't send DHCP replies on the LAN** unless the admin has explicitly enabled the
+  opt-in proxyDHCP. Never dnsmasq in DHCP mode. Test DHCP-serving flows on an isolated VM
+  network. The doctor's client probes send `DISCOVER`/`INFORM` only, **never `REQUEST`**,
+  so they never bind a lease.
+- Don't make proxyDHCP the default, or part of first-run setup.
+- Don't mount, format or inspect steamboat's spare SSD without an approved change.
+- Don't bind the TFTP/HTTP servers, the DHCP listener, mDNS or proxyDHCP to all of steamboat's interfaces
   (VLANs, `slot*` tester bridges). Use `eno1` / 10.255.0.5 only.
 - Don't rely on Pi HTTP boot without our own signing key in the EEPROM: unsigned
   `boot.img` from a custom host is rejected.
