@@ -84,3 +84,21 @@ form's first-boot settings` with timeouts; both passed on their own and on every
 Parallel agents running suites at the same time hit the same thing. Likely `findBy*`
 lookups with short timeouts (Flash.test uses 1 s) racing lazy-loaded sections on a cold
 transform cache. Matters because CI on a slow runner may fail spuriously.
+
+## A phantom 1-Wire device floods the kernel log on desky
+
+Seen 2026-10-23 on desky (Pi 4): every one of the 1365 lines in `dmesg` is
+`w1_master_driver w1_bus_master1: Family 0 for 00.ac6800000000.20 is not registered.`, so
+the ring buffer holds well under a day. A search with nothing on the bus finds a
+bogus family-0 slave, likely noise or a floating line on the w1-gpio pin. Matters
+because it pushes every other kernel message out of `dmesg` (see the next entry) and fills
+the journal with noise.
+
+## The USB panel's "Since boot" kernel log reads only dmesg
+
+`GET /api/usb/dmesg` (`backend/crates/usb/src/routes.rs`) runs `sudo dmesg`, so once the
+ring buffer wraps the view is missing earlier messages, and on desky it shows nothing
+USB-related at all (see the 1-Wire entry). The kernel journal (`journalctl -k -b`) still
+has them. The over-current start-up history already reads the journal first
+(`load_oc_history` in `backend/crates/usb/src/lib.rs`). Matters because the panel calls
+this view the log since boot.
