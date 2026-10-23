@@ -1,9 +1,10 @@
 # PXE / netboot server on steamboat, and a diskless DeskyPi
 
-Status: **design — nothing built or changed yet.** Written 2026-10-23; revised 2026-10-23
-9:30 AM PDT (16:30Z) after the user's first answers (no DHCP responders, no Bootimus test,
-fallback-menu and controller-size questions), and again 3:40 PM PDT (22:40Z) after round 2
-(proxyDHCP as opt-in, network check, BenchBob integration, storage, NBD + NFS).
+Status: **Phase 1 in progress.** BootBob repo created (public,
+<https://github.com/cinderblock/BootBob>, local `~/git/Personal Projects/BootBob`) with the
+server, web UI, iPXE build and a QEMU end-to-end test. Nothing deployed; steamboat, UniFi
+and desky untouched. Written 2026-10-23; revised 9:30 AM PDT (16:30Z) after round 1, 3:40 PM
+PDT (22:40Z) after round 2, and 4:30 PM PDT (23:30Z) after round 3 (storage, mDNS, repo).
 Name: **BootBob**, in its own new repo (decided round 2).
 
 ## Goal
@@ -262,8 +263,10 @@ seen 3 s ago"**. When the admin assigns an image (persistent, or one-shot "next 
 the next refresh returns a script that boots it. The host goes there within one poll
 interval, **with nobody touching it and no reboot**. If the host is no longer waiting
 (powered off, or someone picked an entry), the assignment applies on its next netboot.
-To verify in Phase 1: whether a keypress cancels `choose`'s timeout in current iPXE. That
-would be the right behaviour, since someone at the keyboard should stop the polling.
+**Verified** in iPXE's source (`hci/tui/menu_ui.c`): a keypress resets the menu timeout to
+`--retimeout`, which defaults to 0 (never), so someone at the keyboard stops the polling.
+The UI shows that as "at menu, idle". A failing `choose` (Esc, or an old iPXE that rejects
+an option) pauses 3 s before refreshing, so a broken menu can't spin against the server.
 
 Pis have no firmware menu, so an unassigned Pi gets the controller. Before Phase 3 it gets
 a tiny "unassigned" image that shows its serial and MAC on HDMI and keeps re-checking. Its
@@ -426,13 +429,12 @@ big remote), and downloading images on the fly with a cache.
 image is 4–8 GB; a per-device overlay is 1–5 GB; an installer ISO is 1–7 GB (Windows 11
 ~6 GB); a backup is tens to hundreds of GB each.
 
-- **Recommended local store:** steamboat's **spare 112 GB SATA SSD** (`sda`, not mounted),
-  as a dedicated store, *if its old contents are disposable* (open question 1). Plenty for
-  golden images, a dozen device roots and a working cache of installers. Otherwise, a
-  directory on the NVMe with a ~150 GB cache cap (of ~360 GB free).
-- **Recommended remote store: uberfall** (4×11 TB at TSL) for backups and big images,
-  once its link speed to the lab LAN is checked. Adding it needs an approved ops change
-  (a `bootbob-store` stack).
+- **Local store (decided round 3):** a directory on steamboat's NVMe with a ~150 GB cache
+  cap (of ~360 GB free). The spare 112 GB SATA SSD (`sda`) is **not** available: its
+  contents are not disposable.
+- **Remote store: uberfall** (4×11 TB at TSL) for backups and big images, approved in
+  principle (round 3), once its link speed to the lab LAN is checked. The exact change (a
+  `bootbob-store` stack) still needs a per-change yes.
 
 ### macOS findings (honest)
 
@@ -475,23 +477,27 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
 
 ## Phased plan
 
-- **Phase 0, decide** *(current step: awaiting the last few open questions)*
-  - Build vs adopt: decided, build. No Bootimus test.
-  - Name: BootBob, new repo. Remaining: repo visibility, the spare SSD, mDNS.
-- **Phase 1, server skeleton:**
-  - Rust workspace (axum, tokio, SQLite).
-  - Dynamic TFTP, HTTP, and the DHCP listener (arch selection, "tried to netboot").
-  - Doctor: client-style DHCP probes, reachability, rogue-offer check, suggested fixes.
-  - Device discovery and a boot log.
-  - Minimal web UI with theme.
-  - PC path: our iPXE build → the server-generated **fallback menu**, with reboot, power
-    off and refresh polling, and assign-from-UI for hosts waiting at it.
-  - Develop against a VM on an isolated virtual network first, so the LAN isn't touched
-    until it works. Only there may a throwaway dnsmasq hand out boot options.
-  - Docker image built in the app repo's CI; ops stack
-    `servers/steamboat/stacks/bootbob/` pinned by digest.
-  - **Each of these needs per-change approval:** the ops stack, the Caddy `pxe.tsl` site,
-    the UniFi DNS name, and the UniFi Network Boot setting.
+- **Phase 0, decide:** done (rounds 1–3).
+- **Phase 1, server skeleton** *(current step)*. In the BootBob repo:
+  - [x] Rust workspace (axum, tokio). Storage is **redb**, not SQLite: pure Rust, so the
+        binary stays static with no C toolchain, like BenchBob's.
+  - [x] Dynamic TFTP (blksize, tsize, timeout, windowsize, rollover, loss recovery).
+  - [x] HTTP: iPXE scripts, JSON API, SSE change feed, theme.css, web UI.
+  - [x] DHCP listener (receive-only AF_PACKET + kernel BPF filter): arch selection under
+        the one boot file name, "tried to netboot" detection, offers recorded.
+  - [x] Device discovery, assignments (one-shot and persistent), event log.
+  - [x] Fallback menu with reboot, power off, local disk, polling, choice reporting,
+        failed-boot return; assign-from-UI for hosts waiting at it.
+  - [x] Web UI (machines, images, settings with themed menu preview, log).
+  - [x] iPXE build (pinned commit, embedded script), BIOS + UEFI x64 + arm64.
+  - [x] QEMU end-to-end test in CI on a private bridge (SeaBIOS + OVMF): reach the menu,
+        firmware detected, power off on assignment. *(first CI run in progress)*
+  - [x] Dockerfile, CI (tests, clippy, fmt, web, iPXE, e2e, image smoke test).
+  - [ ] Doctor: client-style DHCP probes, reachability, rogue-offer check, suggested fixes
+        (the codec and probe packets exist; the doctor itself doesn't yet).
+  - [ ] Publish the image to GHCR from CI, pinned by digest.
+  - [ ] **Needs per-change approval:** the ops stack `servers/steamboat/stacks/bootbob/`,
+        the Caddy `pxe.tsl` site, the UniFi DNS name, the UniFi Network Boot setting.
 - **Phase 2, Pi-native boot, stores, BenchBob integration:**
   - Per-device TFTP trees from images.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
@@ -531,8 +537,12 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
 - The app should **test network settings and suggest fixes** (the doctor). (2026-10-23)
 - Clients that store their own boot server (Pi EEPROM, UEFI URI) are managed by BootBob,
   e.g. via setter images. (2026-10-23)
-- **BenchBob integration:** BootBob advertises over mDNS (pending open question 3);
-  BenchBob offers burnable boot media for the LAN's server. (2026-10-23)
+- **BenchBob integration:** BootBob advertises `_bootbob._tcp` over mDNS on `eno1`
+  (approved round 3); BenchBob offers burnable boot media for the LAN's server. (2026-10-23)
+- **Storage:** local store is a capped directory on steamboat's NVMe; the spare `sda` SSD
+  is off limits (not disposable). uberfall is OK in principle as the big remote store.
+  (2026-10-23)
+- **Repo:** `cinderblock/BootBob`, public. (2026-10-23)
 - **Network roots:** both NBD and NFS, NBD preferred, server side managed by BootBob.
   (2026-10-23)
 - **Storage:** multiple stores (local and remote hosts), on-demand download with caching.
@@ -554,18 +564,8 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
 
 ## Open questions for the user
 
-Round 1's nine questions are all answered (see decisions). New, from round 2:
-
-1. **steamboat's spare SSD** (`sda`, 112 GB, unmounted, an old ext4 + vfat install): is
-   its content disposable? If so, it becomes BootBob's local store (recommended). Nothing
-   gets mounted or wiped without a staged, approved change. If not, use a capped directory
-   on the NVMe.
-2. **uberfall as the big remote store:** OK in principle (backups, ISOs, big images)? The
-   exact ops change would be staged later.
-3. **mDNS on steamboat's `eno1`:** OK for BootBob to answer and advertise
-   `_bootbob._tcp` (multicast, UDP 5353)? Recommended; it's how BenchBob finds it.
-4. **Repo:** create `cinderblock/BootBob` on GitHub, private or public? Local work can
-   start before that.
+All design questions from rounds 1–3 are answered (see decisions). None open right now.
+Next approvals will be the per-change infrastructure items at the end of Phase 1.
 
 ## Progress log
 
@@ -581,8 +581,28 @@ Round 1's nine questions are all answered (see decisions). New, from round 2:
 - [x] User round 2 (2026-10-23): proxyDHCP opt-in only, the doctor, client-side boot
       settings, BenchBob integration over mDNS, NBD + NFS, multiple stores with caching,
       BIOS supported, all nine round-1 questions answered. Found steamboat's spare SSD.
-- [ ] Answers to the four new open questions.
-- [ ] Phase 1 onward.
+- [x] User round 3 (2026-10-23): spare SSD not disposable, uberfall OK in principle, mDNS
+      OK, repo public.
+- [x] Phase 1 build (2026-10-23, BootBob `c25babd`..`6430fe3`): see the Phase 1 checklist.
+      Created and pushed <https://github.com/cinderblock/BootBob>.
+- [ ] Phase 1 remainder: first green CI run, the doctor, GHCR publishing, then the staged
+      ops/UniFi changes for approval.
+
+## Findings / gotchas
+
+- **dhcproto pulls in hickory-proto and rand**; BootBob has its own small DHCPv4 codec
+  instead (reading options and building two probe packets is all it needs).
+- **WSL Ubuntu on the dev PC has no make, QEMU or cross compiler**, and installing needs
+  a sudo password. iPXE builds and the QEMU test therefore run in GitHub Actions.
+- **The e2e test's DHCP server** is dnsmasq on a bridge with no uplink inside the CI VM,
+  with `--dhcp-boot=bootbob,,<server>`, i.e. exactly UniFi's next-server + one file name.
+  `default_firmware` is set deliberately wrong, so reaching the menu proves the listener's
+  arch detection picked the right iPXE build.
+- **Packets BootBob's own host sends show as PACKET_OUTGOING** on the listener and are
+  ignored, so in the e2e test (dnsmasq on the same host) offers aren't recorded. On the
+  real LAN, UniFi's offers arrive from outside and are.
+- **Git Bash heredocs collapse `\\`** before Python sees them; edit Rust strings with the
+  Edit tool, not inline Python, when they contain escapes.
 
 ## Things not to do
 
@@ -595,7 +615,7 @@ Round 1's nine questions are all answered (see decisions). New, from round 2:
   network. The doctor's client probes send `DISCOVER`/`INFORM` only, **never `REQUEST`**,
   so they never bind a lease.
 - Don't make proxyDHCP the default, or part of first-run setup.
-- Don't mount, format or inspect steamboat's spare SSD without an approved change.
+- Don't use steamboat's spare SSD (`sda`) at all: its contents are not disposable.
 - Don't bind the TFTP/HTTP servers, the DHCP listener, mDNS or proxyDHCP to all of steamboat's interfaces
   (VLANs, `slot*` tester bridges). Use `eno1` / 10.255.0.5 only.
 - Don't rely on Pi HTTP boot without our own signing key in the EEPROM: unsigned
