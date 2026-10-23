@@ -490,12 +490,18 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
         failed-boot return; assign-from-UI for hosts waiting at it.
   - [x] Web UI (machines, images, settings with themed menu preview, log).
   - [x] iPXE build (pinned commit, embedded script), BIOS + UEFI x64 + arm64.
-  - [x] QEMU end-to-end test in CI on a private bridge (SeaBIOS + OVMF): reach the menu,
-        firmware detected, power off on assignment. *(first CI run in progress)*
+  - [x] QEMU end-to-end test in CI on a private bridge (SeaBIOS + OVMF): network check
+        passes, both reach the menu with the right firmware, both power off when assigned
+        from the API. **Green** (run 40039958136 and later).
   - [x] Dockerfile, CI (tests, clippy, fmt, web, iPXE, e2e, image smoke test).
-  - [ ] Doctor: client-style DHCP probes, reachability, rogue-offer check, suggested fixes
-        (the codec and probe packets exist; the doctor itself doesn't yet).
-  - [ ] Publish the image to GHCR from CI, pinned by digest.
+  - [x] Doctor: client-style DHCP probes (both firmwares at once, 8 s window), offers
+        matched by xid, iPXE/TFTP/listener checks, rogue boot servers, stuck machines,
+        exact fixes. Network check tab in the UI.
+  - [x] Menu gives up after 2 min untouched and boots the local disk (setting
+        `menu_timeout_secs`), so PCs that try the network before their disk still start
+        once UniFi hands out boot options.
+  - [x] CI publishes `ghcr.io/cinderblock/bootbob` on green master pushes, with the
+        revision label and the ops `pin.json` in the run summary (wifi-tester's pattern).
   - [ ] **Needs per-change approval:** the ops stack `servers/steamboat/stacks/bootbob/`,
         the Caddy `pxe.tsl` site, the UniFi DNS name, the UniFi Network Boot setting.
 - **Phase 2, Pi-native boot, stores, BenchBob integration:**
@@ -585,8 +591,11 @@ Next approvals will be the per-change infrastructure items at the end of Phase 1
       OK, repo public.
 - [x] Phase 1 build (2026-10-23, BootBob `c25babd`..`6430fe3`): see the Phase 1 checklist.
       Created and pushed <https://github.com/cinderblock/BootBob>.
-- [ ] Phase 1 remainder: first green CI run, the doctor, GHCR publishing, then the staged
-      ops/UniFi changes for approval.
+- [x] First green e2e, the doctor, menu timeout, GHCR publishing (BootBob up to
+      `332dbc2`).
+- [ ] Phase 1 remainder: the four infrastructure changes, each staged in the ops repo and
+      applied only after the user's yes for that change (proposed 2026-10-23, see the
+      reply that day): steamboat stack, `pxe.tsl` DNS, Caddy site, UniFi Network Boot.
 
 ## Findings / gotchas
 
@@ -599,8 +608,23 @@ Next approvals will be the per-change infrastructure items at the end of Phase 1
   `default_firmware` is set deliberately wrong, so reaching the menu proves the listener's
   arch detection picked the right iPXE build.
 - **Packets BootBob's own host sends show as PACKET_OUTGOING** on the listener and are
-  ignored, so in the e2e test (dnsmasq on the same host) offers aren't recorded. On the
-  real LAN, UniFi's offers arrive from outside and are.
+  ignored. So the e2e test runs dnsmasq in its own network namespace (veth into the
+  bridge), making its replies arrive from outside, as UniFi's do.
+- **A machine's DHCP offer is only visible to the listener when it's broadcast** (client
+  set the broadcast flag). Unicast offers go straight to the client's MAC, and a switch
+  never floods them to steamboat. So "what DHCP told this machine" on a device is
+  best-effort. The doctor's probes set the broadcast flag, so its checks don't depend on
+  this.
+- **iPXE's `:type` suffix re-formats raw bytes.** `${mac:uristring}` percent-encodes the
+  MAC's six binary bytes, not its text, so BootBob couldn't identify the first e2e VM. Use
+  `${netX/mac:hexhyp}` and plain `${uuid}`; `:uristring` only on text settings.
+- **dnsmasq pings an address for ~3 s before offering it**; the doctor's first 3 s window
+  closed just before the offer arrived. Real gateways may do conflict checks too.
+- **UEFI firmware fetches each TFTP file twice**: once with `tsize` only, aborting with
+  error 8, then for real. That's a cancelled transfer, not a failure.
+- **steamboat (read-only check 2026-10-23):** 8067/tcp and 69/udp free; **5353/udp is
+  already taken** (an existing mDNS responder), which Phase 2's mDNS must coexist with.
+  `eno1` also carries 10.0.100.5/24.
 - **Git Bash heredocs collapse `\\`** before Python sees them; edit Rust strings with the
   Edit tool, not inline Python, when they contain escapes.
 
