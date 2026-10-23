@@ -278,10 +278,13 @@ function PortChips({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
     <>
       <div className="usb-ports">
         {pw.ports.map((p) => {
-          const child = d.ports.find((x) => x.port === p.port)?.child;
-          const oc = p.overCurrent || d.ports.find((x) => x.port === p.port)?.overCurrent;
-          const cls = p.internal ? "int" : oc ? "oc" : p.power ? "on" : "off";
-          const state = p.internal ? "internal" : oc ? "over-current" : p.power ? "on" : "off";
+          const dp = d.ports.find((x) => x.port === p.port);
+          const child = dp?.child;
+          // Red only while the hub reports it; a recent trip stays amber until the server
+          // says it has gone quiet. The since-boot counts are in OcNote.
+          const tripped = !p.overCurrent && dp?.overCurrentRecent;
+          const cls = p.internal ? "int" : p.overCurrent ? "oc" : tripped ? "ocr" : p.power ? "on" : "off";
+          const state = p.internal ? "internal" : p.overCurrent ? "over-current" : (p.power ? "on" : "off") + (tripped ? " · tripped" : "");
           const isSel = sel && sel.hub === pw.loc && sel.port === p.port;
           // The port's own status, else a whole-hub switch (a ganged one is made on the group's first hub).
           const ps = ctx.power[powerKey(pw.loc, p.port)] || ctx.power[powerKey(grouped ? pw.group!.hubs[0] : pw.loc)];
@@ -296,6 +299,39 @@ function PortChips({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
       </div>
       {bar}
     </>
+  );
+}
+
+// Local time with its zone, then UTC smaller beside it; the date too when it isn't today.
+function When({ t }: { t: number }) {
+  const d = new Date(t);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
+  const day = d.toDateString() === new Date().toDateString() ? "" : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " ";
+  return (
+    <>
+      {day}
+      {time} <small>({d.toISOString().slice(11, 19)}Z)</small>
+    </>
+  );
+}
+
+// The kernel counts a hub port's over-current events since boot and never resets the
+// count, so it lives here as history rather than on the chips.
+function OcNote({ d }: { d: UsbDev }) {
+  const hit = d.ports.filter((p) => p.overCurrent);
+  if (!hit.length) return null;
+  const last = Math.max(...hit.map((p) => p.overCurrentAt ?? 0));
+  const recent = hit.some((p) => p.overCurrentRecent);
+  return (
+    <div className={`usb-l2${recent ? " usb-ocr" : ""}`}>
+      {recent ? "⚠ " : ""}Over-current events since boot: {hit.map((p) => `P${p.port} ×${p.overCurrent}`).join(", ")}
+      {last > 0 && (
+        <>
+          {" "}
+          · last at <When t={last} />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -317,6 +353,7 @@ function DevRow({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
           {d.power?.mode && <Pill t={d.power.group ? "ganged" : d.power.mode} />}
         </div>
         <PortChips d={d} ctx={ctx} />
+        <OcNote d={d} />
       </div>
     );
   }
@@ -386,6 +423,7 @@ function DevRow({ d, ctx }: { d: UsbDev; ctx: RowCtx }) {
       )}
       {d.protect.length > 0 && <div className="usb-l2">Protected: this device {d.protect.join("; ")}</div>}
       {d.hub && <PortChips d={d} ctx={ctx} />}
+      {d.hub && <OcNote d={d} />}
       {isOpen && <More d={d} ctx={ctx} />}
     </div>
   );

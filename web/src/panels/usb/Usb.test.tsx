@@ -77,3 +77,39 @@ describe("USB port power", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
+
+describe("USB over-current", () => {
+  const show = (ports: UsbDev["ports"], live = false) => {
+    const d: UsbDev = { ...hub, ports, power: { ...hub.power!, ports: [{ port: 1, power: true, overCurrent: live }, { port: 2, power: true }] } };
+    const b = { conn: { hostname: "bob" }, api: vi.fn() } as unknown as BobApi;
+    render(
+      <BobContext.Provider value={b}>
+        <Usb {...({ st: { ...state, devices: [d] } } as PanelProps<UsbState>)} />
+      </BobContext.Provider>,
+    );
+  };
+  const at = Date.UTC(2026, 9, 22, 22, 16, 31);
+
+  it("keeps a past event's count as history without flagging the port", () => {
+    show([{ port: 1, overCurrent: 9, overCurrentAt: at, overCurrentRecent: false }, { port: 2, child: "1-1.2" }]);
+    const chip = screen.getByRole("button", { name: /^P1 / });
+    expect(chip.textContent).toBe("P1 on");
+    expect(chip.className).toContain(" on");
+    expect(screen.getByText(/Over-current events since boot: P1 ×9 · last at/).textContent).toContain("(22:16:31Z)");
+  });
+
+  it("shows a recent trip in amber", () => {
+    show([{ port: 1, overCurrent: 9, overCurrentAt: at, overCurrentRecent: true }, { port: 2 }]);
+    const chip = screen.getByRole("button", { name: /^P1 / });
+    expect(chip.textContent).toBe("P1 on · tripped");
+    expect(chip.className).toContain("ocr");
+    expect(screen.getByText(/^⚠ Over-current events since boot/)).toBeTruthy();
+  });
+
+  it("is red only while the hub reports it", () => {
+    show([{ port: 1, overCurrent: 9, overCurrentRecent: true }, { port: 2 }], true);
+    const chip = screen.getByRole("button", { name: /^P1 / });
+    expect(chip.textContent).toBe("P1 over-current");
+    expect(chip.className).toContain(" oc");
+  });
+});

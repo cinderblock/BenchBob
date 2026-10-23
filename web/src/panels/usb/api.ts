@@ -3,6 +3,7 @@
 export interface HubPort {
   port: number;
   power: boolean;
+  /** The hub reports over-current on this port right now (uhubctl's live status). */
   overCurrent?: boolean;
   internal?: string | null;
 }
@@ -14,6 +15,17 @@ export interface HubPower {
   why?: string;
   group?: { id: string; label: string; hubs: string[] } | null;
   ports?: HubPort[];
+}
+
+export interface UsbDevPort {
+  port: number;
+  child?: string | null;
+  /** Over-current events since boot (sysfs counter; the kernel never resets it). */
+  overCurrent?: number;
+  /** When the last one happened (epoch ms), if known. */
+  overCurrentAt?: number | null;
+  /** The last one was recent; the server clears this after a quiet spell. */
+  overCurrentRecent?: boolean;
 }
 
 export interface UsbDev {
@@ -32,7 +44,7 @@ export interface UsbDev {
   maxPowerMa?: number;
   config?: string;
   nports: number;
-  ports: { port: number; child?: string | null; overCurrent?: boolean }[];
+  ports: UsbDevPort[];
   power?: HubPower | null;
   usbip?: "available" | "in use" | "error" | string | null;
   redir?: { port: number; peers: string[] } | null;

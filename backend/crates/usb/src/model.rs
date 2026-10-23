@@ -1203,6 +1203,24 @@ pub fn filter_kernel_line(line: &str) -> Option<KernelLine> {
     Some(KernelLine { ts, level, text })
 }
 
+static K_OC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^usb (\S+)-port(\d+): over-current (?:change|condition)\b").unwrap());
+
+/// The hub port an over-current kernel message is about, as `"<hub busid>:<port>"`:
+/// `usb 1-1-port2: over-current change #4` → `1-1:2`, `usb usb2-port1: over-current
+/// condition` → `usb2:1`. None for anything else, including "… cleared".
+pub fn over_current_port(text: &str) -> Option<String> {
+    let m = K_OC.captures(text.trim())?;
+    if text.contains("cleared") {
+        return None;
+    }
+    Some(format!("{}:{}", &m[1], &m[2]))
+}
+
+/// Epoch ms of a dmesg ISO timestamp (`2026-10-22T15:16:24,432836-07:00`).
+pub fn kernel_ts_ms(ts: &str) -> Option<u64> {
+    benchbob_core::util::parse_iso(&ts.replacen(',', ".", 1)).and_then(|ms| u64::try_from(ms).ok())
+}
+
 // ---------- ss ----------
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

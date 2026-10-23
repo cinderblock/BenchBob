@@ -13,6 +13,8 @@
 .usb-chip.on{color:var(--success);border-color:rgba(76,175,125,.4)}
 .usb-chip.off{color:var(--dim);border-style:dashed}
 .usb-chip.oc{color:var(--danger);border-color:var(--danger)}
+.usb-chip.ocr{color:var(--warning);border-color:var(--warning)}
+.usb-ocr{color:var(--warning)}
 .usb-chip.int{cursor:default;opacity:.7}
 .usb-chip.sel{outline:1px solid var(--accent)}
 .usb-chip:disabled{cursor:default}

@@ -516,7 +516,12 @@ async fn driver_view_and_flat_list() {
     let st = usb.inner.status(false);
     let keys: Vec<&str> = st.as_object().unwrap().keys().map(String::as_str).collect();
     assert_eq!(keys, ["active", "summary", "host", "controllers", "devices", "groups", "uhubctl", "usbip", "redir", "rules", "kernelLog"]);
-    assert_eq!(st["summary"], "1 device · 1 shared · over-current seen");
+    // The root port's 3 over-currents predate the first scan: counted, but not flagged.
+    assert_eq!(st["summary"], "1 device · 1 shared");
+    assert_eq!(
+        st["devices"][0]["ports"][0],
+        json!({ "port": 1, "child": "1-1", "connectType": "hotplug", "overCurrent": 3, "overCurrentAt": null, "overCurrentRecent": false })
+    );
     assert_eq!(st["usbip"]["shared"], 1);
     assert_eq!(st["uhubctl"], json!({ "available": false, "error": "", "at": 0 }));
     let d = &st["devices"][1];
@@ -543,6 +548,16 @@ async fn driver_view_and_flat_list() {
         "No USB device \"9-9\". Busids look like 1-1.2 (bus 1, port path 1.2); see GET /api/usb."
     );
     assert!(usb.inner.start_redir("usb1").is_err());
+    // A count that rises between scans (no kernel message seen) is a trip now.
+    std::fs::write(t.path().canonicalize().unwrap().join("sys/bus/usb/devices/1-0:1.0/usb1-port1/over_current_count"), "5\n").unwrap();
+    usb.inner.rescan().await;
+    let st = usb.inner.status(false);
+    assert_eq!(st["summary"], "1 device · 1 shared · over-current recently");
+    assert_eq!(
+        (&st["devices"][0]["ports"][0]["overCurrent"], &st["devices"][0]["ports"][0]["overCurrentRecent"]),
+        (&json!(5), &json!(true))
+    );
+    assert!(st["devices"][0]["ports"][0]["overCurrentAt"].is_u64());
     // A service stop leaves the binding alone (no usbip unbind is attempted): the next start
     // adopts it.
     usb.stop(benchbob_core::StopReason::Shutdown).await;
@@ -600,6 +615,18 @@ fn fake_sys(t: &std::path::Path) -> std::path::PathBuf {
         symlink(p, sys.join("bus/usb/devices").join(n)).unwrap();
     }
     sys
+}
+
+#[test]
+fn over_current_messages() {
+    assert_eq!(over_current_port("usb 1-1-port2: over-current change #4").as_deref(), Some("1-1:2"));
+    assert_eq!(over_current_port("usb usb1-port4: over-current condition").as_deref(), Some("usb1:4"));
+    assert_eq!(over_current_port("usb 1-1.3-port10: over-current change #1").as_deref(), Some("1-1.3:10"));
+    assert_eq!(over_current_port("usb usb1-port4: over-current condition cleared"), None);
+    assert_eq!(over_current_port("usb 1-1: new high-speed USB device number 2 using xhci_hcd"), None);
+    // 2026-10-22 15:16:24.432 PDT
+    assert_eq!(kernel_ts_ms("2026-10-22T15:16:24,432836-07:00"), Some(1_792_707_384_432));
+    assert_eq!(kernel_ts_ms(""), None);
 }
 
 #[test]

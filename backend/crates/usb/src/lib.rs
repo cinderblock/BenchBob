@@ -20,7 +20,7 @@ mod routes;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,6 +40,8 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use crate::model::{Inventory, Peer, PowerPlan, PowerTopology, RawUsbDevice, UhubHub, UsbDevice};
 
 const TIMELINE_IN_STATUS: usize = 100;
+/// How long a port's over-current trip stays "recent" (flagged) after its last event.
+const OC_RECENT_MS: u64 = 10 * 60_000;
 
 /// A spawned task, aborted when this handle is dropped.
 struct Task(tokio::task::JoinHandle<()>);
@@ -148,6 +150,13 @@ struct State {
     dmesg_error: String,
     /// The kernel log follower's sudo, while it runs.
     dmesg_pid: Option<u32>,
+    /// When each hub port ("1-1:2", "usb2:1") last had an over-current event, epoch ms.
+    /// sysfs only counts them (since boot, never reset), so this is what lets the panel
+    /// stop flagging a port once things have been quiet for a while.
+    oc_at: HashMap<String, u64>,
+    /// The sysfs over-current counts at the last scan, and when that was.
+    oc_counts: HashMap<String, i64>,
+    oc_counts_at: u64,
 }
 
 struct View {
@@ -185,6 +194,8 @@ pub(crate) struct Inner {
     loops: Mutex<Vec<Task>>,
     rescan_timer: Mutex<Option<Task>>,
     hub_timer: Mutex<Option<Task>>,
+    /// Rebuilds the view when the latest over-current trip stops being recent.
+    oc_timer: Mutex<Option<Task>>,
 }
 
 /// The USB driver.
@@ -216,6 +227,7 @@ impl Usb {
                 loops: Mutex::new(Vec::new()),
                 rescan_timer: Mutex::new(None),
                 hub_timer: Mutex::new(None),
+                oc_timer: Mutex::new(None),
             }),
         }
     }
@@ -423,6 +435,81 @@ impl Inner {
         *self.hub_timer.lock().unwrap() = Some(Task(t));
     }
 
+    // ---------- Over-current ----------
+
+    /// Takes this scan's sysfs over-current counts. A count that rose since the last scan
+    /// with no kernel message about it (the log follower isn't running, or missed it) dates
+    /// the event to now. True if that happened.
+    fn note_oc_counts(st: &mut State, now: u64) -> bool {
+        let first = st.oc_counts_at == 0;
+        let mut counts = HashMap::new();
+        let mut hit = false;
+        for d in &st.inv.devices {
+            for p in &d.ports {
+                let k = format!("{}:{}", d.busid, p.port);
+                let rose = p.over_current > st.oc_counts.get(&k).copied().unwrap_or(0);
+                if !first && rose && st.oc_at.get(&k).is_none_or(|t| *t < st.oc_counts_at) {
+                    st.oc_at.insert(k.clone(), now);
+                    hit = true;
+                }
+                counts.insert(k, p.over_current);
+            }
+        }
+        st.oc_counts = counts;
+        st.oc_counts_at = now;
+        hit
+    }
+
+    fn record_oc(st: &mut State, port: String, at: u64) {
+        let t = st.oc_at.entry(port).or_insert(0);
+        *t = (*t).max(at);
+    }
+
+    /// An over-current message from the live kernel log: date it, then re-read the counts
+    /// and uhubctl's live flags once the burst settles (both timers restart on each line).
+    fn note_oc(self: &Arc<Self>, port: String, at: u64) {
+        Self::record_oc(&mut self.st.lock().unwrap(), port, at);
+        self.schedule_oc_expiry();
+        self.schedule_rescan(500);
+        self.schedule_hub_refresh(500);
+    }
+
+    /// Past over-current events from the kernel log since boot, so a service restart
+    /// doesn't forget a recent trip.
+    async fn load_oc_history(&self) {
+        let Some(d) = bin("dmesg") else { return };
+        let r = run(&["sudo", "-n", &d, "--time-format", "iso"], Opts::timeout_ms(10000)).await;
+        if r.code != 0 {
+            return;
+        }
+        let mut st = self.st.lock().unwrap();
+        for k in r.out.split('\n').filter_map(model::filter_kernel_line) {
+            if let (Some(port), Some(at)) = (model::over_current_port(&k.text), model::kernel_ts_ms(&k.ts)) {
+                Self::record_oc(&mut st, port, at);
+            }
+        }
+    }
+
+    fn oc_recent(at: u64, now: u64) -> bool {
+        now.saturating_sub(at) < OC_RECENT_MS
+    }
+
+    /// Rebuild the view when the newest over-current event stops being recent.
+    fn schedule_oc_expiry(self: &Arc<Self>) {
+        let now = now_ms();
+        let Some(latest) = self.st.lock().unwrap().oc_at.values().copied().max() else { return };
+        if !Self::oc_recent(latest, now) {
+            return;
+        }
+        let me = self.clone();
+        let t = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(latest + OC_RECENT_MS - now + 100)).await;
+            me.rebuild();
+            me.changed();
+        });
+        *self.oc_timer.lock().unwrap() = Some(Task(t));
+    }
+
     pub(crate) async fn rescan(self: &Arc<Self>) {
         {
             let _g = self.rescan_lock.lock().await;
@@ -438,6 +525,10 @@ impl Inner {
             st.raw = raw;
             st.inv = inv;
             st.protect = protect;
+            if Self::note_oc_counts(&mut st, now_ms()) {
+                drop(st);
+                self.schedule_oc_expiry();
+            }
         }
         let gone: Vec<String> = {
             let st = self.st.lock().unwrap();
@@ -532,6 +623,7 @@ impl Inner {
 
     pub(crate) fn rebuild(&self) {
         let rules = self.rules();
+        let now = now_ms();
         let mut st = self.st.lock().unwrap();
         st.topo = model::power_topology(&st.inv, &st.hubs, &st.model);
         let st = &mut *st;
@@ -544,6 +636,13 @@ impl Inner {
                     Ok(Value::Object(m)) => m,
                     _ => Map::new(),
                 };
+                if let Some(Value::Array(ports)) = m.get_mut("ports") {
+                    for p in ports {
+                        let at = st.oc_at.get(&format!("{}:{}", d.busid, p["port"])).copied();
+                        p["overCurrentAt"] = json!(at);
+                        p["overCurrentRecent"] = json!(at.is_some_and(|t| Self::oc_recent(t, now)));
+                    }
+                }
                 m.insert("power".into(), Self::hub_power(st, d));
                 m.insert(
                     "upstream".into(),
@@ -681,6 +780,9 @@ impl Inner {
                             return;
                         }
                         if let Some(k) = model::filter_kernel_line(&l) {
+                            if let Some(port) = model::over_current_port(&k.text) {
+                                m2.note_oc(port, model::kernel_ts_ms(&k.ts).unwrap_or_else(now_ms));
+                            }
                             m2.event(&k.text, json!({ "kind": "kernel", "level": k.level, "ts": k.ts }));
                         }
                     }),
@@ -1313,8 +1415,11 @@ impl Inner {
             if !st.redir.is_empty() {
                 parts.push(format!("{} usbredir", st.redir.len()));
             }
-            if st.inv.devices.iter().any(|d| d.ports.iter().any(|p| p.over_current != 0)) {
-                parts.push("over-current seen".into());
+            // uhubctl's flag is the port's live status; sysfs only counts events since boot.
+            if st.hubs.iter().any(|h| h.ports.iter().any(|p| p.over_current)) {
+                parts.push("over-current now".into());
+            } else if st.oc_at.values().any(|t| Self::oc_recent(*t, now_ms())) {
+                parts.push("over-current recently".into());
             }
             if devices == 0 {
                 parts.push(format!("{buses} bus{}", if buses == 1 { "" } else { "es" }));
@@ -1398,6 +1503,8 @@ impl Driver for Usb {
         // Devices still bound to usbip-host from before a restart are adopted here: the
         // rescan sees them and starts usbipd for them.
         i.rescan().await;
+        i.load_oc_history().await;
+        i.schedule_oc_expiry();
         {
             let _g = i.uhub_lock.lock().await;
             i.refresh_hubs().await;
@@ -1430,6 +1537,7 @@ impl Driver for Usb {
         i.loops.lock().unwrap().clear();
         *i.rescan_timer.lock().unwrap() = None;
         *i.hub_timer.lock().unwrap() = None;
+        *i.oc_timer.lock().unwrap() = None;
         // On a restart, devices stay bound to usbip-host: established USB/IP attachments live
         // in the kernel and survive, and the next init restarts usbipd for new clients.
         // Turning the panel off is a decision to stop sharing, so hand the devices back.
