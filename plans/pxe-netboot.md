@@ -570,8 +570,12 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
 
 ## Open questions for the user
 
-All design questions from rounds 1–3 are answered (see decisions). None open right now.
-Next approvals will be the per-change infrastructure items at the end of Phase 1.
+All design questions from rounds 1–3 are answered (see decisions).
+
+1. Yes to commit and push ops changes 1–3 (see the progress log)? Each can be approved
+   separately.
+2. Change 4: add Network Boot support to the ops UniFi tool (recommended), or set it by
+   hand?
 
 ## Progress log
 
@@ -596,6 +600,16 @@ Next approvals will be the per-change infrastructure items at the end of Phase 1
 - [ ] Phase 1 remainder: the four infrastructure changes, each staged in the ops repo and
       applied only after the user's yes for that change (proposed 2026-10-23, see the
       reply that day): steamboat stack, `pxe.tsl` DNS, Caddy site, UniFi Network Boot.
+  - [x] 2026-10-24: user said yes in principle to all four, with `pxe.tsl` as a CNAME to
+        steamboat (the ops repo's `names:` list already does exactly that).
+  - [ ] Changes 1–3 written in the ops checkout, uncommitted, waiting for a yes to commit
+        and push: `servers/steamboat/stacks/bootbob/` (compose.yml, bootbob.toml,
+        pin.json at `332dbc2`, digest checked against GHCR), `sites.d/pxe.tsl.caddy`,
+        a `pxe.tsl` line under steamboat in `unifi/config/tomsawyerlabs.yaml`, and a
+        stacks README entry. Pushing to ops master is what applies them: `servers/**`
+        triggers the steamboat deploy and `unifi/config/**` triggers the UniFi sync.
+  - [ ] Change 4 (Network Boot): the ops UniFi tool doesn't model it yet. Either add it
+        there (recommended) or set it by hand in the UniFi UI.
 
 ## Findings / gotchas
 
