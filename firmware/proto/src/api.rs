@@ -1,7 +1,7 @@
 //! The node's REST API and MCP endpoint, mirroring BenchBob's shapes for the subset a
-//! microcontroller has: `/api`, `/api/status`, GPIO and I²C, and `POST /mcp` with the
-//! same tool names and arguments as the Linux drivers (`gpio_read`, `gpio_write`,
-//! `i2c_buses`, `i2c_scan`, `i2c_read`).
+//! microcontroller has: `/api`, `/api/status`, GPIO, I²C and LED strings ([`leds`]), and
+//! `POST /mcp` with the same tool names and arguments as the Linux drivers (`gpio_read`,
+//! `gpio_write`, `i2c_buses`, `i2c_scan`, `i2c_read`, `leds_*`).
 //!
 //! Hardware is behind the [`Node`] trait, so all of this runs in host tests against a
 //! mock board.
@@ -34,6 +34,8 @@ pub struct BoardInfo {
     pub build: &'static str,
     pub pins: &'static [PinInfo],
     pub i2c: &'static [I2cBusInfo],
+    /// LED string support, if the board has a driver for it.
+    pub leds: Option<&'static LedsInfo>,
 }
 
 pub struct PinInfo {
@@ -205,6 +207,9 @@ macro_rules! err {
 
 type R = Result<(), ApiErr>;
 
+pub mod leds;
+pub use leds::{Leds, LedsInfo};
+
 fn json_error(out: &mut Buf<'_>, e: &ApiErr) {
     out.clear();
     Json::new(out).obj().kv_bool("ok", false).kv_str("message", e.message()).end_obj();
@@ -319,11 +324,13 @@ struct ScanResult {
     ms: u32,
 }
 
-/// Request handler state: output control and the last scan of each bus. It lives in RAM,
-/// so output control is off again after every reset.
+/// Request handler state: output control, the last scan of each bus, and the LED
+/// strings. It lives in RAM, so output control is off again after every reset.
 pub struct Api {
     output_enabled: bool,
     scans: [ScanResult; MAX_BUSES],
+    /// The board's LED task reads and reports through this (see [`leds`]).
+    pub leds: Leds,
 }
 
 impl Default for Api {
@@ -334,7 +341,7 @@ impl Default for Api {
 
 impl Api {
     pub const fn new() -> Self {
-        Api { output_enabled: false, scans: [ScanResult { found: 0, at_ms: None, ms: 0 }; MAX_BUSES] }
+        Api { output_enabled: false, scans: [ScanResult { found: 0, at_ms: None, ms: 0 }; MAX_BUSES], leds: Leds::new() }
     }
 
     pub fn output_enabled(&self) -> bool {
@@ -383,6 +390,7 @@ impl Api {
                     return Err(err!(400, "Enabling output control lets this API drive pins; repeat with \"confirm\": true"));
                 }
                 self.output_enabled = enabled;
+                self.leds.set_output(enabled);
                 Json::new(out).obj().kv_bool("outputEnabled", enabled).end_obj();
                 Ok(())
             }
@@ -414,9 +422,45 @@ impl Api {
                 let args = parse_body(req.body)?;
                 i2c_read(node, b, a, args.as_ref(), out)
             }
+            ("GET", ["api", "leds", "", ..]) => {
+                self.leds.view(info, &mut Json::new(out));
+                Ok(())
+            }
+            ("POST", ["api", "leds", "", ..]) => {
+                let b = parse_body(req.body)?;
+                let now = node.status().uptime_ms;
+                let id = self.leds.configure(info, None, b.as_ref(), now)?;
+                self.leds.string_json(id, &mut Json::new(out))
+            }
+            ("POST", ["api", "leds", id, "", ..]) => {
+                let id = led_id(id)?;
+                let b = parse_body(req.body)?;
+                let now = node.status().uptime_ms;
+                self.leds.configure(info, Some(id), b.as_ref(), now)?;
+                self.leds.string_json(id, &mut Json::new(out))
+            }
+            ("DELETE", ["api", "leds", id, "", ..]) => {
+                self.leds.remove(led_id(id)?)?;
+                Json::new(out).obj().kv_bool("ok", true).end_obj();
+                Ok(())
+            }
+            ("POST", ["api", "leds", id, "pattern", "", ..]) => {
+                let id = led_id(id)?;
+                let b = parse_body(req.body)?;
+                let now = node.status().uptime_ms;
+                self.leds.set_pattern(id, b.as_ref(), now)?;
+                self.leds.string_json(id, &mut Json::new(out))
+            }
+            ("POST", ["api", "leds", id, "pixels", "", ..]) => {
+                let id = led_id(id)?;
+                let b = parse_body(req.body)?;
+                self.leds.set_pixels(id, b.as_ref())?;
+                self.leds.string_json(id, &mut Json::new(out))
+            }
             _ if route_exists(&parts) => {
                 json_error(out, &err!(405, "Method {} not allowed on {}", m, req.path));
-                return Ok(Reply { allow: Some("GET, POST"), ..Reply::json(405) });
+                let allow = if matches!(parts, ["api", "leds", id, "", ..] if !id.is_empty()) { "POST, DELETE" } else { "GET, POST" };
+                return Ok(Reply { allow: Some(allow), ..Reply::json(405) });
             }
             _ => Err(err!(404, "Not found: {} {}", m, req.path)),
         }?;
@@ -434,12 +478,12 @@ impl Api {
             None => j.key("base").str_fmt(format_args!("http://{}.local", st.hostname)),
         };
         j.key("endpoints").obj();
-        for (k, v) in ENDPOINTS {
+        for (k, v) in ENDPOINTS.iter().filter(|(k, _)| info.leds.is_some() || !k.contains("/api/leds")) {
             j.key(k).raw(v);
         }
         j.end_obj();
         j.key("mcpTools").arr();
-        for t in TOOLS {
+        for t in tools(info) {
             j.str(t.name);
         }
         j.end_arr();
@@ -464,7 +508,7 @@ impl Api {
         for p in info.pins {
             let excluded = filter.is_some_and(|f| f.items().count() > 0 && !f.items().any(|g| int_value(&g) == Some(p.gpio as i64)));
             if !excluded {
-                pin_view(node, p, &mut j);
+                pin_view(node, p, self.leds.owner(p.gpio), &mut j);
             }
         }
         j.end_arr().end_obj();
@@ -479,6 +523,9 @@ impl Api {
         }
         if let Some(f) = pin.func {
             return Err(err!(409, "GPIO{}: used by {}", gpio, f));
+        }
+        if let Some(name) = self.leds.owner(pin.gpio) {
+            return Err(err!(409, "GPIO{}: used by LED string {} (remove it from /api/leds first)", gpio, name));
         }
         let mode = word(arg(args, "mode"), &["high", "low", "input"], "mode")?.map(|w| match w {
             "high" => (Mode::Output, true),
@@ -495,7 +542,7 @@ impl Api {
         }
         node.gpio_write(pin.gpio, mode, pull);
         let mut j = Json::new(out);
-        pin_view(node, pin, &mut j);
+        pin_view(node, pin, None, &mut j);
         Ok(())
     }
 
@@ -613,7 +660,7 @@ impl Api {
             j.key("capabilities").obj().key("tools").obj().kv_bool("listChanged", false).end_obj().end_obj();
             j.key("serverInfo").obj().kv_str("name", "benchbob-node").kv_str("version", info.firmware_version).end_obj();
             j.key("instructions").str_fmt(format_args!(
-                "This is a BenchBob node: a {} ({}) on the network. These tools reach its GPIO pins and I2C buses. GPIO writes only work after the user enables output control (POST /api/gpio/output-control with confirm: true). Call i2c_buses or gpio_read first.",
+                "This is a BenchBob node: a {} ({}) on the network. These tools reach its GPIO pins, I2C buses and addressable LED strings. GPIO writes only work after the user enables output control (POST /api/gpio/output-control with confirm: true); LED strings can be set up any time but only light up with output control on. Call i2c_buses, gpio_read or leds_list first.",
                 info.board_name, info.chip
             ));
             j.end_obj();
@@ -621,14 +668,14 @@ impl Api {
             j.key("result").obj().end_obj();
         } else if m("tools/list") {
             j.key("result").obj().key("tools").arr();
-            for t in TOOLS {
+            for t in tools(node.info()) {
                 j.obj().kv_str("name", t.name).kv_str("description", t.description).key("inputSchema").raw(t.schema).end_obj();
             }
             j.end_arr().end_obj();
         } else if m("tools/call") {
             let name = params.and_then(|p| p.get("name"));
             let args = params.and_then(|p| p.get("arguments"));
-            let tool = TOOLS.iter().find(|t| name.map(|n| n.str_eq(t.name)).unwrap_or(false));
+            let tool = tools(node.info()).find(|t| name.map(|n| n.str_eq(t.name)).unwrap_or(false));
             match tool {
                 None => {
                     let name = name.map(|n| n.raw()).unwrap_or("null");
@@ -700,6 +747,33 @@ impl Api {
                 let a = parse_addr(arg(args, "address"))?;
                 i2c_read(node, b, a, args, out)
             }
+            "leds_list" => {
+                self.leds.view(node.info(), &mut Json::new(out));
+                Ok(())
+            }
+            "leds_configure" => {
+                let id = int_arg(arg(args, "id"), "id", 0, 65535)?;
+                if arg_value(args, "delete").and_then(|v| v.as_bool()) == Some(true) {
+                    let id = id.ok_or_else(|| err!(400, "delete needs an id"))?;
+                    self.leds.remove(id)?;
+                    Json::new(out).obj().kv_bool("ok", true).kv_u64("removed", id as u64).end_obj();
+                    return Ok(());
+                }
+                let now = node.status().uptime_ms;
+                let id = self.leds.configure(node.info(), id, args, now)?;
+                self.leds.string_json(id, &mut Json::new(out))
+            }
+            "leds_pattern" => {
+                let id = int_arg(arg(args, "id"), "id", 0, 65535)?.ok_or_else(|| err!(400, "id is required"))?;
+                let now = node.status().uptime_ms;
+                self.leds.set_pattern(id, args, now)?;
+                self.leds.string_json(id, &mut Json::new(out))
+            }
+            "leds_set_pixels" => {
+                let id = int_arg(arg(args, "id"), "id", 0, 65535)?.ok_or_else(|| err!(400, "id is required"))?;
+                self.leds.set_pixels(id, args)?;
+                self.leds.string_json(id, &mut Json::new(out))
+            }
             _ => Err(err!(400, "Unknown tool: {}", name)),
         }
     }
@@ -716,7 +790,14 @@ fn route_exists(parts: &[&str; 6]) -> bool {
             | ["api", "i2c", "", ..]
             | ["api", "i2c", _, "scan", "", ..]
             | ["api", "i2c", _, _, "raw", "read"]
+            | ["api", "leds", "", ..]
+            | ["api", "leds", _, "", ..]
+            | ["api", "leds", _, "pattern" | "pixels", "", ..]
     )
+}
+
+fn led_id(s: &str) -> Result<i64, ApiErr> {
+    s.parse::<i64>().map_err(|_| err!(400, "LED string id must be a number, e.g. /api/leds/1"))
 }
 
 fn parse_body(body: &[u8]) -> Result<Option<Value<'_>>, ApiErr> {
@@ -767,19 +848,24 @@ fn status_view<N: Node>(node: &mut N, out: &mut Buf<'_>) -> R {
     Ok(())
 }
 
-fn pin_view<N: Node>(node: &mut N, p: &PinInfo, j: &mut Json<'_, '_>) {
+/// `led`: the LED string holding the pin, if one does (shown like a firmware function).
+fn pin_view<N: Node>(node: &mut N, p: &PinInfo, led: Option<&str>, j: &mut Json<'_, '_>) {
     j.obj().kv_u64("gpio", p.gpio as u64);
     match p.header {
         Some(h) => j.kv_u64("header", h as u64),
         None => j.key("header").null(),
     };
     j.key("name").str_fmt(format_args!("GPIO{}", p.gpio));
-    match p.func {
-        Some(f) => {
+    match (p.func, led) {
+        (Some(f), _) => {
             j.kv_str("func", f).key("level").null().key("pull").null();
             j.key("refusal").str_fmt(format_args!("used by {}", f));
         }
-        None => {
+        (None, Some(name)) => {
+            j.key("func").str_fmt(format_args!("LED string {}", name)).key("level").null().key("pull").null();
+            j.key("refusal").str_fmt(format_args!("used by LED string {}", name));
+        }
+        (None, None) => {
             let s = node.gpio_read(p.gpio);
             j.kv_str("func", if s.mode == Mode::Output { "output" } else { "input" });
             j.kv_u64("level", s.level as u64);
@@ -855,8 +941,20 @@ const ENDPOINTS: &[(&str, &str)] = &[
     ("GET /api/i2c", r#""I2C buses with their pins and clock, and the devices found by the last scan""#),
     ("POST /api/i2c/:bus/scan", r#""Scan a bus like i2cdetect (addresses 0x08-0x77; read-byte at 0x30-0x37 and 0x50-0x5F, quick write elsewhere when the controller supports it)""#),
     ("POST /api/i2c/:bus/:addr/raw/read", r#"{"description":"Raw read. size: byte|word|block (need register) or raw (no register: a pure read of length bytes). A register read writes the register pointer first","body":{"register":"0xD0","size":"byte","length":1}}"#),
-    ("POST /mcp", r#""Model Context Protocol endpoint (Streamable HTTP, stateless JSON): gpio_read, gpio_write, i2c_buses, i2c_scan, i2c_read""#),
+    ("GET /api/leds", r#""Addressable LED strings: outputEnabled, capabilities (maxStrings, maxPixels, chips, patterns, usable pins) and each string (chip, pins, pixels, order, timing, brightness, gamma, power budget, source, pattern, state)""#),
+    ("POST /api/leds", r#"{"description":"Create an LED string. chip: ws2812b|sk6812|ws2813|ws2811-400k|custom (one-wire; custom takes timing) or apa102|ws2801 (clocked; need clockPin, clockHz). Lights only with output control on","body":{"chip":"ws2812b","pin":6,"pixels":60,"name":"desk","order":"GRB","brightness":128,"power":{"maPerChannel":20,"idleMa":1,"maxMa":2000}}}"#),
+    ("POST /api/leds/:id", r#"{"description":"Change any of a string's fields (as for POST /api/leds)","body":{"pixels":120,"brightness":64}}"#),
+    ("DELETE /api/leds/:id", r#""Remove a string: it goes dark and its pins are free again""#),
+    ("POST /api/leds/:id/pattern", r#"{"description":"Show a pattern: off, solid, gradient, rainbow, chase, breathe, twinkle, order-test (pixels 0-3 red, green, blue, white), ruler (every 10th white, 50th red, last green). Params: color, background, a, b, spread, periodMs, width, speed, density","body":{"name":"rainbow","spread":60,"periodMs":5000}}"#),
+    ("POST /api/leds/:id/pixels", r#"{"description":"Set pixels directly: pixels as a hex string (6 digits per pixel, 8 on RGBW strings) or an array of colours like #ff0000, from start; or fill (a colour) from start for count","body":{"pixels":"ff0000 00ff00 0000ff","start":0}}"#),
+    ("POST /mcp", r#""Model Context Protocol endpoint (Streamable HTTP, stateless JSON): gpio_read, gpio_write, i2c_buses, i2c_scan, i2c_read, leds_list, leds_configure, leds_pattern, leds_set_pixels""#),
 ];
+
+/// The tools this board offers: the LED ones only with LED support.
+fn tools(info: &BoardInfo) -> impl Iterator<Item = &'static Tool> {
+    let leds = info.leds.is_some();
+    TOOLS.iter().filter(move |t| leds || !t.name.starts_with("leds_"))
+}
 
 struct Tool {
     name: &'static str,
@@ -907,5 +1005,25 @@ const TOOLS: &[Tool] = &[
             addr_prop!(),
             r#","register":{"type":["integer","string"]},"size":{"enum":["byte","word","block","raw"]},"length":{"type":"integer","minimum":1,"maximum":256},"force":{"type":"boolean","description":"Accepted for compatibility; nodes have no kernel drivers"}},"required":["bus","address"]}"#
         ),
+    },
+    Tool {
+        name: "leds_list",
+        description: "List the node's addressable LED strings (WS2812/APA102 style) and what it can drive: max strings and pixels, chips, patterns, usable pins. Strings only light up while GPIO output control is on.",
+        schema: r#"{"type":"object","properties":{}}"#,
+    },
+    Tool {
+        name: "leds_configure",
+        description: "Create (no id), change (id) or remove (id + delete: true) an LED string. chip picks the timing: ws2812b (most strips), sk6812, ws2813, ws2811-400k, custom (give timing {t0hNs, t1hNs, periodNs, resetUs}), or the clocked apa102 / ws2801 (need clockPin; clockHz). order is the chip's colour order (GRB for most WS2812B, BGR for APA102; RGBW variants like GRBW). Use the order-test pattern to check it.",
+        schema: r#"{"type":"object","properties":{"id":{"type":"integer"},"delete":{"type":"boolean"},"name":{"type":"string"},"chip":{"enum":["ws2812b","sk6812","ws2813","ws2811-400k","custom","apa102","ws2801"]},"pin":{"type":"integer"},"clockPin":{"type":["integer","null"]},"pixels":{"type":"integer","minimum":1},"order":{"type":"string","description":"e.g. GRB, RGB, BGR, GRBW"},"timing":{"type":"object","properties":{"t0hNs":{"type":"integer"},"t1hNs":{"type":"integer"},"periodNs":{"type":"integer"},"resetUs":{"type":"integer"}}},"clockHz":{"type":"integer"},"brightness":{"type":"integer","minimum":0,"maximum":255},"gamma":{"type":"boolean"},"invert":{"type":"boolean"},"power":{"type":["object","null"],"properties":{"maPerChannel":{"type":"integer"},"idleMa":{"type":"integer"},"maxMa":{"type":"integer"}}}}}"#,
+    },
+    Tool {
+        name: "leds_pattern",
+        description: "Show a built-in pattern on a string: off, solid (color), gradient (a, b), rainbow (spread px per cycle, periodMs), chase (color, background, width, speed px/s), breathe (color, periodMs), twinkle (color, density 0-255, periodMs), order-test (pixels 0-3 red, green, blue, white: checks the colour order), ruler (every 10th pixel white, every 50th red, the last green: checks the length). Colours are #rrggbb or #rrggbbww.",
+        schema: r#"{"type":"object","properties":{"id":{"type":"integer"},"name":{"enum":["off","solid","gradient","rainbow","chase","breathe","twinkle","order-test","ruler"]},"color":{"type":"string"},"background":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"spread":{"type":"integer"},"periodMs":{"type":"integer"},"width":{"type":"integer"},"speed":{"type":"integer"},"density":{"type":"integer"}},"required":["id"]}"#,
+    },
+    Tool {
+        name: "leds_set_pixels",
+        description: "Set a string's pixels directly (stops its pattern): pixels as a hex string (6 hex digits per pixel, 8 on RGBW strings; spaces allowed) or an array of #rrggbb colours, starting at start; or fill with one colour from start for count pixels. Pixels not given stay as they were.",
+        schema: r#"{"type":"object","properties":{"id":{"type":"integer"},"pixels":{"type":["string","array"]},"start":{"type":"integer","minimum":0},"fill":{"type":"string"},"count":{"type":"integer","minimum":0}},"required":["id"]}"#,
     },
 ];

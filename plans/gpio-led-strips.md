@@ -122,13 +122,41 @@ are refused as they are today. Drivers, picked per board:
 
 ### API / MCP / UI (same shapes everywhere)
 
-- `GET /api/leds`: capabilities (which pins can do which kind, how many strings are left),
-  configured strings, what each is showing.
-- `POST /api/leds/strings` / `PUT …/:id` / `DELETE …/:id`: configure.
-- `POST /api/leds/:id/pattern`, `POST /api/leds/:id/pixels` (raw RGB array or hex),
-  `POST /api/leds/:id/off`.
-- `POST /api/leds/receiver`: sACN / Art-Net / DDP on or off, universes.
-- MCP: `leds_list`, `leds_configure`, `leds_pattern`, `leds_set_pixels`, `leds_off`.
+Pinned 2026-10-25 while building the node side; the Linux `leds` crate serves the same
+shapes. A string is one object:
+
+```json
+{ "id": 1, "name": "desk", "chip": "ws2812b", "kind": "one-wire", "pin": 6, "clockPin": null,
+  "pixels": 60, "order": "GRB", "timing": { "t0hNs": 400, "t1hNs": 800, "periodNs": 1250, "resetUs": 300 },
+  "clockHz": null, "brightness": 255, "gamma": true, "invert": false,
+  "power": { "maPerChannel": 20, "idleMa": 1, "maxMa": 2000 },
+  "source": "pattern", "pattern": { "name": "rainbow", "spread": 60, "periodMs": 5000 },
+  "state": "running", "error": null, "estimateMa": 840 }
+```
+
+- **`chip` is the one choice that matters** ("simplify options"): `ws2812b`, `sk6812`,
+  `ws2813`, `ws2811-400k`, `custom` (one-wire; `timing` editable, otherwise shown for
+  reference), `apa102` (covers SK9822/HD107S), `ws2801` (clocked; need `clockPin`,
+  `clockHz`). It sets `kind` and, on create, the default `order` (GRB for the WS281x/SK
+  family, BGR for APA102, RGB for WS2801 and WS2811-400k).
+- `state`: `running`, `off` (output control off: the string was blanked and isn't driven),
+  `error` (with `error`: e.g. no PIO state machine left).
+- Pattern parameters, all optional: `color`, `background`, `a`, `b` (hex colours),
+  `spread`, `periodMs`, `width`, `speed` (px/s), `density` (0–255).
+
+| Endpoint | What |
+| --- | --- |
+| `GET /api/leds` | `{outputEnabled, capabilities: {maxStrings, maxPixels, chips, orders, patterns, pins}, strings: [...]}` |
+| `POST /api/leds` | Create a string (fields above; `chip`, `pin`, `pixels` required) |
+| `POST /api/leds/:id` | Change any fields |
+| `DELETE /api/leds/:id` | Remove it (blanks it, frees its pins) |
+| `POST /api/leds/:id/pattern` | `{name, ...params}` |
+| `POST /api/leds/:id/pixels` | `{pixels: "ff0000 00ff00 …" or ["#ff0000", …], start}` or `{fill: "#ff0000", start, count}`; switches the source to `pixels` |
+
+MCP: `leds_list`, `leds_configure` (no `id`: create; `delete: true`: remove),
+`leds_pattern`, `leds_set_pixels`. Writes (creating, changing, patterns, pixels) work
+with output control off, but nothing is driven until it is on.
+
 - Web UI: a "LED strips" panel of its own: string list, a pin picker (a header diagram)
   that greys out unusable pins with the reason, the timing preset dropdown with a "custom" disclosure, a live pixel
   preview, pattern picker, receiver status (packets/s per universe, active source).
@@ -169,7 +197,7 @@ User's answers of 2026-10-25:
 
 1. ~~Answer the open questions~~ (all answered)
 2. ~~Shared `pixels` crate~~: done, `firmware/pixels` (see Progress log).
-3. Pico 2 W driver ← current step (the easiest any-pin target) + node API/MCP + node UI section.
+3. Pico 2 W driver: node API/MCP and PIO driver done; node UI section ← current step (the easiest any-pin target) + node API/MCP + node UI section.
 4. ESP32-C6 driver (RMT + SPI), status LED.
 5. Linux `leds` crate: spidev driver, GPIO-uAPI APA102, staging of SPI overlays; GPIO
    panel exclusions; pin picker component.
@@ -193,7 +221,15 @@ User's answers of 2026-10-25:
   APA102/SK9822, WS2801), `pattern` (off, solid, gradient, rainbow, chase, breathe,
   twinkle, order-test, ruler), `net` (sACN, Art-Net, DDP, `SacnArbiter`, `Patch`).
   Formatted with backend's rustfmt.toml (140 cols), since the backend will use it too.
-- [ ] Steps 3–9
+- [x] Step 3a: node API (`firmware/proto/src/api/leds.rs`): string configs, validation,
+  `/api/leds` routes, `leds_*` MCP tools (hidden on boards without LED support), pins
+  claimed in the GPIO view and refused by gpio_write, `Leds::job/render/report` for the
+  board task. 9 host tests (`proto/tests/leds.rs`); the mock node pretends to drive.
+- [x] Step 3b: Pico 2 W driver (`firmware/pico2w/src/leds.rs`): PIO1, 4 strings, any free
+  GPIO, per-string program (fitted ws2812 or clocked), DMA of bytes, 50 fps. Builds;
+  untested on hardware.
+- [ ] Step 3c: node web UI section
+- [ ] Steps 4–9
 
 ## Open questions for the user
 
@@ -220,6 +256,21 @@ None open.
   rare, but render after a short idle (e.g. 50 ms) as a fallback.
 - SPI fitting on a Pi 4 at core_freq=500 lands at 3 bits/2.38 MHz (40 ns worst error) for
   WS2812B, with spi-bcm2835's even-divider rounding.
+
+## Findings from the node work
+
+- `pio::Pin` can only be made from a concrete `PIN_n` peripheral (`PioPin` isn't
+  implemented for `AnyPin`), so runtime pin choice is a `match` over `PIN_n::steal()`.
+  The board's `Flex` for that pin must be **forgotten, not dropped**: `Flex`'s Drop sets
+  the pin's FUNCSEL to NULL, which would cut the PIO off. On release a fresh
+  `Flex::new(AnyPin::steal(n))` puts it back on SIO.
+- PIO TX FIFO + 8-bit DMA writes: the byte is replicated across the word, so a left
+  shift with an 8-bit autopull threshold sends exactly the frame's bytes, with no
+  padding bits at the end.
+- MCP tool results are embedded twice (text + structuredContent) in an 8 KiB response,
+  so `leds_list` has to stay well under ~3.5 KiB: capabilities list chip names, pattern
+  names and pin numbers only.
+- `gen` is a reserved keyword in edition 2024.
 
 ## Things not to do
 

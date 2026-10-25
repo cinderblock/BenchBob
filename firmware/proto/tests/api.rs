@@ -11,7 +11,7 @@ static PINS: [PinInfo; 4] = [
     PinInfo { gpio: 5, header: Some(7), func: Some("I2C0 SCL"), note: None },
 ];
 static BUSES: [I2cBusInfo; 1] = [I2cBusInfo { bus: 0, label: "I2C0 (GP4/GP5)", sda: 4, scl: 5, hz: 100_000, can_quick: false }];
-static INFO: BoardInfo = BoardInfo { board: "mock", board_name: "Mock Board", chip: "MOCK1", firmware_version: "0.1.0", build: "0.1.0+test", pins: &PINS, i2c: &BUSES };
+static INFO: BoardInfo = BoardInfo { board: "mock", board_name: "Mock Board", chip: "MOCK1", firmware_version: "0.1.0", build: "0.1.0+test", pins: &PINS, i2c: &BUSES, leds: None };
 
 #[derive(Default)]
 struct Mock {

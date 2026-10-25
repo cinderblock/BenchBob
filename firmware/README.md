@@ -80,7 +80,10 @@ fast while connecting, and stays on when connected. The ESP32-C6 has no status L
 | `GET /api/i2c` | Buses (pins, clock) and the devices from the last scan |
 | `POST /api/i2c/:bus/scan` | i2cdetect's range (0x08–0x77) |
 | `POST /api/i2c/:bus/:addr/raw/read` | `{register, size: byte\|word\|block\|raw, length}` |
-| `POST /mcp` | MCP (Streamable HTTP, stateless JSON): `gpio_read`, `gpio_write`, `i2c_buses`, `i2c_scan`, `i2c_read` |
+| `GET /api/leds` | Addressable LED strings and what the board can drive (Pico 2 W only so far; see [LED strings](#led-strings)) |
+| `POST /api/leds` · `POST`/`DELETE /api/leds/:id` | Create, change, remove a string |
+| `POST /api/leds/:id/pattern` · `…/pixels` | Show a built-in pattern, or set pixels directly |
+| `POST /mcp` | MCP (Streamable HTTP, stateless JSON): `gpio_read`, `gpio_write`, `i2c_buses`, `i2c_scan`, `i2c_read`, and on boards with LED support `leds_list`, `leds_configure`, `leds_pattern`, `leds_set_pixels` |
 
 ```sh
 claude mcp add --transport http bench-node http://benchbob-0a1b2c.local/mcp
@@ -102,6 +105,30 @@ read one byte at every address (as the Pico SDK's `bus_scan` does). Pins the fir
 | I²C0 | GP4 SDA, GP5 SCL (pins 6/7) | GPIO6 SDA, GPIO7 SCL |
 | Improv | USB CDC (VID 2E8A, PID 000A) | USB-Serial-JTAG |
 | Logs | defmt over RTT (debug probe) | UART0 (GPIO16/17) at 115200 |
+
+### LED strings
+
+WS2812-family strings (`chip`: `ws2812b`, `sk6812`, `ws2813`, `ws2811-400k`, or `custom`
+with your own `timing` of T0H, T1H, bit period and reset) and clocked ones (`apa102`
+for APA102/SK9822/HD107S, `ws2801`; these take a `clockPin` and `clockHz`), on **any
+free GPIO**. Per string: pixel count, colour `order` (any RGB permutation, plus RGBW
+variants such as `GRBW`), brightness, gamma, output inversion (for an inverting level
+shifter) and an optional power budget that scales the frame down to fit. Patterns:
+solid, gradient, rainbow, chase, breathe, twinkle, plus `order-test` (pixels 0–3 red,
+green, blue, white) and `ruler` (every 10th pixel white, every 50th red, the last
+green) for checking a new string. Strings can be set up at any time but only light up
+while GPIO output control is on; turning it off blanks them.
+
+| | Pico 2 W | ESP32-C6 |
+| --- | --- | --- |
+| Driver | PIO1, one state machine + DMA channel per string | not yet |
+| Strings | 4, up to 1024 pixels each | |
+| Status | Compiles; untested on hardware | |
+
+A string's pins show in `GET /api/gpio` as used by it and can't be driven. Settings
+don't survive a reset yet. 3.3 V data into a 5 V strip is marginal; use a level shifter
+(74AHCT125) if the first pixel misbehaves. The colour, timing and pattern logic is
+[`pixels/`](pixels), shared with the Linux server.
 
 **mDNS:** `<hostname>.local`, plus `_benchbob._tcp` (TXT `board=`, `version=`,
 `api=/api`, `mcp=/mcp`) and `_http._tcp`, so `dns-sd -B _benchbob._tcp` or
@@ -145,18 +172,20 @@ sectors, and the ESP32-C6 image is built with `--skip-padding` so it ends with t
 
 ## Layout
 
-- `proto/`: `no_std`, dependency-free, host-tested: the API router and MCP, JSON, HTTP
-  framing and CORS, serving the web UI, Improv packets, the config record, UF2 blocks,
-  mDNS. `examples/mock_node.rs` is the host-side pretend node.
+- `proto/`: `no_std`, dependency-free apart from `pixels/`, host-tested: the API router
+  and MCP, LED string config, JSON, HTTP framing and CORS, serving the web UI, Improv
+  packets, the config record, UF2 blocks, mDNS. `examples/mock_node.rs` is the host-side
+  pretend node (it pretends to drive LED strings too).
 - `pixels/`: `no_std`, dependency-free, host-tested, and shared with the Linux server:
   addressable LED strings (colour order, gamma, power budget, WS2812-family timing
   presets and fitting them to SPI or PIO, WS2812-over-SPI / APA102 / WS2801 encodings,
-  patterns, sACN / Art-Net / DDP parsing and universe mapping). Not wired into the
-  boards yet (`plans/gpio-led-strips.md`).
+  patterns, sACN / Art-Net / DDP parsing and universe mapping). The Pico 2 W drives
+  strings with it (`pico2w/src/leds.rs`); the rest is in `plans/gpio-led-strips.md`.
 - `node/`: Embassy glue both boards share: HTTP server, mDNS task, Improv session,
   config store (embedded-storage `NorFlash`), the Wi-Fi request channels, and the
   embedded web UI (`build.rs`).
-- `pico2w/`, `esp32c6/`: the board crates (pins, I²C, flash, USB, Wi-Fi task).
+- `pico2w/`, `esp32c6/`: the board crates (pins, I²C, flash, USB, Wi-Fi task; the Pico's
+  PIO LED driver).
 - `tools/`: `elf2uf2.ts` (RP2350 UF2s), `config-uf2.ts` and `config.html`, tests.
 
 ## Building

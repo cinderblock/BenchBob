@@ -66,6 +66,7 @@ pub static INFO: BoardInfo = BoardInfo {
     build: benchbob_node::web::BUILD,
     pins: &PINS,
     i2c: &BUSES,
+    leds: None,
 };
 
 pub type Pins = [Option<Flex<'static>>; 24];

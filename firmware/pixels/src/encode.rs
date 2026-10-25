@@ -52,7 +52,7 @@ pub fn ws_spi(fit: &SpiFit, data: &[u8], reset_us: u32, out: &mut [u8]) -> Optio
     Some(len)
 }
 
-pub fn apa102_len(leds: usize) -> usize {
+pub const fn apa102_len(leds: usize) -> usize {
     4 + leds * 4 + 4 + leds.div_ceil(16)
 }
 

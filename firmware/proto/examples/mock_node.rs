@@ -119,7 +119,29 @@ fn info() -> &'static BoardInfo {
         build: BUILD.get().map(String::as_str).unwrap_or(benchbob_proto::VERSION),
         pins: &PINS,
         i2c: &BUSES,
+        leds: Some(&LEDS),
     })
+}
+
+/// Pretend LED hardware: every timing the RP2350's PIO program can make, both kinds.
+static LEDS: LedsInfo = LedsInfo {
+    max_strings: 4,
+    max_pixels: 1024,
+    one_wire: true,
+    clocked: true,
+    check_timing: |t| benchbob_pixels::timing::PioFit::find(t).map(|_| ()).ok_or("the PIO program can't make this timing"),
+    max_clock_hz: 10_000_000,
+};
+
+/// What a board's LED task does, minus the hardware: claim (always works here) and render.
+fn fake_led_task(api: &mut Api) {
+    let mut frame = vec![0u8; 4 * benchbob_proto::api::leds::MAX_PIXELS];
+    for i in 0..benchbob_proto::api::leds::MAX_STRINGS {
+        if let Some(job) = api.leds.job(i) {
+            api.leds.report(i, job.config_gen, Ok(()));
+            api.leds.render(i, 0, &mut frame);
+        }
+    }
 }
 
 static BUILD: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -225,7 +247,9 @@ fn connection(mut sock: TcpStream, shared: &Shared, assets: &'static [Asset]) ->
     let reply = {
         let mut g = shared.lock().unwrap();
         let (api, node) = &mut *g;
-        api.handle(node, &request, &mut body, &mut scratch)
+        let reply = api.handle(node, &request, &mut body, &mut scratch);
+        fake_led_task(api);
+        reply
     };
     let mut extra: Vec<(&str, &str)> = Vec::new();
     if reply.mcp {

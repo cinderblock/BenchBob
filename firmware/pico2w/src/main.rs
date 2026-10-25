@@ -6,11 +6,13 @@
 //!   while every task is busy is refused).
 //! - mDNS: `<hostname>.local`, `_benchbob._tcp`, `_http._tcp`.
 //! - Improv Wi-Fi over USB CDC for provisioning.
+//! - Addressable LED strings (WS2812 family, APA102, WS2801) on PIO1, any free GPIO.
 
 #![no_std]
 #![no_main]
 
 mod board;
+mod leds;
 mod usb;
 mod wifi;
 
@@ -28,7 +30,7 @@ use embassy_rp::clocks::RoscRng;
 use embassy_rp::flash::{Blocking, Flash};
 use embassy_rp::gpio::{Flex, Level, Output};
 use embassy_rp::i2c::{self, I2c};
-use embassy_rp::peripherals::{DMA_CH0, FLASH, PIO0, USB};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, DMA_CH2, DMA_CH3, DMA_CH4, FLASH, PIO0, PIO1, USB};
 use embassy_rp::pio::{self, Pio};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -46,7 +48,7 @@ pub type NodeFlash = Flash<'static, FLASH, Blocking, FLASH_SIZE>;
 /// HTTP server tasks (about 19 KiB of buffers each). The stack gets four more sockets
 /// (DHCP, mDNS and two spare, as before).
 const HTTP_TASKS: usize = 4;
-type SharedNode = Mutex<CriticalSectionRawMutex, Shared<PicoNode>>;
+pub type SharedNode = Mutex<CriticalSectionRawMutex, Shared<PicoNode>>;
 
 #[unsafe(link_section = ".bi_entries")]
 #[used]
@@ -59,7 +61,8 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
-    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
+    PIO1_IRQ_0 => pio::InterruptHandler<PIO1>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>, dma::InterruptHandler<DMA_CH2>, dma::InterruptHandler<DMA_CH3>, dma::InterruptHandler<DMA_CH4>;
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<USB>;
 });
 
@@ -112,7 +115,8 @@ async fn main(spawner: Spawner) {
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
     let mut pio = Pio::new(p.PIO0, Irqs);
-    let spi = PioSpi::new(&mut pio.common, pio.sm0, RM2_CLOCK_DIVIDER, pio.irq0, cs, p.PIN_24, p.PIN_29, dma::Channel::new(p.DMA_CH0, Irqs));
+    let spi =
+        PioSpi::new(&mut pio.common, pio.sm0, RM2_CLOCK_DIVIDER, pio.irq0, cs, p.PIN_24, p.PIN_29, dma::Channel::new(p.DMA_CH0, Irqs));
     static CYW43: StaticCell<cyw43::State> = StaticCell::new();
     let (net_device, mut control, runner) = cyw43::new(CYW43.init(cyw43::State::new()), pwr, spi, fw, nvram).await;
     spawner.spawn(unwrap!(cyw43_task(runner)));
@@ -161,6 +165,16 @@ async fn main(spawner: Spawner) {
     for b in HTTP_BUFS.init([const { http::Buffers::new() }; HTTP_TASKS]) {
         spawner.spawn(unwrap!(http_task(stack, shared, b)));
     }
+    // LED strings: PIO1, one DMA channel per state machine.
+    let dmas = [
+        dma::Channel::new(p.DMA_CH1, Irqs),
+        dma::Channel::new(p.DMA_CH2, Irqs),
+        dma::Channel::new(p.DMA_CH3, Irqs),
+        dma::Channel::new(p.DMA_CH4, Irqs),
+    ];
+    static LED_BUFS: StaticCell<leds::Buffers> = StaticCell::new();
+    spawner.spawn(unwrap!(leds::task(shared, Pio::new(p.PIO1, Irqs), dmas, LED_BUFS.init(leds::Buffers::new()))));
+
     static MDNS_BUFS: StaticCell<benchbob_node::mdns::Buffers> = StaticCell::new();
     spawner.spawn(unwrap!(mdns_task(stack, MDNS_BUFS.init(benchbob_node::mdns::Buffers::new()))));
 

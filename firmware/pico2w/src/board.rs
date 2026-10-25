@@ -2,7 +2,7 @@
 
 use benchbob_node::net::{self, NetState};
 use benchbob_proto::api::{BoardInfo, I2cBusInfo, I2cFault, Mode, Node, PinInfo, PinState, Pull, Status};
-use embassy_rp::gpio::{self, Flex};
+use embassy_rp::gpio::{self, AnyPin, Flex};
 use embassy_rp::i2c::{self, AbortReason, Blocking, I2c};
 use embassy_rp::peripherals::I2C0;
 use embassy_time::Instant;
@@ -62,6 +62,7 @@ pub static INFO: BoardInfo = BoardInfo {
     build: benchbob_node::web::BUILD,
     pins: &PINS,
     i2c: &BUSES,
+    leds: Some(&crate::leds::LEDS),
 };
 
 /// Flex drivers for every free header GPIO, indexed by GPIO number.
@@ -84,6 +85,30 @@ impl PicoNode {
             p.set_as_input();
         }
         PicoNode { pins, shadow: [(Mode::Input, Pull::None); 30], i2c0, net: net::get() }
+    }
+
+    /// Give up a free pin for an LED string: its `Flex` is forgotten, not dropped (a
+    /// dropped `Flex` resets the pin's function, which would cut the PIO off). False when
+    /// the pin isn't one of ours or is already taken.
+    pub fn take_pin(&mut self, g: u8) -> bool {
+        match self.pins.get_mut(g as usize).and_then(Option::take) {
+            Some(f) => {
+                core::mem::forget(f);
+                self.shadow[g as usize] = (Mode::Input, Pull::None);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Take back a pin given up with `take_pin`, as a floating input.
+    pub fn return_pin(&mut self, g: u8) {
+        // SAFETY: the LED lane that had the pin has stopped and dropped its PIO pin.
+        let mut f = Flex::new(unsafe { AnyPin::steal(g) });
+        f.set_pull(gpio::Pull::None);
+        f.set_as_input();
+        self.pins[g as usize] = Some(f);
+        self.shadow[g as usize] = (Mode::Input, Pull::None);
     }
 }
 

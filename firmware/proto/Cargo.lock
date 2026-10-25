@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "benchbob-pixels"
+version = "0.1.0"
+
+[[package]]
 name = "benchbob-proto"
 version = "0.1.0"
+dependencies = [
+ "benchbob-pixels",
+]

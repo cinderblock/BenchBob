@@ -13,6 +13,7 @@ bench = false
 
 [dependencies]
 benchbob-proto = { path = "../proto" }
+benchbob-pixels = { path = "../pixels" }
 benchbob-node = { path = "../node", features = ["defmt"] }
 
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "defmt"] }
@@ -22,6 +23,7 @@ embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-net = { version = "0.9.1", features = ["defmt", "tcp", "udp", "dhcpv4", "dhcpv4-hostname", "medium-ethernet", "multicast", "proto-ipv4"] }
 embassy-sync = { version = "0.8.0", features = ["defmt"] }
 embassy-futures = "0.1.2"
+fixed = "1.28.0"
 cyw43 = { version = "0.7.0", features = ["defmt"] }
 cyw43-pio = { version = "0.10.0", features = ["defmt"] }
 
