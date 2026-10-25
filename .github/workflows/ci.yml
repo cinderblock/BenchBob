@@ -233,6 +233,8 @@ jobs:
         with:
           name: web-dist
           path: web-dist
+      - name: Drive handler keeps the system disk out
+        run: bash packaging/drives/test-handler.sh
       - name: Build
         id: build
         env:

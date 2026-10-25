@@ -10,3 +10,13 @@ SUBSYSTEM=="block", ACTION=="add", ENV{DEVTYPE}=="disk", ENV{ID_USB_DRIVER}!="",
 # Remove: both types
 SUBSYSTEM=="block", ACTION=="remove", ENV{ID_USB_DRIVER}!="", \
   RUN+="/usr/lib/benchbob/drives/nfs-drive-handler.sh remove %E{DEVNAME} %E{DEVTYPE}"
+
+# A card in the SD slot (MMC_TYPE=SD; eMMC is MMC), the same way. The handler skips it
+# when it is the disk the machine runs from, so this only does anything on a machine
+# that boots from somewhere else (USB, or the network, like desky).
+SUBSYSTEM=="block", ACTION=="add", KERNEL=="mmcblk*", ENV{DEVTYPE}=="partition", ENV{MMC_TYPE}=="SD", \
+  RUN+="/usr/lib/benchbob/drives/nfs-drive-handler.sh add %E{DEVNAME} partition"
+SUBSYSTEM=="block", ACTION=="add", KERNEL=="mmcblk*", ENV{DEVTYPE}=="disk", ENV{MMC_TYPE}=="SD", \
+  RUN+="/usr/lib/benchbob/drives/nfs-drive-handler.sh add %E{DEVNAME} disk"
+SUBSYSTEM=="block", ACTION=="remove", KERNEL=="mmcblk*", ENV{MMC_TYPE}=="SD", \
+  RUN+="/usr/lib/benchbob/drives/nfs-drive-handler.sh remove %E{DEVNAME} %E{DEVTYPE}"
