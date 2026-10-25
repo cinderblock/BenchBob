@@ -1,0 +1,26 @@
+[package]
+name = "benchbob-leds"
+description = "BenchBob's LED strips panel: WS2812/APA102/WS2801 strings on header pins, over spidev or the GPIO uAPI, with the nodes' API"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+benchbob-core.workspace = true
+benchbob-gpio.workspace = true
+benchbob-pixels.workspace = true
+benchbob-proto.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+libc.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+benchbob-boards.workspace = true
+tempfile.workspace = true

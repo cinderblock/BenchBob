@@ -1057,6 +1057,16 @@ const ENDPOINTS: &[(&str, &str)] = &[
     ("POST /mcp", r#""Model Context Protocol endpoint (Streamable HTTP, stateless JSON): gpio_read, gpio_write, i2c_buses, i2c_scan, i2c_read, leds_list, leds_configure, leds_pattern, leds_set_pixels, onboard_led""#),
 ];
 
+/// The LED-string endpoints' docs and MCP tools (name, description, JSON schema), for the
+/// Linux server's LED strips panel, which serves the same API.
+pub fn led_endpoint_docs() -> impl Iterator<Item = (&'static str, &'static str)> {
+    ENDPOINTS.iter().copied().filter(|(k, _)| k.contains("/api/leds"))
+}
+
+pub fn led_tools() -> impl Iterator<Item = (&'static str, &'static str, &'static str)> {
+    TOOLS.iter().filter(|t| t.name.starts_with("leds_")).map(|t| (t.name, t.description, t.schema))
+}
+
 /// The tools this board offers: the LED ones only with LED support.
 fn tools(info: &BoardInfo) -> impl Iterator<Item = &'static Tool> {
     let leds = info.leds.is_some();

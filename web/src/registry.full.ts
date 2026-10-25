@@ -15,6 +15,7 @@ const registry: Registry = {
     i2c: lazy(() => import("./panels/i2c/I2c")),
     onewire: lazy(() => import("./panels/onewire/OneWire")),
     gpio: lazy(() => import("./panels/gpio/Gpio")),
+    leds: lazy(() => import("./panels/leds/Leds")),
     wifi: lazy(() => import("./panels/wifi/Wifi")),
     ble: lazy(() => import("./panels/ble/Ble")),
     camera: lazy(() => import("./panels/camera/Camera")),

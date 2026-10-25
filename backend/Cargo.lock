@@ -114,6 +114,7 @@ dependencies = [
  "benchbob-gpio",
  "benchbob-gps",
  "benchbob-i2c",
+ "benchbob-leds",
  "benchbob-netdiag",
  "benchbob-onewire",
  "benchbob-probes",
@@ -306,6 +307,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "benchbob-leds"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "benchbob-boards",
+ "benchbob-core",
+ "benchbob-gpio",
+ "benchbob-pixels",
+ "benchbob-proto",
+ "libc",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "benchbob-netdiag"
 version = "0.1.0"
 dependencies = [
@@ -344,6 +364,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "benchbob-pixels"
+version = "0.1.0"
+
+[[package]]
 name = "benchbob-probes"
 version = "0.1.0"
 dependencies = [
@@ -359,6 +383,13 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "benchbob-proto"
+version = "0.1.0"
+dependencies = [
+ "benchbob-pixels",
 ]
 
 [[package]]

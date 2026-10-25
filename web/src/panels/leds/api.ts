@@ -58,8 +58,29 @@ export interface LedChip {
 
 export interface LedsState {
   outputEnabled: boolean;
-  capabilities: { maxStrings: number; maxPixels: number; maxClockHz: number; chips: LedChip[]; patterns: string[]; pins: number[] } | null;
+  capabilities: {
+    maxStrings: number;
+    maxPixels: number;
+    maxClockHz: number;
+    chips: LedChip[];
+    patterns: string[];
+    pins: number[];
+    /** Linux: every header GPIO, which kinds of string it can carry and why not. */
+    pinInfo?: LedPin[];
+    /** Linux: where one-wire strings can go (or how to get such a pin). */
+    oneWireHint?: string;
+  } | null;
   strings: LedString[];
+}
+
+export interface LedPin {
+  gpio: number;
+  header: number | null;
+  oneWire: boolean;
+  clocked: boolean;
+  /** "SPI0 MOSI" when the pin is an SPI bus's. */
+  spi: string | null;
+  refusal: string | null;
 }
 
 /** Each pattern's parameters, for the pattern editor. */

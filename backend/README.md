@@ -23,6 +23,7 @@ What it serves:
 - CAN panel: `/api/can*`, `/ws/can/:iface`, `can_*` MCP tools, the socketcand server and its UDP beacon
 - I²C panel: `/api/i2c*`, `i2c_*` MCP tools
 - 1-Wire panel: `/api/onewire*`, `onewire_*` MCP tools
+- LED strips panel (new): `/api/leds*`, `leds_*` MCP tools, the nodes' API and string model (`firmware/proto`, `firmware/pixels`). WS2812-family strings over spidev (a Pi's SPI0/SPI1, SPI3–6 on a Pi 4), APA102/WS2801 over spidev or bit-banged on any free header GPIO; the pins show as taken in the GPIO panel; configs persist in peripherals.json. `BENCHBOB_SPIDEV_DIR` looks for spidev devices elsewhere (tests)
 - USB panel: `/api/usb*`, `usb_*` MCP tools (device tree, hotplug and kernel timeline, uhubctl port power, USB/IP and usbredir sharing)
 - Wired network panel: `/api/netdiag*`, `net_*` MCP tools (ethtool link, receive-only LLDP, iperf3, ping/DNS/HTTP/MTU checks)
 - Wi-Fi panel: `/api/wifi*` (radios, regulatory domain, scanner with watch leases and history, client tests, profiles), `wifi_*` MCP tools

@@ -13,6 +13,8 @@
 #   benchbob-serial  the serial panel: termios2 ports, bridges, auto-baud, flashing
 #   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
 #   benchbob-i2c-chips  I²C chip identification + decoders (no_std, shared with firmware)
+#   benchbob-leds    the LED strips panel: WS2812/APA102 strings over spidev or the GPIO uAPI,
+#                    with the nodes' string model (benchbob-proto, benchbob-pixels from firmware/)
 #   benchbob-netdiag the wired-network panel: ethtool, receive-only LLDP, iperf3, quick checks
 #   benchbob-onewire the 1-Wire panel: w1 sysfs masters/slaves, family decoders, DS2482 bridges
 #   benchbob-ups     the UPS panel: USB UPSes through a private NUT
@@ -47,6 +49,10 @@ benchbob-serial = { path = "crates/serial" }
 benchbob-ups = { path = "crates/ups" }
 benchbob-i2c = { path = "crates/i2c" }
 benchbob-i2c-chips = { path = "crates/i2c-chips" }
+benchbob-leds = { path = "crates/leds" }
+# Shared with the firmware nodes: the LED string model and its API, and the pixel logic.
+benchbob-pixels = { path = "../firmware/pixels" }
+benchbob-proto = { path = "../firmware/proto" }
 benchbob-netdiag = { path = "crates/netdiag" }
 benchbob-onewire = { path = "crates/onewire" }
 benchbob-usb = { path = "crates/usb" }

@@ -199,6 +199,20 @@ pub(crate) struct Inner {
     pub env: Env,
     /// Bumped on stop, so a stale stream loop exits.
     pub epoch: std::sync::atomic::AtomicU64,
+    /// Pins other panels hold (LED strips): shown as theirs, never driven or watched here.
+    pub claims: Mutex<Vec<Claim>>,
+}
+
+/// A pin another panel holds. `pin` is the BCM GPIO on a Pi, the physical header pin
+/// elsewhere (the numbering [`GpioHandle`] uses).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Claim {
+    pub pin: u32,
+    /// The gpiochip and line, when the pin has one.
+    pub chip: Option<String>,
+    pub line: Option<u32>,
+    /// "LED strip desk"
+    pub owner: String,
 }
 
 /// The GPIO driver.
@@ -218,8 +232,137 @@ impl Gpio {
                 looping: AtomicBool::new(false),
                 env: Env::from_env(),
                 epoch: Default::default(),
+                claims: Mutex::new(Vec::new()),
             }),
         }
+    }
+
+    /// What other panels use: output control's state, pin claims, line lookup.
+    pub fn handle(&self) -> GpioHandle {
+        GpioHandle(self.inner.clone())
+    }
+}
+
+/// For other panels that put something on header pins (LED strips). Pins are BCM GPIO
+/// numbers on a Raspberry Pi and physical header pin numbers on every other board.
+#[derive(Clone)]
+pub struct GpioHandle(Arc<Inner>);
+
+/// Where a header pin's line is, for a panel that requests it through the uAPI.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PinLine {
+    /// /dev/gpiochipN
+    pub path: String,
+    pub chip: String,
+    pub line: u32,
+}
+
+impl GpioHandle {
+    pub fn board(&self) -> &Board {
+        &self.0.board
+    }
+
+    pub fn is_pi(&self) -> bool {
+        self.0.is_pi()
+    }
+
+    /// GPIO output control (off at every start; the GPIO panel's switch).
+    pub fn output_enabled(&self) -> bool {
+        self.0.output_enabled()
+    }
+
+    /// The header's GPIO pins in this numbering, with their physical pin.
+    pub fn header_gpios(&self) -> Vec<(u32, u32)> {
+        let Some(h) = self.0.board.def.headers.first() else { return vec![] };
+        let pi = self.is_pi();
+        h.pins
+            .iter()
+            .filter(|p| p.kind == PinKind::Gpio)
+            .filter_map(|p| if pi { p.gpio.map(|g| (g, p.pin)) } else { Some((p.pin, p.pin)) })
+            .collect()
+    }
+
+    /// The pin's line (refreshing the chip list if needed).
+    pub fn line_of(&self, pin: u32) -> Result<PinLine, String> {
+        let inner = &self.0;
+        if inner.st.lock().unwrap().chips.list.is_empty() {
+            inner.refresh_chips();
+        }
+        let (chip, line) = if inner.is_pi() {
+            let st = inner.st.lock().unwrap();
+            let bank = st.chips.list.iter().filter(|c| is_soc_bank(&c.chip.info.label)).max_by_key(|c| c.info.len());
+            let c = bank.ok_or("the Pi's GPIO bank isn't among this machine's gpiochips")?;
+            (c.chip.info.name.clone(), pin)
+        } else {
+            inner.pin_line(None, pin as f64).map_err(|e| e.message)?
+        };
+        let st = inner.st.lock().unwrap();
+        let c = Inner::find_chip(&st, &chip).ok_or_else(|| format!("No GPIO chip {chip}"))?;
+        Ok(PinLine { path: c.chip.path.clone(), chip, line })
+    }
+
+    /// Why nothing else should drive `pin` now (a kernel driver holds its line, or on a Pi
+    /// it's muxed to a peripheral), ignoring claims by `owner`. None when it's free.
+    pub fn refusal(&self, pin: u32, owner: &str) -> Option<String> {
+        let inner = &self.0;
+        if let Some(c) = inner.claims.lock().unwrap().iter().find(|c| c.pin == pin && c.owner != owner) {
+            return Some(format!("used by {}", c.owner));
+        }
+        let pl = match self.line_of(pin) {
+            Ok(pl) => pl,
+            Err(e) => return Some(e),
+        };
+        let st = inner.st.lock().unwrap();
+        let li = Inner::find_chip(&st, &pl.chip).and_then(|c| c.info.get(pl.line as usize));
+        if inner.is_pi() {
+            let ps = st.snap.pins.iter().find(|x| x.gpio == pin);
+            // Before the first pinctrl read there's no PinState; the line info still counts.
+            return match ps {
+                Some(_) => Inner::refusal(ps, li),
+                None => li.and_then(|l| l.consumer.clone()).map(|c| format!("claimed by the kernel ({c})")),
+            };
+        }
+        li.filter(|l| l.used).map(|l| format!("claimed by the kernel ({})", l.consumer.clone().unwrap_or_default()))
+    }
+
+    /// Re-read every chip's line info (who holds what), before checking [`Self::refusal`].
+    pub fn refresh_lines(&self) {
+        self.0.refresh_chips();
+    }
+
+    /// The pin's function on a Pi (pinctrl's name: "SPI0_MOSI", "input"), refreshed now.
+    pub async fn pi_func(&self, pin: u32) -> Option<String> {
+        if !self.is_pi() {
+            return None;
+        }
+        self.0.refresh(false).await;
+        self.0.st.lock().unwrap().snap.pins.iter().find(|x| x.gpio == pin).map(|x| x.func.clone())
+    }
+
+    /// Mark `pin` as `owner`'s. Fails if another owner has it.
+    pub fn claim(&self, pin: u32, owner: &str) -> Result<(), String> {
+        let line = self.line_of(pin).ok();
+        let mut cl = self.0.claims.lock().unwrap();
+        if let Some(c) = cl.iter().find(|c| c.pin == pin) {
+            return if c.owner == owner { Ok(()) } else { Err(format!("used by {}", c.owner)) };
+        }
+        cl.push(Claim { pin, chip: line.as_ref().map(|l| l.chip.clone()), line: line.map(|l| l.line), owner: owner.into() });
+        drop(cl);
+        if let Some(c) = self.0.ctx.get() {
+            c.changed();
+        }
+        Ok(())
+    }
+
+    pub fn release(&self, pin: u32) {
+        self.0.claims.lock().unwrap().retain(|c| c.pin != pin);
+        if let Some(c) = self.0.ctx.get() {
+            c.changed();
+        }
+    }
+
+    pub fn claims(&self) -> Vec<Claim> {
+        self.0.claims.lock().unwrap().clone()
     }
 }
 
@@ -348,8 +491,18 @@ impl Inner {
         None
     }
 
+    /// The panel holding a pin (`pin` in GpioHandle's numbering), if any.
+    fn claim_of(&self, pin: u32) -> Option<String> {
+        self.claims.lock().unwrap().iter().find(|c| c.pin == pin).map(|c| c.owner.clone())
+    }
+
+    fn claim_of_line(&self, chip: &str, line: u32) -> Option<String> {
+        self.claims.lock().unwrap().iter().find(|c| c.chip.as_deref() == Some(chip) && c.line == Some(line)).map(|c| c.owner.clone())
+    }
+
     fn pin_view(&self, p: &PinState, lines: &HashMap<u32, LineInfo>) -> Value {
         let line = lines.get(&p.gpio);
+        let claim = self.claim_of(p.gpio);
         j!({
             "gpio": p.gpio,
             "header": self.gpio_to_pin(p.gpio),
@@ -361,7 +514,8 @@ impl Inner {
             "drive": p.drive,
             "consumer": line.and_then(|l| l.consumer.clone()),
             "lineName": line.map(|l| l.name.clone()).filter(|n| !n.is_empty()),
-            "refusal": Self::refusal(Some(p), line),
+            "claim": claim,
+            "refusal": claim.as_ref().map(|c| format!("used by {c}")).or_else(|| Self::refusal(Some(p), line)),
         })
     }
 
@@ -429,6 +583,10 @@ impl Inner {
                             o.insert("direction".into(), j!(li.map(|l| l.direction)));
                             o.insert("flags".into(), j!(li.map(|l| l.flags.clone()).unwrap_or_default()));
                             o.insert("watched".into(), j!(key.as_ref().is_some_and(|k| st.watches.contains(k))));
+                            let claim_pin = if self.is_pi() { p.gpio } else { Some(p.pin) };
+                            if let Some(owner) = claim_pin.and_then(|n| self.claim_of(n)) {
+                                o.insert("claim".into(), j!(owner));
+                            }
                             if let Some(h) = key.as_ref().and_then(|k| st.watches.get(k)).and_then(Self::held_json) {
                                 o.insert("held".into(), h);
                             }
@@ -519,6 +677,9 @@ impl Inner {
         }
         if !(line.fract() == 0.0 && line >= 0.0 && line < c.chip.info.lines as f64) {
             return Err(http(400, format!("{chip} has lines 0–{}", c.chip.info.lines as i64 - 1)));
+        }
+        if let Some(owner) = self.claim_of_line(chip, line as u32) {
+            return Err(http(409, format!("{chip} line {}: used by {owner}", line as u32)));
         }
         Ok(c.info[line as usize].clone())
     }
@@ -892,7 +1053,8 @@ impl Inner {
         {
             let st = self.st.lock().unwrap();
             let p = st.snap.pins.iter().find(|x| x.gpio as f64 == gpio);
-            if let Some(why) = Self::refusal(p, Self::soc_lines(&st).get(&(gpio as u32))) {
+            let why = self.claim_of(gpio as u32).map(|c| format!("used by {c}"));
+            if let Some(why) = why.or_else(|| Self::refusal(p, Self::soc_lines(&st).get(&(gpio as u32)))) {
                 return Err(http(409, format!("GPIO{}: {why}", js_string(&j!(gpio)))));
             }
         }
@@ -1522,6 +1684,31 @@ mod tests {
             keys,
             ["pin", "kind", "soc", "chip", "line", "funcs", "chipName", "lineName", "consumer", "used", "direction", "flags", "watched"]
         );
+    }
+
+    #[test]
+    fn claims_show_in_the_headers_and_block_other_users() {
+        let g = gpio_for("orangepi-5-plus");
+        g.inner.st.lock().unwrap().chips.list =
+            vec![chip("gpiochip0", "gpio0", "fd8a0000.gpio", 32), chip("gpiochip1", "gpio1", "fec20000.gpio", 32)];
+        let h = g.handle();
+        assert_eq!(h.line_of(7).unwrap(), PinLine { path: "/dev/gpiochip1".into(), chip: "gpiochip1".into(), line: 30 });
+        assert_eq!(h.refusal(7, "LED strip desk"), None);
+        h.claim(7, "LED strip desk").unwrap();
+        h.claim(7, "LED strip desk").unwrap(); // idempotent for the same owner
+        assert_eq!(h.claim(7, "LED strip shelf").unwrap_err(), "used by LED strip desk");
+        assert_eq!(h.refusal(7, "LED strip shelf").unwrap(), "used by LED strip desk");
+        assert_eq!(h.refusal(7, "LED strip desk"), None);
+        {
+            let st = g.inner.st.lock().unwrap();
+            assert_eq!(g.inner.headers_view(&st)[0]["pins"][6]["claim"], "LED strip desk");
+            let e = g.inner.check_line(&st, "gpiochip1", 30.0, "drive").unwrap_err();
+            assert_eq!((e.status, e.message.as_str()), (409, "gpiochip1 line 30: used by LED strip desk"));
+        }
+        h.release(7);
+        assert!(h.claims().is_empty());
+        let st = g.inner.st.lock().unwrap();
+        assert!(g.inner.check_line(&st, "gpiochip1", 30.0, "drive").is_ok());
     }
 
     #[test]

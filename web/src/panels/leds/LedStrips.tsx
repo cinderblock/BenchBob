@@ -47,7 +47,7 @@ export function LedStrips() {
               WS2812B / SK6812 / WS2813 / WS2811 (one data pin, timed) and APA102 / SK9822 / WS2801 (data + clock). Set a string up any time; it lights up only while GPIO output control is on, and goes dark when it's turned off. Use the order-test pattern to check the colour order, and the ruler to check the length.
             </Hint>
           </div>
-          {!data.outputEnabled && data.strings.length > 0 && <Note>Output control is off, so the strings are dark. Turn it on in the GPIO section to light them.</Note>}
+          {!data.outputEnabled && data.strings.length > 0 && <Note>Output control is off, so the strings are dark. Turn GPIO output control on to light them.</Note>}
           {data.strings.map((s) => (
             <StringCard key={s.id} s={s} caps={caps} others={data.strings} onDone={reload} />
           ))}
@@ -161,8 +161,13 @@ function StringDialog({ caps, others, edit, onDone }: { caps: NonNullable<LedsSt
   const [gpio, setGpio] = useState<PickPin[] | null>(null);
   const kind = caps.chips.find((c) => c.name === chip)?.kind ?? "one-wire";
 
-  // The board's pins with what holds them, from the GPIO view (this string's own pins are fine).
+  // The board's pins with what holds them: a Linux bob says per pin (SPI or not); a node's
+  // come from its GPIO view. This string's own pins are fine either way.
   useEffect(() => {
+    if (caps.pinInfo) {
+      setGpio(caps.pinInfo.map((p) => ({ gpio: p.gpio, header: p.header, refusal: p.refusal })));
+      return;
+    }
     b.api<{ pins: PickPin[] }>("GET", "/api/gpio").then(
       (g) => setGpio(g.pins.filter((p) => caps.pins.includes(p.gpio) || p.refusal).map((p) => ({ gpio: p.gpio, header: p.header, refusal: p.refusal }))),
       () => setGpio(caps.pins.map((g) => ({ gpio: g, header: null, refusal: null }))),
@@ -170,7 +175,13 @@ function StringDialog({ caps, others, edit, onDone }: { caps: NonNullable<LedsSt
   }, []);
   const mine = new Set(edit ? [edit.pin, edit.clockPin].filter((g): g is number => g != null) : []);
   const taken = (g: number, also: number | null) => (g === also ? "used for the other pin of this string" : null);
-  const pickPins = (also: number | null): PickPin[] => (gpio ?? []).map((p) => ({ ...p, refusal: mine.has(p.gpio) ? taken(p.gpio, also) : (p.refusal ?? taken(p.gpio, also)) }));
+  const oneWireOnly = (g: number) =>
+    kind === "one-wire" && caps.pinInfo && !caps.pinInfo.find((p) => p.gpio === g)?.oneWire ? `one-wire strings need an SPI MOSI pin${caps.oneWireHint ? ` (${caps.oneWireHint})` : ""}` : null;
+  const pickPins = (also: number | null, data = false): PickPin[] =>
+    (gpio ?? []).map((p) => ({
+      ...p,
+      refusal: (data ? oneWireOnly(p.gpio) : null) ?? (mine.has(p.gpio) ? taken(p.gpio, also) : (p.refusal ?? taken(p.gpio, also))),
+    }));
 
   const save = async () => {
     const body: Record<string, unknown> = {
@@ -214,7 +225,8 @@ function StringDialog({ caps, others, edit, onDone }: { caps: NonNullable<LedsSt
         </label>
       </div>
       <div className="stat-label">{kind === "clocked" ? "Data pin" : "Pin"}</div>
-      <PinPicker pins={pickPins(kind === "clocked" ? clockPin : null)} value={pin} onChange={setPin} label="Data pin" />
+      <PinPicker pins={pickPins(kind === "clocked" ? clockPin : null, true)} value={pin} onChange={setPin} label="Data pin" />
+      {caps.pinInfo && kind === "one-wire" && caps.oneWireHint && <div className="pr-note">{caps.oneWireHint}</div>}
       {kind === "clocked" && (
         <>
           <div className="stat-label">Clock pin</div>

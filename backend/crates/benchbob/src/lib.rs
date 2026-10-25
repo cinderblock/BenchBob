@@ -57,14 +57,18 @@ pub fn drivers(board: &Arc<Board>) -> Vec<Arc<dyn benchbob_core::Driver>> {
     let i2c = benchbob_i2c::I2c::new();
     // 1-Wire lists the DS2482 bridges the I²C scan found and rescans after binding one.
     let onewire = benchbob_onewire::OneWire::new(Some(i2c.handle()));
+    // LED strips claim their pins in the GPIO panel and follow its output control.
+    let gpio = benchbob_gpio::Gpio::new(board.clone());
+    let leds = benchbob_leds::Leds::new(gpio.handle());
     vec![
         Arc::new(benchbob_ble::Ble::new()),
         Arc::new(benchbob_camera::Camera::new()),
         Arc::new(benchbob_can::Can::new()),
         Arc::new(benchbob_drives::Drives::new()),
-        Arc::new(benchbob_gpio::Gpio::new(board.clone())),
+        Arc::new(gpio),
         Arc::new(benchbob_gps::Gps::new()),
         Arc::new(i2c),
+        Arc::new(leds),
         Arc::new(benchbob_netdiag::Netdiag::new()),
         Arc::new(onewire),
         Arc::new(benchbob_probes::Probes::new()),

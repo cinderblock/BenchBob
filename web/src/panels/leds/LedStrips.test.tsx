@@ -97,6 +97,32 @@ describe("LED strings", () => {
     expect(body).toMatchObject({ chip: "apa102", pin: 3, clockPin: 6, pixels: 60, power: null });
   });
 
+  it("on a Linux bob, offers only SPI MOSI pins to one-wire strings, without asking /api/gpio", async () => {
+    const pinInfo = [
+      { gpio: 10, header: 19, oneWire: true, clocked: true, spi: "SPI0 MOSI", refusal: null },
+      { gpio: 5, header: 29, oneWire: false, clocked: true, spi: null, refusal: null },
+      { gpio: 4, header: 7, oneWire: false, clocked: true, spi: null, refusal: "claimed by the kernel (onewire@4)" },
+    ];
+    const { calls, openModal } = make({ outputEnabled: true, capabilities: { ...caps, pins: [10, 5, 4], pinInfo, oneWireHint: "GPIO10 (SPI0)" }, strings: [] });
+    fireEvent.click(await screen.findByRole("button", { name: "Add string…" }));
+    openModal();
+    const data = await screen.findByRole("group", { name: "Data pin" });
+    const btns = () => [...data.querySelectorAll(".pin-btn")].map((b) => [b.textContent, b.getAttribute("aria-disabled")]);
+    expect(btns()).toEqual([
+      ["GPIO 4pin 7", "true"],
+      ["GPIO 10pin 19", "false"],
+      ["GPIO 5pin 29", "true"],
+    ]);
+    fireEvent.click(data.querySelectorAll(".pin-btn")[2]);
+    expect(screen.getByText(/GPIO 5: one-wire strings need an SPI MOSI pin \(GPIO10 \(SPI0\)\)/)).toBeTruthy();
+    // A clocked string can use any free pin.
+    const sel = screen.getByRole("combobox", { name: /Chip/ }) as HTMLSelectElement;
+    sel.value = "apa102";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "Data pin" }).querySelectorAll(".pin-btn")[2].getAttribute("aria-disabled")).toBe("false"));
+    expect(calls.some((c) => c[1] === "/api/gpio")).toBe(false);
+  });
+
   it("explains a board without LED support", async () => {
     make({ outputEnabled: false, capabilities: null, strings: [] });
     expect(await screen.findByText("This board has no LED string driver.")).toBeTruthy();

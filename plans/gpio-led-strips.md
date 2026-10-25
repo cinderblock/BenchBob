@@ -206,8 +206,13 @@ User's answers of 2026-10-25:
 3. ~~Pico 2 W driver~~ + node API/MCP + node UI section: done.
 3b. ~~Onboard-LED hold button~~ (nodes + Linux + header UI): done.
 4. ~~ESP32-C6 driver (RMT + SPI), status LED~~: done (compiles; untested on hardware).
-5. Linux `leds` crate ← current step: spidev driver, GPIO-uAPI APA102, staging of SPI overlays; GPIO
-   panel exclusions; pin picker component.
+5. ~~Linux `leds` crate~~: spidev, GPIO-uAPI bit-banged clocked strings, GPIO panel
+   claims, persistence, Linux panel (done; see Progress log). Left over, as 5c below.
+5c. Staging for the SPI prerequisites ← next: a Pi 4/3 needs `core_freq=500` +
+   `core_freq_min=500` (250 on a Pi 3) for WS2812-over-SPI, and frames over 4096 bytes need
+   `spidev.bufsiz=65536` in cmdline.txt. Today the string's error says exactly that; make
+   them a GPIO-panel staged change (diff + apply + reboot) with a button from the LED panel.
+   Also: SPI pin maps for non-Pi boards (from their overlay entries).
 5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), in a privileged helper.
 6. Pi 5 `/dev/pio0` driver.
 7. Network receivers (sACN, Art-Net, DDP) on both sides.
@@ -253,7 +258,21 @@ User's answers of 2026-10-25:
 - [x] Step 4: ESP32-C6 (`firmware/esp32c6/src/leds.rs`): status LED on RMT ch0 (GPIO8 now
   reserved), 2 strings: SPI2+DMA (any length, one-wire or clocked) and RMT ch1 (one-wire,
   ≤ 256 RGB px). Builds, clippy clean; untested on hardware.
-- [ ] Steps 5–9
+- [x] Step 5 (2026-10-25): `backend/crates/leds` (`benchbob-leds`), panel id `leds`.
+  Reuses the nodes' `benchbob_proto::api::Leds` (now Clone, with `restore`, `slot_of`,
+  `ids`, public handlers) so validation, patterns and JSON are identical; tries each change
+  on a copy and checks it against the hardware before keeping it. Hardware: spidev
+  (`SPI_IOC_MESSAGE`, Pi SPI pin map, spi-bcm2835 even-divider clock / RP1 200 MHz) and
+  bit-banged APA102/WS2801 via `LineHandle`. GPIO crate: `GpioHandle` (output control,
+  header pins, `line_of`, `refusal`, `claim`/`release`), and the GPIO panel shows claims
+  (`claim`, `refusal: "used by LED strip <name>"`) and refuses writes/watches on them.
+  Settings: `drivers.leds.strings` in peripherals.json (config + pattern). Web: the panel
+  reuses `LedStrips`; a Linux bob sends `capabilities.pinInfo` (per pin: oneWire, spi,
+  refusal) and `oneWireHint`, so one-wire strings are only offered SPI MOSI pins. Tests:
+  7 in the crate, 1 new GPIO test, 1 new web test. Run for real in WSL as a forced `rpi`
+  board with a fake spidev: strings created, persisted across a restart, and their setup
+  errors shown in the panel. Not run on a Pi yet.
+- [ ] Steps 5c–9
 
 ## Open questions for the user
 
@@ -317,6 +336,21 @@ None open.
   (`cargo test -p benchbob`).
 - The Pico's LED hold doesn't react while the Wi-Fi task is inside a join (up to the
   connect timeout).
+
+## Findings from the Linux work
+
+- Proto's `Hw::Error` was a 64-byte string and hid errors while output control was off;
+  now 240 bytes (cut at a char boundary) and an error shows regardless of output control
+  (affects nodes too, for the better).
+- Linux pin numbering: BCM GPIO on a Pi, physical header pin elsewhere (the GPIO panel's
+  own numbering), so the same `pin` field works on both.
+- On a Pi, a bus pin is muxed to SPI (pinctrl says "muxed to SPI0_MOSI"); that's the
+  pin's normal state for an SPI string, so `pinInfo` doesn't treat it as a refusal.
+- `pkill -f target/debug/benchbob` inside `wsl bash -lc` kills its own shell (exit 15);
+  use `pkill -x benchbob`.
+- One unexplained failing/panicking line in one of four `cargo test --workspace` runs
+  (not reproduced in three reruns); possibly the timing-based onboard-LED expiry test
+  under load. Watch for it.
 
 ## Things not to do
 

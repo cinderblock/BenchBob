@@ -115,13 +115,17 @@ enum Source {
     Pixels,
 }
 
+const ERROR_MAX: usize = 240;
+
 #[derive(Clone, Copy)]
 enum Hw {
     Pending,
     Running,
-    Error(FixedStr<64>),
+    /// Long enough for the Linux server's how-to-fix messages.
+    Error(FixedStr<ERROR_MAX>),
 }
 
+#[derive(Clone)]
 struct Slot {
     id: u16,
     cfg: StringConfig,
@@ -148,6 +152,9 @@ pub struct Job {
     pub output: bool,
 }
 
+/// Every string's config and content. Clone is for trying a change before keeping it
+/// (the Linux server checks a config against its hardware that way).
+#[derive(Clone)]
 pub struct Leds {
     slots: [Option<Slot>; MAX_STRINGS],
     next_id: u16,
@@ -230,7 +237,13 @@ impl Leds {
         {
             s.hw = match result {
                 Ok(()) => Hw::Running,
-                Err(e) => Hw::Error(FixedStr::from_bytes(&e.as_bytes()[..e.len().min(64)]).unwrap_or(FixedStr::new())),
+                Err(e) => {
+                    let mut n = e.len().min(ERROR_MAX);
+                    while !e.is_char_boundary(n) {
+                        n -= 1;
+                    }
+                    Hw::Error(FixedStr::from_bytes(&e.as_bytes()[..n]).unwrap_or(FixedStr::new()))
+                }
             };
         }
     }
@@ -238,6 +251,29 @@ impl Leds {
     /// The name of the string holding `gpio` (as data or clock), if any.
     pub fn owner(&self, gpio: u8) -> Option<&str> {
         self.slots.iter().flatten().find(|s| s.cfg.pin == gpio || s.cfg.clock_pin == Some(gpio)).map(|s| s.cfg.name.as_str())
+    }
+
+    /// The slot holding string `id`.
+    pub fn slot_of(&self, id: i64) -> Option<usize> {
+        self.slots.iter().position(|s| s.as_ref().is_some_and(|s| s.id as i64 == id))
+    }
+
+    /// The ids of every string, in slot order.
+    pub fn ids(&self) -> impl Iterator<Item = u16> + '_ {
+        self.slots.iter().flatten().map(|s| s.id)
+    }
+
+    /// Re-create a saved string under its old id (`a` as `string_json` wrote it, minus
+    /// the pattern, which goes through `set_pattern`).
+    pub fn restore(&mut self, info: &BoardInfo, id: u16, a: Option<&Value<'_>>, now_ms: u64) -> Result<i64, ApiErr> {
+        if self.slot_of(id as i64).is_some() {
+            return Err(err!(409, "LED string {} already exists", id));
+        }
+        let next = self.next_id;
+        self.next_id = id.max(1);
+        let r = self.configure(info, None, a, now_ms);
+        self.next_id = next.max(id.wrapping_add(1)).max(1);
+        r
     }
 
     fn index(&self, id: i64) -> Result<usize, ApiErr> {
@@ -250,7 +286,7 @@ impl Leds {
     // -----------------------------------------------------------------------------------
     // API
 
-    pub(super) fn view(&self, info: &BoardInfo, j: &mut Json<'_, '_>) {
+    pub fn view(&self, info: &BoardInfo, j: &mut Json<'_, '_>) {
         j.obj().kv_bool("outputEnabled", self.output);
         j.key("capabilities");
         match info.leds {
@@ -333,10 +369,11 @@ impl Leds {
             }
         }
         let (state, error) = match s.hw {
+            // A string that couldn't be set up says why even while output control is off.
+            Hw::Error(e) => ("error", Some(e)),
             _ if !self.output => ("off", None),
             Hw::Pending => ("pending", None),
             Hw::Running => ("running", None),
-            Hw::Error(e) => ("error", Some(e)),
         };
         j.kv_str("state", state);
         match &error {
@@ -350,7 +387,7 @@ impl Leds {
         j.end_obj();
     }
 
-    pub(super) fn string_json(&self, id: i64, j: &mut Json<'_, '_>) -> R {
+    pub fn string_json(&self, id: i64, j: &mut Json<'_, '_>) -> R {
         let i = self.index(id)?;
         if let Some(s) = &self.slots[i] {
             self.string_view(s, j);
@@ -359,7 +396,7 @@ impl Leds {
     }
 
     /// Create (`id` None) or change a string. Returns its id.
-    pub(super) fn configure(&mut self, info: &BoardInfo, id: Option<i64>, a: Option<&Value<'_>>, now_ms: u64) -> Result<i64, ApiErr> {
+    pub fn configure(&mut self, info: &BoardInfo, id: Option<i64>, a: Option<&Value<'_>>, now_ms: u64) -> Result<i64, ApiErr> {
         let Some(l) = info.leds else { return Err(err!(404, "This board has no LED string support")) };
         let existing = match id {
             Some(id) => Some(self.index(id)?),
@@ -535,13 +572,13 @@ impl Leds {
         Ok(())
     }
 
-    pub(super) fn remove(&mut self, id: i64) -> R {
+    pub fn remove(&mut self, id: i64) -> R {
         let i = self.index(id)?;
         self.slots[i] = None;
         Ok(())
     }
 
-    pub(super) fn set_pattern(&mut self, id: i64, a: Option<&Value<'_>>, now_ms: u64) -> R {
+    pub fn set_pattern(&mut self, id: i64, a: Option<&Value<'_>>, now_ms: u64) -> R {
         let i = self.index(id)?;
         let g = self.bump();
         let s = self.slots[i].as_mut().ok_or_else(|| err!(404, "No LED string {}", id))?;
@@ -568,7 +605,7 @@ impl Leds {
         Ok(())
     }
 
-    pub(super) fn set_pixels(&mut self, id: i64, a: Option<&Value<'_>>) -> R {
+    pub fn set_pixels(&mut self, id: i64, a: Option<&Value<'_>>) -> R {
         let i = self.index(id)?;
         let g = self.bump();
         let s = self.slots[i].as_mut().ok_or_else(|| err!(404, "No LED string {}", id))?;
