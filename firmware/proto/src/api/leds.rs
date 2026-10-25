@@ -8,11 +8,17 @@
 //! frame whenever `content_gen` changes or the slot is animated. With output control
 //! off, `render` gives an all-black frame once and then nothing is animated, so strings
 //! go dark and stay dark until output control is on again.
+//!
+//! A string can also take its picture from the network ([`NetIn`]: sACN, Art-Net or DDP).
+//! The board hands every packet to [`Leds::receive`]; while packets arrive the string shows
+//! them, and [`Leds::tick`] puts its own pattern back once they stop for
+//! [`NET_TIMEOUT_MS`] (as WLED does), so a show controller can take over and let go.
 
 use super::{ApiErr, Arg, BoardInfo, R, arg, arg_value, int_arg};
 use crate::config::FixedStr;
 use crate::json::{Json, Kind, Value};
 use benchbob_pixels::color::PowerBudget;
+use benchbob_pixels::net::{self, ARTNET_PORT, DDP_PORT, Patch, SACN_PORT, SacnArbiter};
 use benchbob_pixels::pattern::{self, Pattern};
 use benchbob_pixels::timing::{PRESETS, Timing};
 use benchbob_pixels::{Order, Rgbw};
@@ -22,6 +28,47 @@ use core::fmt::Write;
 pub const MAX_STRINGS: usize = 4;
 /// Pixels per string the API keeps a buffer for (a board may offer fewer).
 pub const MAX_PIXELS: usize = 1024;
+/// A network-fed string goes back to its own pattern after this long without packets.
+pub const NET_TIMEOUT_MS: u64 = 2500;
+/// Universes one string can span (1024 RGBW pixels at 128 a universe).
+const MAX_UNIVERSES: usize = 8;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Protocol {
+    Sacn,
+    ArtNet,
+    Ddp,
+}
+
+impl Protocol {
+    pub fn name(self) -> &'static str {
+        match self {
+            Protocol::Sacn => "sacn",
+            Protocol::ArtNet => "artnet",
+            Protocol::Ddp => "ddp",
+        }
+    }
+    pub fn port(self) -> u16 {
+        match self {
+            Protocol::Sacn => SACN_PORT,
+            Protocol::ArtNet => ARTNET_PORT,
+            Protocol::Ddp => DDP_PORT,
+        }
+    }
+}
+
+/// Where a string listens on the network. Channels arrive in R, G, B(, W) order, three or
+/// four per pixel by the string's order; `universe` is the first universe (sACN 1–63999,
+/// Art-Net's 15-bit port-address 0–32767) and the string runs on into the next ones.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct NetIn {
+    pub protocol: Protocol,
+    pub universe: u16,
+    /// 1-based, in the first universe.
+    pub start_channel: u16,
+    /// DDP: byte offset of the first pixel.
+    pub ddp_offset: u32,
+}
 
 /// What a board's LED hardware can do.
 pub struct LedsInfo {
@@ -100,6 +147,7 @@ pub struct StringConfig {
     /// Drive the data line inverted (for an inverting level shifter).
     pub invert: bool,
     pub power: Option<PowerBudget>,
+    pub net: Option<NetIn>,
 }
 
 impl StringConfig {
@@ -107,16 +155,54 @@ impl StringConfig {
     pub fn wire_len(&self) -> usize {
         self.pixels as usize * self.order.channels()
     }
+
+    /// The string's place in universe / DDP space, if it listens.
+    pub fn patch(&self) -> Option<Patch> {
+        let n = self.net?;
+        let cpp = if self.order.has_white() { 4 } else { 3 };
+        let mut p = Patch::new(self.pixels, cpp, n.universe);
+        p.start_channel = n.start_channel;
+        p.ddp_offset = n.ddp_offset;
+        Some(p)
+    }
 }
 
 #[derive(Clone, Copy)]
 enum Source {
-    Pattern { pattern: Pattern, since_ms: u64 },
+    Pattern {
+        pattern: Pattern,
+        since_ms: u64,
+    },
     Pixels,
+    /// Showing network data (in `pixels`); `NetRx::prev` is what comes back after.
+    Network,
+}
+
+/// A string's receiving state.
+#[derive(Clone, Copy)]
+struct NetRx {
+    /// One per universe the string spans: sACN sequence numbers and priorities are
+    /// per universe.
+    arb: [SacnArbiter; MAX_UNIVERSES],
+    last_ms: Option<u64>,
+    packets: u32,
+    /// The sACN source's name, or the sender's address for the others.
+    from: FixedStr<40>,
+    prev: Option<Source>,
+    /// This DDP sender marks frame ends (push), so only those render.
+    push_seen: bool,
+}
+
+impl NetRx {
+    const fn new() -> Self {
+        NetRx { arb: [SacnArbiter::new(); MAX_UNIVERSES], last_ms: None, packets: 0, from: FixedStr::new(), prev: None, push_seen: false }
+    }
 }
 
 const ERROR_MAX: usize = 240;
 
+// No heap here: an error carries its text inline, and every slot is allocated anyway.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy)]
 enum Hw {
     Pending,
@@ -134,6 +220,7 @@ struct Slot {
     content_gen: u32,
     hw: Hw,
     estimate_ma: Option<u32>,
+    net: NetRx,
     pixels: [Rgbw; MAX_PIXELS],
 }
 
@@ -160,6 +247,8 @@ pub struct Leds {
     next_id: u16,
     counter: u32,
     output: bool,
+    /// The time of the last tick/receive, for "how long ago" in the view.
+    now_ms: u64,
 }
 
 impl Default for Leds {
@@ -170,7 +259,7 @@ impl Default for Leds {
 
 impl Leds {
     pub const fn new() -> Self {
-        Leds { slots: [const { None }; MAX_STRINGS], next_id: 1, counter: 0, output: false }
+        Leds { slots: [const { None }; MAX_STRINGS], next_id: 1, counter: 0, output: false, now_ms: 0 }
     }
 
     fn bump(&mut self) -> u32 {
@@ -222,7 +311,7 @@ impl Leds {
         for (k, o) in out.chunks_exact_mut(ch).enumerate() {
             let px = match s.source {
                 Source::Pattern { pattern, since_ms } => pattern.pixel(now_ms.saturating_sub(since_ms) as u32, k, n),
-                Source::Pixels => s.pixels[k],
+                Source::Pixels | Source::Network => s.pixels[k],
             };
             c.order.write(px, c.gamma, c.brightness, o);
         }
@@ -251,6 +340,142 @@ impl Leds {
     /// The name of the string holding `gpio` (as data or clock), if any.
     pub fn owner(&self, gpio: u8) -> Option<&str> {
         self.slots.iter().flatten().find(|s| s.cfg.pin == gpio || s.cfg.clock_pin == Some(gpio)).map(|s| s.cfg.name.as_str())
+    }
+
+    /// A UDP packet that arrived on `port` (5568 sACN, 6454 Art-Net, 4048 DDP) from
+    /// `from` (shown as the source when the protocol has no name of its own). True when a
+    /// string's picture changed.
+    pub fn receive(&mut self, port: u16, packet: &[u8], from: &str, now_ms: u64) -> bool {
+        self.now_ms = now_ms;
+        let mut changed = false;
+        for i in 0..MAX_STRINGS {
+            let g = self.counter.wrapping_add(1);
+            let Some(s) = self.slots[i].as_mut() else { continue };
+            let (Some(n), Some(patch)) = (s.cfg.net, s.cfg.patch()) else { continue };
+            if n.protocol.port() != port {
+                continue;
+            }
+            let mut hit = false;
+            let mut show = true;
+            let mut name: Option<&[u8]> = None;
+            let pixels = &mut s.pixels;
+            let mut put = |k: usize, ch: &[u8]| {
+                if let Some(px) = pixels.get_mut(k) {
+                    *px = Rgbw { r: ch[0], g: ch[1], b: ch[2], w: ch.get(3).copied().unwrap_or(0) };
+                    hit = true;
+                }
+            };
+            match n.protocol {
+                Protocol::Sacn => {
+                    let Ok(p) = net::parse_sacn(packet) else { continue };
+                    let (first, last) = patch.universes();
+                    if p.dmx.universe < first || p.dmx.universe > last {
+                        continue;
+                    }
+                    let u = (p.dmx.universe - first) as usize;
+                    if u >= MAX_UNIVERSES || !s.net.arb[u].accept(&p, now_ms as u32) {
+                        continue;
+                    }
+                    patch.apply_dmx(&p.dmx, &mut put);
+                    name = Some(p.source_name);
+                }
+                Protocol::ArtNet => {
+                    let Ok(d) = net::parse_artnet(packet) else { continue };
+                    patch.apply_dmx(&d, &mut put);
+                }
+                Protocol::Ddp => {
+                    let Ok(d) = net::parse_ddp(packet) else { continue };
+                    patch.apply_ddp(&d, &mut put);
+                    s.net.push_seen |= d.push;
+                    // Senders that mark frame ends get one render per frame.
+                    show = d.push || !s.net.push_seen;
+                }
+            }
+            if !hit {
+                continue;
+            }
+            if !matches!(s.source, Source::Network) {
+                s.net.prev = Some(s.source);
+                s.source = Source::Network;
+            }
+            s.net.last_ms = Some(now_ms);
+            s.net.packets = s.net.packets.wrapping_add(1);
+            s.net.from = FixedStr::from_bytes(name.filter(|n| !n.is_empty()).map(|n| &n[..n.len().min(40)]).unwrap_or(from.as_bytes()))
+                .unwrap_or_else(|| FixedStr::from_bytes(&from.as_bytes()[..from.len().min(40)]).unwrap_or(FixedStr::new()));
+            if show {
+                self.counter = g;
+                s.content_gen = g;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Call every frame: strings whose network input went quiet go back to their own
+    /// picture. True when one did.
+    pub fn tick(&mut self, now_ms: u64) -> bool {
+        self.now_ms = now_ms;
+        let mut changed = false;
+        for i in 0..MAX_STRINGS {
+            let g = self.counter.wrapping_add(1);
+            let Some(s) = self.slots[i].as_mut() else { continue };
+            if matches!(s.source, Source::Network) && s.net.last_ms.is_none_or(|t| now_ms.saturating_sub(t) > NET_TIMEOUT_MS) {
+                s.source = match s.net.prev.take() {
+                    Some(Source::Pattern { pattern, .. }) => Source::Pattern { pattern, since_ms: now_ms },
+                    // Pixels set earlier were overwritten by the network data: dark.
+                    _ => Source::Pattern { pattern: Pattern::Off, since_ms: now_ms },
+                };
+                self.counter = g;
+                s.content_gen = g;
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// The protocols some string listens on (bits: 1 sACN, 2 Art-Net, 4 DDP).
+    pub fn protocols(&self) -> u8 {
+        self.slots.iter().flatten().filter_map(|s| s.cfg.net).fold(0, |m, n| {
+            m | match n.protocol {
+                Protocol::Sacn => 1,
+                Protocol::ArtNet => 2,
+                Protocol::Ddp => 4,
+            }
+        })
+    }
+
+    /// Every sACN universe some string listens on (for multicast joins), at most `out.len()`.
+    pub fn sacn_universes(&self, out: &mut [u16]) -> usize {
+        let mut n = 0;
+        for s in self.slots.iter().flatten() {
+            if let (Some(NetIn { protocol: Protocol::Sacn, .. }), Some(p)) = (s.cfg.net, s.cfg.patch()) {
+                let (a, b) = p.universes();
+                for u in a..=b {
+                    if n < out.len() && !out[..n].contains(&u) {
+                        out[n] = u;
+                        n += 1;
+                    }
+                }
+            }
+        }
+        n
+    }
+
+    /// Art-Net port-addresses strings listen on (for ArtPollReply), at most `out.len()`.
+    pub fn artnet_universes(&self, out: &mut [u16]) -> usize {
+        let mut n = 0;
+        for s in self.slots.iter().flatten() {
+            if let (Some(NetIn { protocol: Protocol::ArtNet, .. }), Some(p)) = (s.cfg.net, s.cfg.patch()) {
+                let (a, b) = p.universes();
+                for u in a..=b {
+                    if n < out.len() && !out[..n].contains(&u) {
+                        out[n] = u;
+                        n += 1;
+                    }
+                }
+            }
+        }
+        n
     }
 
     /// The slot holding string `id`.
@@ -367,6 +592,33 @@ impl Leds {
             Source::Pixels => {
                 j.kv_str("source", "pixels").key("pattern").null();
             }
+            Source::Network => {
+                j.kv_str("source", "network").key("pattern");
+                match s.net.prev {
+                    Some(Source::Pattern { pattern, .. }) => pattern_view(&pattern, j),
+                    _ => {
+                        j.null();
+                    }
+                }
+            }
+        }
+        match c.net {
+            Some(n) => {
+                j.key("network").obj().kv_str("protocol", n.protocol.name()).kv_u64("universe", n.universe as u64);
+                j.kv_u64("startChannel", n.start_channel as u64).kv_u64("ddpOffset", n.ddp_offset as u64).end_obj();
+            }
+            None => {
+                j.key("network").null();
+            }
+        }
+        match s.net.last_ms {
+            Some(t) if c.net.is_some() => {
+                j.key("receiving").obj().kv_bool("active", matches!(s.source, Source::Network)).kv_str("from", s.net.from.as_str());
+                j.kv_u64("packets", s.net.packets as u64).kv_u64("ageMs", self.now_ms.saturating_sub(t)).end_obj();
+            }
+            _ => {
+                j.key("receiving").null();
+            }
         }
         let (state, error) = match s.hw {
             // A string that couldn't be set up says why even while output control is off.
@@ -427,6 +679,7 @@ impl Leds {
                     gamma: true,
                     invert: false,
                     power: None,
+                    net: None,
                 }
             }
         };
@@ -504,6 +757,46 @@ impl Leds {
                 _ => return Err(err!(400, "power must be an object {{maPerChannel, idleMa, maxMa}} or null")),
             };
         }
+        if let Some(v) = a.and_then(|a| a.get("network")) {
+            c.net = match v.kind() {
+                Kind::Null => None,
+                Kind::Object => {
+                    let v = Some(&v);
+                    let cur = c.net;
+                    let protocol = match text::<8>(arg(v, "protocol"), "network.protocol")? {
+                        Some(p) => match p.as_str() {
+                            "sacn" | "e131" => Protocol::Sacn,
+                            "artnet" => Protocol::ArtNet,
+                            "ddp" => Protocol::Ddp,
+                            _ => return Err(err!(400, "network.protocol must be sacn, artnet or ddp")),
+                        },
+                        None => cur.map(|n| n.protocol).ok_or_else(|| err!(400, "network.protocol is required (sacn, artnet or ddp)"))?,
+                    };
+                    let (lo, hi, def) = match protocol {
+                        Protocol::Sacn => (1, 63999, 1),
+                        _ => (0, 32767, 0),
+                    };
+                    let same = cur.filter(|n| n.protocol == protocol);
+                    NetIn {
+                        protocol,
+                        universe: int_arg(arg(v, "universe"), "network.universe", lo, hi)?
+                            .map(|u| u as u16)
+                            .or(same.map(|n| n.universe))
+                            .unwrap_or(def),
+                        start_channel: int_arg(arg(v, "startChannel"), "network.startChannel", 1, 512)?
+                            .map(|u| u as u16)
+                            .or(same.map(|n| n.start_channel))
+                            .unwrap_or(1),
+                        ddp_offset: int_arg(arg(v, "ddpOffset"), "network.ddpOffset", 0, u32::MAX as i64)?
+                            .map(|u| u as u32)
+                            .or(same.map(|n| n.ddp_offset))
+                            .unwrap_or(0),
+                    }
+                    .into()
+                }
+                _ => return Err(err!(400, "network must be an object {{protocol, universe, startChannel, ddpOffset}} or null")),
+            };
+        }
         self.check(info, l, &c, existing)?;
         let config_gen = self.bump();
         let content_gen = self.bump();
@@ -525,6 +818,7 @@ impl Leds {
                     content_gen,
                     hw: Hw::Pending,
                     estimate_ma: None,
+                    net: NetRx::new(),
                     pixels: [Rgbw::OFF; MAX_PIXELS],
                 });
                 i
@@ -584,6 +878,10 @@ impl Leds {
         let s = self.slots[i].as_mut().ok_or_else(|| err!(404, "No LED string {}", id))?;
         let current = match s.source {
             Source::Pattern { pattern, .. } => Some(pattern),
+            Source::Network => match s.net.prev {
+                Some(Source::Pattern { pattern, .. }) => Some(pattern),
+                _ => None,
+            },
             Source::Pixels => None,
         };
         let mut p = match text::<16>(arg(a, "name"), "name")? {
@@ -600,7 +898,13 @@ impl Leds {
             None => current.ok_or_else(|| err!(400, "name is required (the string is showing pixels, not a pattern)"))?,
         };
         apply_params(&mut p, a, s.cfg.pixels)?;
-        s.source = Source::Pattern { pattern: p, since_ms: now_ms };
+        let pat = Source::Pattern { pattern: p, since_ms: now_ms };
+        if matches!(s.source, Source::Network) {
+            // The network has the string; this is what comes back when it lets go.
+            s.net.prev = Some(pat);
+            return Ok(());
+        }
+        s.source = pat;
         s.content_gen = g;
         Ok(())
     }
@@ -611,6 +915,9 @@ impl Leds {
         let s = self.slots[i].as_mut().ok_or_else(|| err!(404, "No LED string {}", id))?;
         let n = (s.cfg.pixels as usize).min(MAX_PIXELS);
         let start = int_arg(arg(a, "start"), "start", 0, n as i64 - 1)?.unwrap_or(0) as usize;
+        if matches!(s.source, Source::Network) {
+            return Err(err!(409, "LED string {} is showing network data ({}); set pixels once it stops", id, s.net.from.as_str()));
+        }
         if matches!(s.source, Source::Pattern { .. }) {
             s.pixels = [Rgbw::OFF; MAX_PIXELS];
         }
