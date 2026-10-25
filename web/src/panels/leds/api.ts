@@ -27,6 +27,13 @@ export interface LedPattern {
   density?: number;
 }
 
+export interface LedNetIn {
+  protocol: "sacn" | "artnet" | "ddp";
+  universe: number;
+  startChannel: number;
+  ddpOffset: number;
+}
+
 export interface LedString {
   id: number;
   name: string;
@@ -43,7 +50,11 @@ export interface LedString {
   invert: boolean;
   power: LedPower | null;
   source: "pattern" | "pixels" | "network";
+  /** While receiving: the pattern that comes back when the network lets go. */
   pattern: LedPattern | null;
+  network?: LedNetIn | null;
+  /** The last packets this string's network input took (null: none yet). */
+  receiving?: { active: boolean; from: string; packets: number; ageMs: number } | null;
   /** off: output control is off, so the string is dark. */
   state: "running" | "off" | "pending" | "error";
   error: string | null;
@@ -69,6 +80,8 @@ export interface LedsState {
     pinInfo?: LedPin[];
     /** Linux: where one-wire strings can go (or how to get such a pin). */
     oneWireHint?: string;
+    /** Linux: the network receivers in use (listening, or why not). */
+    receivers?: Record<string, { listening: boolean; error: string | null } | number[]>;
   } | null;
   strings: LedString[];
 }
@@ -82,6 +95,8 @@ export interface LedPin {
   via: string | null;
   refusal: string | null;
 }
+
+export const PROTOCOLS: Record<LedNetIn["protocol"], string> = { sacn: "sACN (E1.31)", artnet: "Art-Net", ddp: "DDP" };
 
 /** Each pattern's parameters, for the pattern editor. */
 export const PATTERN_PARAMS: Record<string, (keyof LedPattern)[]> = {

@@ -139,3 +139,47 @@ fn the_pwm_helper_config_covers_both_channels() {
     assert_eq!(c.clock_div, 23);
     assert_eq!((c.max_bytes, c.reset_us), (1200, 300));
 }
+
+#[test]
+fn ddp_over_udp_reaches_the_string_and_the_port_closes_after() {
+    let (_t, l) = pi_leds(&["spidev0.0"]);
+    post(&l, None, json!({ "chip": "ws2812b", "pin": 10, "pixels": 2, "order": "RGB", "network": { "protocol": "ddp" } })).unwrap();
+    let inner = l.inner.clone();
+    let rx = std::thread::spawn(move || net::run(inner));
+    // Wait for the receiver to bind 4048 (skip if something else on this machine has it).
+    let mut listening = false;
+    for _ in 0..50 {
+        std::thread::sleep(Duration::from_millis(20));
+        let st = l.inner.rx.lock().unwrap().to_json();
+        if st["ddp"]["listening"] == true {
+            listening = true;
+            break;
+        }
+        if st["ddp"]["error"].is_string() {
+            eprintln!("skipping: {}", st["ddp"]["error"]);
+            break;
+        }
+    }
+    if listening {
+        let tx = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let pkt = [0x41, 0, 1, 1, 0, 0, 0, 0, 0, 6, 1, 2, 3, 4, 5, 6];
+        let mut got = false;
+        for _ in 0..50 {
+            tx.send_to(&pkt, "127.0.0.1:4048").unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+            let v = l.inner.view().unwrap();
+            if v["strings"][0]["source"] == "network" {
+                assert_eq!(v["strings"][0]["receiving"]["from"], "127.0.0.1");
+                got = true;
+                break;
+            }
+        }
+        assert!(got, "the DDP packet never arrived");
+        // Turn the input off: the receiver lets go of the port.
+        post(&l, Some(1), json!({ "network": null })).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(l.inner.rx.lock().unwrap().ports.is_empty());
+    }
+    l.inner.epoch.fetch_add(1, Ordering::SeqCst);
+    rx.join().unwrap();
+}

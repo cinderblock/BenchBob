@@ -19,12 +19,16 @@
 //!   the other panels' settings; pixels set through the API don't. After a restart the
 //!   strings come back, dark until output control is turned on again.
 //!
+//! - **Network input** ([`net`]): strings with a `network` input listen for sACN, Art-Net
+//!   or DDP; the ports are only bound while some string wants them.
+//!
 //! A worker thread renders at up to 50 fps and does the (blocking) device writes.
 
 // The nodes' ApiErr carries its message inline (no heap), so its Results are large.
 #![allow(clippy::result_large_err)]
 
 pub mod hw;
+pub mod net;
 pub mod pwm;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -78,6 +82,7 @@ pub(crate) struct Inner {
     epoch: AtomicU64,
     /// Where spidev devices are (`BENCHBOB_SPIDEV_DIR` for tests).
     dev_dir: std::path::PathBuf,
+    rx: Mutex<net::RxStatus>,
 }
 
 impl Leds {
@@ -115,6 +120,7 @@ impl Leds {
                 started: Instant::now(),
                 epoch: AtomicU64::new(0),
                 dev_dir,
+                rx: Mutex::default(),
             }),
         }
     }
@@ -282,6 +288,7 @@ impl Inner {
         if let Some(c) = v.get_mut("capabilities").and_then(Value::as_object_mut) {
             c.insert("pinInfo".into(), self.pin_info(&m));
             c.insert("oneWireHint".into(), json!(self.one_wire_hint(&self.buses())));
+            c.insert("receivers".into(), self.rx.lock().unwrap().to_json());
         }
         Ok(v)
     }
@@ -347,7 +354,7 @@ impl Inner {
                 .filter_map(|id| self.string(&m, id as i64).ok())
                 .map(|mut v| {
                     if let Some(o) = v.as_object_mut() {
-                        for k in ["kind", "state", "error", "estimateMa", "source"] {
+                        for k in ["kind", "state", "error", "estimateMa", "source", "receiving"] {
                             o.remove(k);
                         }
                         if o.get("chip").and_then(Value::as_str) != Some("custom") {
@@ -655,6 +662,8 @@ impl Inner {
             {
                 let mut m = self.model.lock().unwrap();
                 m.set_output(output);
+                // Strings whose network input went quiet get their pattern back.
+                changed |= m.tick(self.now());
                 for (i, lane) in lanes.iter_mut().enumerate() {
                     let job = m.job(i);
                     let want = job.map(|j| j.config_gen);
@@ -768,6 +777,8 @@ impl Driver for Leds {
         }
         let me = i.clone();
         std::thread::Builder::new().name("leds".into()).spawn(move || me.worker())?;
+        let me = i.clone();
+        std::thread::Builder::new().name("leds-net".into()).spawn(move || net::run(me))?;
         Ok(())
     }
 

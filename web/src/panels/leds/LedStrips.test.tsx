@@ -123,6 +123,30 @@ describe("LED strings", () => {
     expect(calls.some((c) => c[1] === "/api/gpio")).toBe(false);
   });
 
+  it("shows what a network input is receiving, and sets one up", async () => {
+    const fed: LedString = {
+      ...desk,
+      source: "network",
+      network: { protocol: "sacn", universe: 3, startChannel: 1, ddpOffset: 0 },
+      receiving: { active: true, from: "xLights", packets: 1234, ageMs: 40 },
+    };
+    const { calls, openModal } = make({ outputEnabled: true, capabilities: caps, strings: [fed] });
+    expect(await screen.findByText("receiving")).toBeTruthy();
+    expect(screen.getByText(/sACN \(E1\.31\) universe 3 · from xLights · 1,234 packets · last just now/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    openModal();
+    const sel = screen.getByRole("combobox", { name: "Network input" }) as HTMLSelectElement;
+    expect(sel.value).toBe("sacn");
+    sel.value = "ddp";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    await screen.findByText(/Byte offset/);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.find((c) => c[1] === "/api/leds/1")).toBeTruthy());
+    const body = calls.find((c) => c[1] === "/api/leds/1")![2] as Record<string, unknown>;
+    expect(body.network).toEqual({ protocol: "ddp", universe: 3, startChannel: 1, ddpOffset: 0 });
+  });
+
   it("explains a board without LED support", async () => {
     make({ outputEnabled: false, capabilities: null, strings: [] });
     expect(await screen.findByText("This board has no LED string driver.")).toBeTruthy();

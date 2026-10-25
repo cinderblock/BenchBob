@@ -8,7 +8,7 @@ import { Hint, Note, Pill } from "../../ui/common";
 import { PinPicker, type PickPin } from "../../ui/PinPicker";
 import { ActionLine, useAction } from "../../ui/status";
 import { usePoll } from "../../sections/node/usePoll";
-import { ORDERS, PARAM_LABEL, PATTERN_PARAMS, type LedPattern, type LedString, type LedsState, type LedTiming } from "./api";
+import { ORDERS, PARAM_LABEL, PATTERN_PARAMS, PROTOCOLS, type LedNetIn, type LedPattern, type LedString, type LedsState, type LedTiming } from "./api";
 import "./leds.css";
 
 const STATE_PILL: Record<LedString["state"], [string, string]> = {
@@ -52,6 +52,13 @@ export function LedStrips({ fix }: { fix?: (error: string) => ReactNode } = {}) 
             </Hint>
           </div>
           {!data.outputEnabled && data.strings.length > 0 && <Note>Output control is off, so the strings are dark. Turn GPIO output control on to light them.</Note>}
+          {Object.entries(caps.receivers ?? {}).map(([k, r]) =>
+            !Array.isArray(r) && r.error ? (
+              <Note key={k} color="danger">
+                {PROTOCOLS[k as LedNetIn["protocol"]] ?? k} receiver: {r.error}
+              </Note>
+            ) : null,
+          )}
           {data.strings.map((s) => (
             <StringCard key={s.id} s={s} caps={caps} others={data.strings} onDone={reload} fix={fix} />
           ))}
@@ -96,6 +103,7 @@ function StringCard({
       </div>
       {s.error && <Note color="danger">{s.error}</Note>}
       {s.error && fix?.(s.error)}
+      {s.network && <NetLine s={s} />}
       <div className="pr-row">
         <button className="btn btn-sm" onClick={() => quick("order-test")}>
           Order test
@@ -115,6 +123,23 @@ function StringCard({
         <ActionLine a={a} />
       </div>
       <PatternEditor s={s} patterns={caps.patterns} onDone={onDone} />
+    </div>
+  );
+}
+
+/** What the string's network input is doing: listening, receiving from whom, or idle. */
+function NetLine({ s }: { s: LedString }) {
+  const n = s.network!;
+  const where = n.protocol === "ddp" ? `DDP from byte ${n.ddpOffset}` : `${PROTOCOLS[n.protocol]} universe ${n.universe}${n.startChannel > 1 ? `, channel ${n.startChannel}` : ""}`;
+  const r = s.receiving;
+  return (
+    <div className="pr-row">
+      <Pill cls={r?.active ? "on" : ""}>{r?.active ? "receiving" : "listening"}</Pill>
+      <span className="pr-note">
+        {where}
+        {r && ` · from ${r.from} · ${r.packets.toLocaleString()} packets · last ${r.ageMs < 1500 ? "just now" : `${Math.round(r.ageMs / 1000)} s ago`}`}
+        {r?.active ? " · the pattern comes back 2.5 s after packets stop" : ""}
+      </span>
     </div>
   );
 }
@@ -175,6 +200,7 @@ function StringDialog({ caps, others, edit, onDone }: { caps: NonNullable<LedsSt
   const [budget, setBudget] = useState(!!edit?.power);
   const [maxMa, setMaxMa] = useState(String(edit?.power?.maxMa ?? 2000));
   const [maPer, setMaPer] = useState(String(edit?.power?.maPerChannel ?? 20));
+  const [net, setNet] = useState<LedNetIn | null>(edit?.network ?? null);
   const [gpio, setGpio] = useState<PickPin[] | null>(null);
   const kind = caps.chips.find((c) => c.name === chip)?.kind ?? "one-wire";
 
@@ -214,6 +240,7 @@ function StringDialog({ caps, others, edit, onDone }: { caps: NonNullable<LedsSt
     if (order) body.order = order;
     if (kind === "clocked") Object.assign(body, { clockPin, clockHz: Number(clockHz) });
     if (chip === "custom") body.timing = timing;
+    body.network = net;
     const ok = await a.run(() => b.api("POST", edit ? `/api/leds/${edit.id}` : "/api/leds", body), { busy: "Saving…" });
     if (ok) {
       onDone();
@@ -307,6 +334,44 @@ function StringDialog({ caps, others, edit, onDone }: { caps: NonNullable<LedsSt
             </label>
           </>
         )}
+      </div>
+      <div className="pr-row">
+        <label>
+          Network input{" "}
+          <select
+            value={net?.protocol ?? ""}
+            aria-label="Network input"
+            onChange={(e) => {
+              const p = e.currentTarget.value as LedNetIn["protocol"] | "";
+              setNet(p ? { protocol: p, universe: net?.universe ?? (p === "sacn" ? 1 : 0), startChannel: net?.startChannel ?? 1, ddpOffset: net?.ddpOffset ?? 0 } : null);
+            }}
+          >
+            <option value="">none</option>
+            {Object.entries(PROTOCOLS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        {net && net.protocol !== "ddp" && (
+          <>
+            <label>
+              Universe {num(String(net.universe), (v) => setNet({ ...net, universe: Number(v) }), 80)}
+            </label>
+            <label>
+              Start channel {num(String(net.startChannel), (v) => setNet({ ...net, startChannel: Number(v) }), 70)}
+            </label>
+          </>
+        )}
+        {net?.protocol === "ddp" && (
+          <label>
+            Byte offset {num(String(net.ddpOffset), (v) => setNet({ ...net, ddpOffset: Number(v) }), 90)}
+          </label>
+        )}
+        <Hint>
+          A show controller (xLights, WLED, QLC+, Resolume, Falcon Player…) can drive the string: while its packets arrive they replace the pattern, which comes back 2.5 s after they stop. Channels come in R, G, B (W) order, 3 or 4 per pixel; a string longer than a universe (170 RGB / 128 RGBW pixels) runs on into the next. Controllers usually apply their own gamma, so turn gamma off here. sACN listens on its multicast groups too; Art-Net answers ArtPoll so consoles find it.
+        </Hint>
       </div>
       <p className="pr-note">
         3.3 V data into a 5 V strip is marginal: use a level shifter (74AHCT125) if the first pixel misbehaves. {others.length > 0 && !edit && "Pins held by other strings are greyed out."}
