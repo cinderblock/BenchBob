@@ -551,6 +551,14 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
   - [x] BenchBob: the SD slot as a drive bay on a network-booted machine (2026-10-25,
         `b704340` drives + refuse, `4d93d34` OS detection, `6232c4e` udev/handler + test,
         and the MMC_TYPE rule fix). Installed on desky from the CI arm64 .deb.
+  - [x] Copy-on-write overlays (BootBob `f80f0b5`): new `bootbob-cow` crate (a `Disk`
+        trait; `Plain` files; `Cow` = read-only base + per-machine sparse overlay + chunk
+        map, 4 KiB chunks, copy-up on partial writes, map bits set after the data). A Pi
+        image's `cow: true` gives each machine its own overlay under
+        `<data_dir>/overlays/<mac>/`; TFTP reads boot files through it once it exists;
+        `GET/DELETE /api/devices/{mac}/overlays[/{image}]` and a "Reset to image" button
+        (409 while connected). desky stays on its plain `desky.img`. Not yet exercised by
+        a real Pi: needs a golden image and a second Pi (or desky re-pointed at one).
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -619,9 +627,13 @@ All design questions from rounds 1–3 are answered (see decisions).
 
 1. The old system on desky's SD card: kept for now. Say when to wipe it (then the slot is
    just a drive bay; a `BOOT_ORDER` of `0xf2` never boots it anyway).
-2. The next Phase 2 piece: shared base images with per-machine copy-on-write overlays in
-   BootBob's NBD server (so one golden Pi OS image serves many Pis), then stores and
-   caching, mDNS for BenchBob, the EEPROM setter. Recommendation: copy-on-write first.
+2. Copy-on-write is in (`f80f0b5`) but untested on hardware. To dogfood it: make a golden
+   image (desky's `desky.img` is a candidate once its hostname/keys are generalised) and
+   boot a Pi from it with `cow: true`. Is there a second Pi 4/5 to point at BootBob, or
+   should desky itself move to a cow overlay of a golden copy of its disk?
+3. Remaining Phase 2: stores and on-demand download with caching, mDNS for BenchBob, the
+   Pi EEPROM setter images. Recommendation: mDNS + BenchBob's "Network boot" flash group
+   next, since it reuses BenchBob's existing EEPROM editor.
 
 ## Progress log
 
