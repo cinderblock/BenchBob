@@ -107,6 +107,12 @@ impl Node for Mock {
         }
         Ok(())
     }
+    fn hold_onboard_led(&mut self, i: usize, until_ms: Option<u64>) {
+        match until_ms {
+            Some(t) => println!("onboard LED {i}: on until {t} ms"),
+            None => println!("onboard LED {i}: released"),
+        }
+    }
 }
 
 fn info() -> &'static BoardInfo {
@@ -120,6 +126,7 @@ fn info() -> &'static BoardInfo {
         pins: &PINS,
         i2c: &BUSES,
         leds: Some(&LEDS),
+        onboard_leds: &[OnboardLed { name: "LED", color: "green", normally: "Wi-Fi status (pretend)" }],
     })
 }
 

@@ -1,10 +1,12 @@
 //! The Pico 2 W's pins and I²C bus behind `benchbob_proto::api::Node`.
 
 use benchbob_node::net::{self, NetState};
-use benchbob_proto::api::{BoardInfo, I2cBusInfo, I2cFault, Mode, Node, PinInfo, PinState, Pull, Status};
+use benchbob_proto::api::{BoardInfo, Hold, I2cBusInfo, I2cFault, Mode, Node, OnboardLed, PinInfo, PinState, Pull, Status};
 use embassy_rp::gpio::{self, AnyPin, Flex};
 use embassy_rp::i2c::{self, AbortReason, Blocking, I2c};
 use embassy_rp::peripherals::I2C0;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::Instant;
 
 pub const I2C0_SDA: u8 = 4;
@@ -63,7 +65,17 @@ pub static INFO: BoardInfo = BoardInfo {
     pins: &PINS,
     i2c: &BUSES,
     leds: Some(&crate::leds::LEDS),
+    onboard_leds: &[OnboardLed {
+        name: "LED",
+        color: "green",
+        normally: "Wi-Fi status: slow blink = not set up, fast blink = connecting, on = connected",
+    }],
 };
+
+/// The onboard LED's hold (the Wi-Fi task drives the LED), and a nudge so it reacts now
+/// rather than at its next tick.
+pub static LED_HOLD: Hold = Hold::new();
+pub static LED_WAKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Flex drivers for every free header GPIO, indexed by GPIO number.
 pub type Pins = [Option<Flex<'static>>; 30];
@@ -191,5 +203,10 @@ impl Node for PicoNode {
             (true, true) => return Ok(()),
         };
         r.map_err(fault)
+    }
+
+    fn hold_onboard_led(&mut self, _i: usize, until_ms: Option<u64>) {
+        LED_HOLD.set(until_ms);
+        LED_WAKE.signal(());
     }
 }

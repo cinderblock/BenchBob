@@ -2,11 +2,13 @@
 //! the ESP32-C6-DevKitC-1; other boards expose a subset.
 
 use benchbob_node::net::{self, NetState};
-use benchbob_proto::api::{BoardInfo, I2cBusInfo, I2cFault, Mode, Node, PinInfo, PinState, Pull, Status};
-use esp_hal::Blocking;
-use esp_hal::gpio::{self, Flex, InputConfig, Level};
-use esp_hal::i2c::master::{AcknowledgeCheckFailedReason, Error as I2cError, I2c};
+use benchbob_proto::api::{BoardInfo, Hold, I2cBusInfo, I2cFault, Mode, Node, OnboardLed, PinInfo, PinState, Pull, Status};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::Instant;
+use esp_hal::Blocking;
+use esp_hal::gpio::{self, AnyPin, Flex, InputConfig, Level};
+use esp_hal::i2c::master::{AcknowledgeCheckFailedReason, Error as I2cError, I2c};
 
 pub const I2C0_SDA: u8 = 6;
 pub const I2C0_SCL: u8 = 7;
@@ -31,7 +33,7 @@ pub static PINS: [PinInfo; 23] = [
     free(5, STRAP),
     taken(I2C0_SDA, "I2C0 SDA"),
     taken(I2C0_SCL, "I2C0 SCL"),
-    free(8, Some("strapping pin; the DevKitC-1's RGB LED")),
+    PinInfo { gpio: 8, header: None, func: Some("the status LED (the DevKitC-1's WS2812)"), note: Some("strapping pin") },
     free(9, Some("strapping pin; the BOOT button")),
     free(10, None),
     free(11, None),
@@ -66,8 +68,17 @@ pub static INFO: BoardInfo = BoardInfo {
     build: benchbob_node::web::BUILD,
     pins: &PINS,
     i2c: &BUSES,
-    leds: None,
+    leds: Some(&crate::leds::LEDS),
+    onboard_leds: &[OnboardLed {
+        name: "RGB LED",
+        color: "rgb",
+        normally: "Wi-Fi status: slow blue blink = not set up, fast amber blink = connecting, dim green = connected",
+    }],
 };
+
+/// The status LED's hold (the status task drives it), and a nudge so it reacts now.
+pub static LED_HOLD: Hold = Hold::new();
+pub static LED_WAKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 pub type Pins = [Option<Flex<'static>>; 24];
 
@@ -87,6 +98,31 @@ impl C6Node {
             p.set_input_enable(true);
         }
         C6Node { pins, shadow: [(Mode::Input, Pull::None); 24], i2c0, net: net::get() }
+    }
+
+    /// Give up a free pin for an LED string. False when the pin isn't one of ours or is
+    /// already taken.
+    pub fn take_pin(&mut self, g: u8) -> bool {
+        match self.pins.get_mut(g as usize).and_then(Option::take) {
+            // Flex has no Drop: the pin stays an input until the lane connects it.
+            Some(_) => {
+                self.shadow[g as usize] = (Mode::Input, Pull::None);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Take back a pin given up with `take_pin`, as a floating input.
+    pub fn return_pin(&mut self, g: u8) {
+        // SAFETY: the LED lane that had the pin has dropped its driver, which disconnected
+        // the pin from the peripheral's signal.
+        let mut f = Flex::new(unsafe { AnyPin::steal(g) });
+        f.apply_input_config(&InputConfig::default().with_pull(gpio::Pull::None));
+        f.set_output_enable(false);
+        f.set_input_enable(true);
+        self.pins[g as usize] = Some(f);
+        self.shadow[g as usize] = (Mode::Input, Pull::None);
     }
 }
 
@@ -170,5 +206,10 @@ impl Node for C6Node {
             (true, true) => return Ok(()),
         };
         r.map_err(fault)
+    }
+
+    fn hold_onboard_led(&mut self, _i: usize, until_ms: Option<u64>) {
+        LED_HOLD.set(until_ms);
+        LED_WAKE.signal(());
     }
 }

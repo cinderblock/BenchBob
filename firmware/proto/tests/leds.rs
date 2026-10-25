@@ -30,6 +30,7 @@ static INFO: BoardInfo = BoardInfo {
     pins: &PINS,
     i2c: &[],
     leds: Some(&LEDS),
+    onboard_leds: &[],
 };
 
 struct Mock;

@@ -7,6 +7,8 @@
 //! - mDNS: `<hostname>.local`, `_benchbob._tcp`, `_http._tcp`.
 //! - Improv Wi-Fi on the native USB port (USB-Serial-JTAG). Logs go to UART0 (GPIO16/17,
 //!   the DevKitC-1's "UART" USB port) so they don't interleave with Improv packets.
+//! - Status LED: the DevKitC-1's WS2812 on GPIO8 (RMT channel 0).
+//! - Addressable LED strings on any free GPIO: one on GP-SPI2 + DMA, one on RMT channel 1.
 
 #![no_std]
 #![no_main]
@@ -14,6 +16,7 @@
 extern crate alloc;
 
 mod board;
+mod leds;
 mod wifi;
 
 use benchbob_node::http::{self, Shared};
@@ -33,6 +36,7 @@ use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Flex;
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
+use esp_hal::rmt::{Rmt, TxChannelConfig, TxChannelCreator};
 use esp_hal::rng::Rng;
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
@@ -40,7 +44,7 @@ use esp_hal::usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx, UsbSerialJtagTx};
 use esp_radio::wifi::{ControllerConfig, Interface};
 use esp_storage::FlashStorage;
 use log::{info, warn};
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -50,7 +54,7 @@ const CONFIG_OFFSET_DEFAULT: u32 = 0x3F_E000;
 /// HTTP server tasks (about 19 KiB of buffers each). The stack gets four more sockets
 /// (DHCP, mDNS and two spare, as before).
 const HTTP_TASKS: usize = 4;
-type SharedNode = Mutex<CriticalSectionRawMutex, Shared<C6Node>>;
+pub type SharedNode = Mutex<CriticalSectionRawMutex, Shared<C6Node>>;
 
 static DEVICE: DeviceInfo = DeviceInfo { firmware: "BenchBob node", version: benchbob_proto::VERSION, chip: "ESP32-C6" };
 
@@ -139,7 +143,7 @@ async fn main(spawner: Spawner) {
     macro_rules! free {
         ($($n:literal => $pin:ident),* $(,)?) => { $( pins[$n] = Some(Flex::new(p.$pin)); )* };
     }
-    free!(0 => GPIO0, 1 => GPIO1, 2 => GPIO2, 3 => GPIO3, 4 => GPIO4, 5 => GPIO5, 8 => GPIO8, 9 => GPIO9,
+    free!(0 => GPIO0, 1 => GPIO1, 2 => GPIO2, 3 => GPIO3, 4 => GPIO4, 5 => GPIO5, 9 => GPIO9,
         10 => GPIO10, 11 => GPIO11, 15 => GPIO15, 18 => GPIO18, 19 => GPIO19, 20 => GPIO20, 21 => GPIO21,
         22 => GPIO22, 23 => GPIO23);
     static SHARED: StaticCell<SharedNode> = StaticCell::new();
@@ -149,6 +153,17 @@ async fn main(spawner: Spawner) {
     for b in HTTP_BUFS.init([const { http::Buffers::new() }; HTTP_TASKS]) {
         spawner.spawn(http_task(stack, shared, b).expect("http task"));
     }
+    // LEDs: the status LED on RMT channel 0, strings on SPI2 + DMA and RMT channel 1.
+    let rmt = Rmt::new(p.RMT, Rate::from_mhz(80)).expect("rmt clock").into_async();
+    let status_cfg =
+        TxChannelConfig::default().with_clk_divider(1).with_idle_output(true).with_idle_output_level(esp_hal::gpio::Level::Low);
+    let status = rmt.channel0.configure_tx(&status_cfg).expect("rmt channel 0").with_pin(p.GPIO8);
+    spawner.spawn(leds::status_task(status).expect("status LED task"));
+    // Const-initialised: ~29 KiB that shouldn't pass through the stack.
+    static LED_BUFS: ConstStaticCell<leds::Buffers> = ConstStaticCell::new(leds::Buffers::new());
+    let bufs = LED_BUFS.take();
+    spawner.spawn(leds::task(shared, p.SPI2, p.DMA_CH0, rmt.channel1, leds::dma_buffer(), bufs).expect("leds task"));
+
     static MDNS_BUFS: StaticCell<benchbob_node::mdns::Buffers> = StaticCell::new();
     spawner.spawn(mdns_task(stack, MDNS_BUFS.init(benchbob_node::mdns::Buffers::new())).expect("mdns task"));
 

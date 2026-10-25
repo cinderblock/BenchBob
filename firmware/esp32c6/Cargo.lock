@@ -49,6 +49,7 @@ name = "benchbob-node-esp32c6"
 version = "0.1.0"
 dependencies = [
  "benchbob-node",
+ "benchbob-pixels",
  "benchbob-proto",
  "embassy-executor",
  "embassy-futures",

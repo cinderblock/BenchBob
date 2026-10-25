@@ -1,5 +1,5 @@
-//! esp-radio station: joining, re-joining, provisioning requests, scans and RSSI.
-//! (No status LED on this board yet: the DevKitC-1's is a WS2812 that needs RMT.)
+//! esp-radio station: joining, re-joining, provisioning requests, scans and RSSI. The
+//! status LED shows the state this keeps in `net` ([`crate::leds::status_task`]).
 
 use alloc::string::String;
 use benchbob_node::net::{self, Credentials};

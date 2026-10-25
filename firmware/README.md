@@ -62,7 +62,13 @@ An access point with a captive portal, as a third fallback, is **not implemented
 
 The default hostname is `benchbob-` plus the last three bytes of the MAC
 (`benchbob-0a1b2c.local`). The Pico 2 W's LED blinks slowly with no Wi-Fi configured,
-fast while connecting, and stays on when connected. The ESP32-C6 has no status LED yet.
+fast while connecting, and stays on when connected. The ESP32-C6 DevKitC-1's RGB LED
+(GPIO8) does the same in colour: slow blue blink, fast amber blink, dim green.
+
+Both light up (the C6's in white) while someone holds the dashboard's **onboard LED
+button** in the header, to find which board on the bench is which. The button renews a
+short hold (`POST /api/onboard-leds`, `{on, ms}`) while it's held and releases it on
+let-go, so a dropped connection can't leave the LED on. It doesn't need output control.
 
 ## API
 
@@ -80,10 +86,11 @@ fast while connecting, and stays on when connected. The ESP32-C6 has no status L
 | `GET /api/i2c` | Buses (pins, clock) and the devices from the last scan |
 | `POST /api/i2c/:bus/scan` | i2cdetect's range (0x08–0x77) |
 | `POST /api/i2c/:bus/:addr/raw/read` | `{register, size: byte\|word\|block\|raw, length}` |
-| `GET /api/leds` | Addressable LED strings and what the board can drive (Pico 2 W only so far; see [LED strings](#led-strings)) |
+| `POST /api/onboard-leds` | `{on, ms, id}`: light the board's own LED for `ms` (≤ 10 s), or release it; `onboardLeds` in `/api/status` lists them |
+| `GET /api/leds` | Addressable LED strings and what the board can drive (see [LED strings](#led-strings)) |
 | `POST /api/leds` · `POST`/`DELETE /api/leds/:id` | Create, change, remove a string |
 | `POST /api/leds/:id/pattern` · `…/pixels` | Show a built-in pattern, or set pixels directly |
-| `POST /mcp` | MCP (Streamable HTTP, stateless JSON): `gpio_read`, `gpio_write`, `i2c_buses`, `i2c_scan`, `i2c_read`, and on boards with LED support `leds_list`, `leds_configure`, `leds_pattern`, `leds_set_pixels` |
+| `POST /mcp` | MCP (Streamable HTTP, stateless JSON): `gpio_read`, `gpio_write`, `i2c_buses`, `i2c_scan`, `i2c_read`, and on boards with LED support `leds_list`, `leds_configure`, `leds_pattern`, `leds_set_pixels`, and `onboard_led` |
 
 ```sh
 claude mcp add --transport http bench-node http://benchbob-0a1b2c.local/mcp
@@ -121,9 +128,11 @@ while GPIO output control is on; turning it off blanks them.
 
 | | Pico 2 W | ESP32-C6 |
 | --- | --- | --- |
-| Driver | PIO1, one state machine + DMA channel per string | not yet |
-| Strings | 4, up to 1024 pixels each | |
-| Status | Compiles; untested on hardware | |
+| Driver | PIO1, one state machine + DMA channel per string | GP-SPI2 + DMA (one-wire drawn on MOSI, or clocked), and RMT channel 1 (one-wire) |
+| Strings | 4, up to 1024 pixels each | 2: the SPI one up to 1024 pixels, the RMT one up to 256 (192 RGBW); clocked strings need SPI |
+| Status | Compiles; untested on hardware | Compiles; untested on hardware |
+
+The C6's RMT channel 0 drives its status LED, so GPIO8 isn't available for strings.
 
 A string's pins show in `GET /api/gpio` as used by it and can't be driven. Settings
 don't survive a reset yet. 3.3 V data into a 5 V strip is marginal; use a level shifter
@@ -180,12 +189,13 @@ sectors, and the ESP32-C6 image is built with `--skip-padding` so it ends with t
   addressable LED strings (colour order, gamma, power budget, WS2812-family timing
   presets and fitting them to SPI or PIO, WS2812-over-SPI / APA102 / WS2801 encodings,
   patterns, sACN / Art-Net / DDP parsing and universe mapping). The Pico 2 W drives
-  strings with it (`pico2w/src/leds.rs`); the rest is in `plans/gpio-led-strips.md`.
+  strings with it (`pico2w/src/leds.rs`, `esp32c6/src/leds.rs`); the rest is in
+  `plans/gpio-led-strips.md`.
 - `node/`: Embassy glue both boards share: HTTP server, mDNS task, Improv session,
   config store (embedded-storage `NorFlash`), the Wi-Fi request channels, and the
   embedded web UI (`build.rs`).
-- `pico2w/`, `esp32c6/`: the board crates (pins, I²C, flash, USB, Wi-Fi task; the Pico's
-  PIO LED driver).
+- `pico2w/`, `esp32c6/`: the board crates (pins, I²C, flash, USB, Wi-Fi task, LED
+  string drivers, status LED).
 - `tools/`: `elf2uf2.ts` (RP2350 UF2s), `config-uf2.ts` and `config.html`, tests.
 
 ## Building
@@ -242,7 +252,7 @@ Untested on hardware: everything that touches a radio, a pin, a bus, flash or US
 ## Known gaps and follow-ups
 
 - AP + captive-portal provisioning; BLE Improv on the ESP32-C6.
-- ESP32-C6 status LED (WS2812 on GPIO8 needs RMT); CAN (TWAI), 1-Wire, serial bridge.
+- ESP32-C6: CAN (TWAI), 1-Wire, serial bridge; more LED strings through PARL_IO.
 - A BenchBob USB PID for the Pico (it borrows Raspberry Pi's CDC PID).
 - No mDNS probing/conflict resolution; pick unique hostnames (the default is unique).
 - Changing the hostname over Improv updates mDNS at once; DHCP sees it after a reset.

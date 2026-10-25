@@ -1,15 +1,17 @@
 //! The CYW43439: joining, re-joining, provisioning requests, scans, RSSI and the LED.
 //!
 //! LED (on the CYW43's GPIO 0): slow blink = no Wi-Fi configured (provision over USB),
-//! fast blink = connecting, on = connected.
+//! fast blink = connecting, on = connected; on while someone holds the dashboard's
+//! onboard-LED button ([`crate::board::LED_HOLD`]).
 
+use crate::board::{LED_HOLD, LED_WAKE};
 use benchbob_node::net::{self, Credentials};
 use benchbob_node::wifi::{CONNECT_TIMEOUT_SECS, REQUESTS, RESPONSES, Request, Response};
 use benchbob_proto::api::WifiState;
 use benchbob_proto::config::{FixedStr, MAX_SSID};
 use cyw43::{Control, JoinOptions, ScanOptions};
 use defmt::{info, warn};
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select3};
 use embassy_net::Stack;
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 
@@ -91,8 +93,8 @@ pub async fn task(mut control: Control<'static>, stack: Stack<'static>, mut cred
         net::update(|n| n.state = WifiState::Unprovisioned);
     }
     loop {
-        match select(REQUESTS.receive(), Timer::after(TICK)).await {
-            Either::First(Request::Connect(c)) => {
+        match select3(REQUESTS.receive(), Timer::after(TICK), LED_WAKE.wait()).await {
+            Either3::First(Request::Connect(c)) => {
                 if connected {
                     control.leave().await;
                     connected = false;
@@ -113,8 +115,9 @@ pub async fn task(mut control: Control<'static>, stack: Stack<'static>, mut cred
                     }
                 }
             }
-            Either::First(Request::Scan) => scan(&mut control).await,
-            Either::Second(()) => {
+            Either3::First(Request::Scan) => scan(&mut control).await,
+            Either3::Third(()) => {}
+            Either3::Second(()) => {
                 tick = tick.wrapping_add(1);
                 if connected && !stack.is_link_up() {
                     warn!("wifi: link lost");
@@ -135,17 +138,18 @@ pub async fn task(mut control: Control<'static>, stack: Stack<'static>, mut cred
                     let rssi = control.get_rssi().await;
                     net::update(|n| n.rssi = Some(rssi as i16));
                 }
-                // LED pattern, in 125 ms ticks.
-                let want = match (creds.is_some(), connected) {
-                    (_, true) => true,
-                    (true, false) => tick.is_multiple_of(2),
-                    (false, false) => tick.is_multiple_of(8),
-                };
-                if want != led {
-                    control.gpio_set(0, want).await;
-                    led = want;
-                }
             }
+        }
+        // LED pattern, in 125 ms ticks, unless someone is holding it on.
+        let want = LED_HOLD.held(Instant::now().as_millis())
+            || match (creds.is_some(), connected) {
+                (_, true) => true,
+                (true, false) => tick.is_multiple_of(2),
+                (false, false) => tick.is_multiple_of(8),
+            };
+        if want != led {
+            control.gpio_set(0, want).await;
+            led = want;
         }
     }
 }

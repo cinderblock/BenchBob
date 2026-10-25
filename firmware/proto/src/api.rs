@@ -12,6 +12,7 @@
 
 use crate::json::{self, Buf, Json, Kind, Value};
 use core::fmt::{self, Write};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 pub const MCP_PROTOCOL: &str = "2025-06-18";
 /// First and last address of an i2cdetect-style scan (its defaults).
@@ -36,6 +37,48 @@ pub struct BoardInfo {
     pub i2c: &'static [I2cBusInfo],
     /// LED string support, if the board has a driver for it.
     pub leds: Option<&'static LedsInfo>,
+    /// LEDs on the board itself, which `POST /api/onboard-leds` lights while a person
+    /// holds a button (to find which board is which). At most [`MAX_ONBOARD_LEDS`].
+    pub onboard_leds: &'static [OnboardLed],
+}
+
+pub const MAX_ONBOARD_LEDS: usize = 4;
+/// The longest one hold request lights an LED for; the UI renews well before that.
+pub const MAX_HOLD_MS: u64 = 10_000;
+
+pub struct OnboardLed {
+    pub name: &'static str,
+    /// "green", "red", "rgb"...
+    pub color: &'static str,
+    /// What the firmware shows on it the rest of the time.
+    pub normally: &'static str,
+}
+
+/// A hold deadline shared between the API (through [`Node::hold_onboard_led`]) and the
+/// task that drives an onboard LED. Milliseconds of uptime, wrapping; 0 = not held.
+pub struct Hold(AtomicU32);
+
+impl Default for Hold {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Hold {
+    pub const fn new() -> Self {
+        Hold(AtomicU32::new(0))
+    }
+
+    /// Held until `until_ms` (uptime), or released with None.
+    pub fn set(&self, until_ms: Option<u64>) {
+        self.0.store(until_ms.map_or(0, |t| (t as u32).max(1)), Ordering::Relaxed);
+    }
+
+    pub fn held(&self, now_ms: u64) -> bool {
+        let t = self.0.load(Ordering::Relaxed);
+        // Holds are short (MAX_HOLD_MS), so the wrapping difference is unambiguous.
+        t != 0 && (t.wrapping_sub(now_ms as u32) as i32) > 0
+    }
 }
 
 pub struct PinInfo {
@@ -132,6 +175,10 @@ pub trait Node {
     fn i2c_probe(&mut self, bus: u8, addr: u8, read: bool) -> Result<bool, I2cFault>;
     /// Write `wr` (may be empty), then read `rd` with a repeated start (if `rd` isn't empty).
     fn i2c_write_read(&mut self, bus: u8, addr: u8, wr: &[u8], rd: &mut [u8]) -> Result<(), I2cFault>;
+    /// Light onboard LED `i` (an index into [`BoardInfo::onboard_leds`]) until `until_ms`
+    /// of uptime, or give it back to its normal use with None. Boards usually keep a
+    /// [`Hold`] per LED that their LED task checks.
+    fn hold_onboard_led(&mut self, _i: usize, _until_ms: Option<u64>) {}
 }
 
 // ---------------------------------------------------------------------------------------
@@ -329,6 +376,8 @@ struct ScanResult {
 pub struct Api {
     output_enabled: bool,
     scans: [ScanResult; MAX_BUSES],
+    /// Onboard LED hold deadlines (uptime ms), for the status view.
+    held_until: [u64; MAX_ONBOARD_LEDS],
     /// The board's LED task reads and reports through this (see [`leds`]).
     pub leds: Leds,
 }
@@ -341,7 +390,12 @@ impl Default for Api {
 
 impl Api {
     pub const fn new() -> Self {
-        Api { output_enabled: false, scans: [ScanResult { found: 0, at_ms: None, ms: 0 }; MAX_BUSES], leds: Leds::new() }
+        Api {
+            output_enabled: false,
+            scans: [ScanResult { found: 0, at_ms: None, ms: 0 }; MAX_BUSES],
+            held_until: [0; MAX_ONBOARD_LEDS],
+            leds: Leds::new(),
+        }
     }
 
     pub fn output_enabled(&self) -> bool {
@@ -380,7 +434,11 @@ impl Api {
         match (m, parts) {
             (_, ["mcp", "", ..]) => return Ok(self.mcp(node, req, out, scratch)),
             ("GET", ["api", "", ..]) => self.docs(node, req, out),
-            ("GET", ["api", "status", "", ..]) => status_view(node, out),
+            ("GET", ["api", "status", "", ..]) => self.status_view(node, out),
+            ("POST", ["api", "onboard-leds", "", ..]) => {
+                let b = parse_body(req.body)?;
+                self.hold(node, b.as_ref(), out)
+            }
             ("GET", ["api", "gpio", "", ..]) => self.gpio_state(node, None, out),
             ("POST", ["api", "gpio", "output-control", "", ..]) => {
                 let b = parse_body(req.body)?;
@@ -459,7 +517,11 @@ impl Api {
             }
             _ if route_exists(&parts) => {
                 json_error(out, &err!(405, "Method {} not allowed on {}", m, req.path));
-                let allow = if matches!(parts, ["api", "leds", id, "", ..] if !id.is_empty()) { "POST, DELETE" } else { "GET, POST" };
+                let allow = match parts {
+                    ["api", "leds", id, "", ..] if !id.is_empty() => "POST, DELETE",
+                    ["api", "onboard-leds", "", ..] => "POST",
+                    _ => "GET, POST",
+                };
                 return Ok(Reply { allow: Some(allow), ..Reply::json(405) });
             }
             _ => Err(err!(404, "Not found: {} {}", m, req.path)),
@@ -478,7 +540,10 @@ impl Api {
             None => j.key("base").str_fmt(format_args!("http://{}.local", st.hostname)),
         };
         j.key("endpoints").obj();
-        for (k, v) in ENDPOINTS.iter().filter(|(k, _)| info.leds.is_some() || !k.contains("/api/leds")) {
+        let shown = |k: &str| {
+            (info.leds.is_some() || !k.contains("/api/leds")) && (!info.onboard_leds.is_empty() || !k.contains("/api/onboard-leds"))
+        };
+        for (k, v) in ENDPOINTS.iter().filter(|(k, _)| shown(k)) {
             j.key(k).raw(v);
         }
         j.end_obj();
@@ -660,7 +725,7 @@ impl Api {
             j.key("capabilities").obj().key("tools").obj().kv_bool("listChanged", false).end_obj().end_obj();
             j.key("serverInfo").obj().kv_str("name", "benchbob-node").kv_str("version", info.firmware_version).end_obj();
             j.key("instructions").str_fmt(format_args!(
-                "This is a BenchBob node: a {} ({}) on the network. These tools reach its GPIO pins, I2C buses and addressable LED strings. GPIO writes only work after the user enables output control (POST /api/gpio/output-control with confirm: true); LED strings can be set up any time but only light up with output control on. Call i2c_buses, gpio_read or leds_list first.",
+                "This is a BenchBob node: a {} ({}) on the network. These tools reach its GPIO pins, I2C buses and addressable LED strings. GPIO writes only work after the user enables output control (POST /api/gpio/output-control with confirm: true); LED strings can be set up any time but only light up with output control on. onboard_led lights the board's own LED so a person can find it. Call i2c_buses, gpio_read or leds_list first.",
                 info.board_name, info.chip
             ));
             j.end_obj();
@@ -774,6 +839,7 @@ impl Api {
                 self.leds.set_pixels(id, args)?;
                 self.leds.string_json(id, &mut Json::new(out))
             }
+            "onboard_led" => self.hold(node, args, out),
             _ => Err(err!(400, "Unknown tool: {}", name)),
         }
     }
@@ -785,6 +851,7 @@ fn route_exists(parts: &[&str; 6]) -> bool {
         parts,
         ["api", "", ..]
             | ["api", "status", "", ..]
+            | ["api", "onboard-leds", "", ..]
             | ["api", "gpio", "", ..]
             | ["api", "gpio", _, "", ..]
             | ["api", "i2c", "", ..]
@@ -809,43 +876,82 @@ fn parse_body(body: &[u8]) -> Result<Option<Value<'_>>, ApiErr> {
     Ok(Some(v))
 }
 
-fn status_view<N: Node>(node: &mut N, out: &mut Buf<'_>) -> R {
-    let info = node.info();
-    let s = node.status();
-    let mut j = Json::new(out);
-    j.obj().kv_str("hostname", s.hostname).key("uptime").fixed(s.uptime_ms, 3);
-    j.kv_str("version", info.firmware_version).kv_str("build", info.build).kv_str("board", info.board).kv_str("boardName", info.board_name).kv_str("chip", info.chip);
-    let m = s.mac;
-    j.key("network").obj();
-    j.key("mac").str_fmt(format_args!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5]));
-    j.kv_str(
-        "wifi",
-        match s.wifi_state {
-            WifiState::Unprovisioned => "unprovisioned",
-            WifiState::Connecting => "connecting",
-            WifiState::Connected => "connected",
-        },
-    );
-    if s.ssid.is_empty() {
-        j.key("ssid").null();
-    } else {
-        j.kv_str("ssid", s.ssid);
+impl Api {
+    fn status_view<N: Node>(&self, node: &mut N, out: &mut Buf<'_>) -> R {
+        let info = node.info();
+        let s = node.status();
+        let now = s.uptime_ms;
+        let mut j = Json::new(out);
+        j.obj().kv_str("hostname", s.hostname).key("uptime").fixed(s.uptime_ms, 3);
+        j.kv_str("version", info.firmware_version).kv_str("build", info.build).kv_str("board", info.board).kv_str("boardName", info.board_name).kv_str("chip", info.chip);
+        let m = s.mac;
+        j.key("network").obj();
+        j.key("mac").str_fmt(format_args!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5]));
+        j.kv_str(
+            "wifi",
+            match s.wifi_state {
+                WifiState::Unprovisioned => "unprovisioned",
+                WifiState::Connecting => "connecting",
+                WifiState::Connected => "connected",
+            },
+        );
+        if s.ssid.is_empty() {
+            j.key("ssid").null();
+        } else {
+            j.kv_str("ssid", s.ssid);
+        }
+        match s.rssi {
+            Some(r) => j.key("rssi").i64(r as i64),
+            None => j.key("rssi").null(),
+        };
+        match s.ip {
+            Some(ip) => j.key("ip").str_fmt(format_args!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])),
+            None => j.key("ip").null(),
+        };
+        j.end_obj();
+        match s.heap {
+            Some((free, used)) => j.key("heap").obj().kv_u64("free", free as u64).kv_u64("used", used as u64).end_obj(),
+            None => j.key("heap").null(),
+        };
+        j.key("onboardLeds");
+        self.onboard_view(info, now, &mut j);
+        j.end_obj();
+        Ok(())
     }
-    match s.rssi {
-        Some(r) => j.key("rssi").i64(r as i64),
-        None => j.key("rssi").null(),
-    };
-    match s.ip {
-        Some(ip) => j.key("ip").str_fmt(format_args!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])),
-        None => j.key("ip").null(),
-    };
-    j.end_obj();
-    match s.heap {
-        Some((free, used)) => j.key("heap").obj().kv_u64("free", free as u64).kv_u64("used", used as u64).end_obj(),
-        None => j.key("heap").null(),
-    };
-    j.end_obj();
-    Ok(())
+
+    fn onboard_view(&self, info: &BoardInfo, now: u64, j: &mut Json<'_, '_>) {
+        j.arr();
+        for (i, l) in info.onboard_leds.iter().enumerate().take(MAX_ONBOARD_LEDS) {
+            j.obj().kv_u64("id", i as u64).kv_str("name", l.name).kv_str("color", l.color).kv_str("normally", l.normally);
+            j.kv_bool("held", self.held_until[i] > now).end_obj();
+        }
+        j.end_arr();
+    }
+
+    /// `POST /api/onboard-leds` and the `onboard_led` tool: light one LED (`id`) or all
+    /// of them for `ms` (default 1000), or release them (`on: false`). Not gated by output
+    /// control: these LEDs are on the board, not on header pins.
+    fn hold<N: Node>(&mut self, node: &mut N, args: Option<&Value<'_>>, out: &mut Buf<'_>) -> R {
+        let info = node.info();
+        let n = info.onboard_leds.len().min(MAX_ONBOARD_LEDS);
+        if n == 0 {
+            return Err(err!(404, "This board has no onboard LEDs"));
+        }
+        let id = int_arg(arg(args, "id"), "id", 0, n as i64 - 1)?;
+        let on = arg_value(args, "on").and_then(|v| v.as_bool()).unwrap_or(true);
+        let ms = int_arg(arg(args, "ms"), "ms", 1, MAX_HOLD_MS as i64)?.unwrap_or(1000) as u64;
+        let now = node.status().uptime_ms;
+        let until = on.then_some(now + ms);
+        for i in (0..n).filter(|&i| id.is_none_or(|id| id as usize == i)) {
+            self.held_until[i] = until.unwrap_or(0);
+            node.hold_onboard_led(i, until);
+        }
+        let mut j = Json::new(out);
+        j.obj().key("onboardLeds");
+        self.onboard_view(info, now, &mut j);
+        j.end_obj();
+        Ok(())
+    }
 }
 
 /// `led`: the LED string holding the pin, if one does (shown like a firmware function).
@@ -934,7 +1040,8 @@ fn i2c_read<N: Node>(node: &mut N, b: &I2cBusInfo, addr: u8, args: Option<&Value
 const ENDPOINTS: &[(&str, &str)] = &[
     ("GET /", r#""The web UI""#),
     ("GET /api", r#""This documentation""#),
-    ("GET /api/status", r#""Node status: hostname, uptime (s), firmware version and build, board, Wi-Fi (state, SSID, RSSI dBm, IP, MAC), heap""#),
+    ("GET /api/status", r#""Node status: hostname, uptime (s), firmware version and build, board, Wi-Fi (state, SSID, RSSI dBm, IP, MAC), heap, onboard LEDs (id, name, color, normal use, held)""#),
+    ("POST /api/onboard-leds", r#"{"description":"Light the board's own LED(s) so a person can find it: on for ms (default 1000, max 10000), then back to normal; on: false releases now. id picks one LED (onboardLeds in /api/status); default all. Not gated by output control. The dashboard's hold button renews it while held","body":{"on":true,"ms":1000}}"#),
     ("GET /api/gpio", r#""Every GPIO the board exposes: function (input/output, or what the firmware uses it for), level, pull, header pin, and why it can't be driven""#),
     ("POST /api/gpio/output-control", r#"{"description":"Turn GPIO output control on/off (off after every reset). Enabling requires confirm: true","body":{"enabled":true,"confirm":true}}"#),
     ("POST /api/gpio/:gpio", r#"{"description":"Drive a GPIO (needs output control on): mode high|low|input, pull up|down|none. Refused for pins the firmware uses (I2C, Wi-Fi, USB)","body":{"mode":"high","pull":"none"}}"#),
@@ -947,13 +1054,14 @@ const ENDPOINTS: &[(&str, &str)] = &[
     ("DELETE /api/leds/:id", r#""Remove a string: it goes dark and its pins are free again""#),
     ("POST /api/leds/:id/pattern", r#"{"description":"Show a pattern: off, solid, gradient, rainbow, chase, breathe, twinkle, order-test (pixels 0-3 red, green, blue, white), ruler (every 10th white, 50th red, last green). Params: color, background, a, b, spread, periodMs, width, speed, density","body":{"name":"rainbow","spread":60,"periodMs":5000}}"#),
     ("POST /api/leds/:id/pixels", r#"{"description":"Set pixels directly: pixels as a hex string (6 digits per pixel, 8 on RGBW strings) or an array of colours like #ff0000, from start; or fill (a colour) from start for count","body":{"pixels":"ff0000 00ff00 0000ff","start":0}}"#),
-    ("POST /mcp", r#""Model Context Protocol endpoint (Streamable HTTP, stateless JSON): gpio_read, gpio_write, i2c_buses, i2c_scan, i2c_read, leds_list, leds_configure, leds_pattern, leds_set_pixels""#),
+    ("POST /mcp", r#""Model Context Protocol endpoint (Streamable HTTP, stateless JSON): gpio_read, gpio_write, i2c_buses, i2c_scan, i2c_read, leds_list, leds_configure, leds_pattern, leds_set_pixels, onboard_led""#),
 ];
 
 /// The tools this board offers: the LED ones only with LED support.
 fn tools(info: &BoardInfo) -> impl Iterator<Item = &'static Tool> {
     let leds = info.leds.is_some();
-    TOOLS.iter().filter(move |t| leds || !t.name.starts_with("leds_"))
+    let onboard = !info.onboard_leds.is_empty();
+    TOOLS.iter().filter(move |t| (leds || !t.name.starts_with("leds_")) && (onboard || t.name != "onboard_led"))
 }
 
 struct Tool {
@@ -1020,6 +1128,11 @@ const TOOLS: &[Tool] = &[
         name: "leds_pattern",
         description: "Show a built-in pattern on a string: off, solid (color), gradient (a, b), rainbow (spread px per cycle, periodMs), chase (color, background, width, speed px/s), breathe (color, periodMs), twinkle (color, density 0-255, periodMs), order-test (pixels 0-3 red, green, blue, white: checks the colour order), ruler (every 10th pixel white, every 50th red, the last green: checks the length). Colours are #rrggbb or #rrggbbww.",
         schema: r#"{"type":"object","properties":{"id":{"type":"integer"},"name":{"enum":["off","solid","gradient","rainbow","chase","breathe","twinkle","order-test","ruler"]},"color":{"type":"string"},"background":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"spread":{"type":"integer"},"periodMs":{"type":"integer"},"width":{"type":"integer"},"speed":{"type":"integer"},"density":{"type":"integer"}},"required":["id"]}"#,
+    },
+    Tool {
+        name: "onboard_led",
+        description: "Light the node's own onboard LED(s) for ms milliseconds (default 1000, max 10000) so a person can see which board this is; afterwards they go back to normal (e.g. the Wi-Fi status blink). on: false releases early. Doesn't need output control.",
+        schema: r#"{"type":"object","properties":{"id":{"type":"integer","minimum":0,"description":"One LED (onboardLeds in GET /api/status); default all"},"on":{"type":"boolean"},"ms":{"type":"integer","minimum":1,"maximum":10000}}}"#,
     },
     Tool {
         name: "leds_set_pixels",

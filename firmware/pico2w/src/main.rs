@@ -35,7 +35,7 @@ use embassy_rp::pio::{self, Pio};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
 /// Flash size the firmware assumes (the Pico 2 W has 4 MiB; bigger chips work too).
@@ -172,8 +172,9 @@ async fn main(spawner: Spawner) {
         dma::Channel::new(p.DMA_CH3, Irqs),
         dma::Channel::new(p.DMA_CH4, Irqs),
     ];
-    static LED_BUFS: StaticCell<leds::Buffers> = StaticCell::new();
-    spawner.spawn(unwrap!(leds::task(shared, Pio::new(p.PIO1, Irqs), dmas, LED_BUFS.init(leds::Buffers::new()))));
+    // Const-initialised: ~21 KiB that shouldn't pass through the stack.
+    static LED_BUFS: ConstStaticCell<leds::Buffers> = ConstStaticCell::new(leds::Buffers::new());
+    spawner.spawn(unwrap!(leds::task(shared, Pio::new(p.PIO1, Irqs), dmas, LED_BUFS.take())));
 
     static MDNS_BUFS: StaticCell<benchbob_node::mdns::Buffers> = StaticCell::new();
     spawner.spawn(unwrap!(mdns_task(stack, MDNS_BUFS.init(benchbob_node::mdns::Buffers::new()))));
