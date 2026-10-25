@@ -75,6 +75,7 @@ dependencies = [
 name = "benchbob-node"
 version = "0.1.0"
 dependencies = [
+ "benchbob-pixels",
  "benchbob-proto",
  "defmt 1.2.0",
  "embassy-futures",

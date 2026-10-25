@@ -5,6 +5,7 @@
 //! - [`http::serve`]: the web UI, the REST API and the MCP endpoint on port 80
 //! - [`mdns::run`]: `<hostname>.local` and `_benchbob._tcp` discovery
 //! - [`improv::run`]: Improv Wi-Fi provisioning over the board's serial port
+//! - [`lights::run`]: sACN / Art-Net / DDP input for LED strings
 //!
 //! [`store::ConfigStore`] keeps the Wi-Fi credentials and hostname in flash; [`net`] is
 //! the network state the board's Wi-Fi task publishes; [`wifi`] carries provisioning
@@ -17,6 +18,7 @@ mod fmt;
 
 pub mod http;
 pub mod improv;
+pub mod lights;
 pub mod mdns;
 pub mod net;
 pub mod store;

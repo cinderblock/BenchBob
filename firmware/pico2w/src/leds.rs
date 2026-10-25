@@ -236,6 +236,8 @@ pub async fn task(shared: &'static SharedNode, pio: Pio<'static, PIO1>, dmas: [d
             let mut g = shared.lock().await;
             let Shared { api, node } = &mut *g;
             let now = Instant::now().as_millis();
+            // Strings whose network input went quiet get their pattern back.
+            api.leds.tick(now);
             // The same steps for each lane; the lanes are different types (one per SM).
             macro_rules! step {
                 ($lane:ident, $i:literal) => {{

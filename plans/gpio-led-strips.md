@@ -216,8 +216,11 @@ User's answers of 2026-10-25:
 5b. ~~BCM283x/2711 PWM + DMA driver~~ (privileged helper): written, unit-tested,
    cross-compiles; **not run on a Pi** (see Open questions). PCM on GPIO21 (a third
    string) not done.
-6. Pi 5 `/dev/pio0` driver ← next.
-7. Network receivers (sACN, Art-Net, DDP) on both sides.
+6. Pi 5 `/dev/pio0` driver: **deferred** (taken after 7 instead, 2026-10-25): its ioctls
+   are undocumented (piolib) and nobody here has a Pi 5 to test on (board notes), so
+   it would be written blind; step 7 is fully testable.
+7. ~~Network receivers (sACN, Art-Net, DDP) on both sides~~: done (see Progress log).
+   Next: 8 (DMX512 out), unless the user would rather have 6 or 5b's bring-up first.
 8. DMX512 output over a UART (sACN → DMX bridge).
 9. Persistence per the rule above, README updates (root, firmware, backend), hardware
    bring-up.
@@ -298,7 +301,19 @@ User's answers of 2026-10-25:
   aarch64 and armv6 musl builds pass.
 - [ ] Hardware bring-up of 5b on desky (needs the user's go-ahead: it maps /dev/mem and
   runs DMA).
-- [ ] Steps 6–9
+- [x] Step 7 (2026-10-25): model in `benchbob_proto::api::leds` (`NetIn`, `receive`,
+  `tick`, per-universe `SacnArbiter`s, the pattern comes back after 2.5 s of quiet, like
+  WLED; a pattern set while receiving becomes the one that comes back; set_pixels is
+  refused while receiving), `pixels::net::artpoll_reply`. Linux: `crates/leds/src/net.rs`
+  (one thread, `poll(2)`, ports bound only while a string wants them, multicast joins on
+  every IPv4 interface, ArtPollReply to the sender, `capabilities.receivers`). Nodes:
+  `node/src/lights.rs` (three embassy-net UDP sockets, up to 3 multicast groups), both
+  boards spawn it and their LED tasks call `tick`; mock node too. UI: network input in
+  the string dialog, a receiving/listening line on the card, receiver errors. Tests: 4
+  model tests (`proto/tests/netrx.rs`), ArtPollReply, a real UDP DDP round trip in the
+  Linux crate, 1 web test. Live: 60 s of sACN at 40 fps from a Python sender to the Linux
+  server in WSL (2147 of 2147 packets, pattern back after) and to the mock node.
+- [ ] Steps 6, 8, 9 (and 5b bring-up)
 
 ## Open questions for the user
 

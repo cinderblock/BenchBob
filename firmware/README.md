@@ -126,6 +126,13 @@ green, blue, white) and `ruler` (every 10th pixel white, every 50th red, the las
 green) for checking a new string. Strings can be set up at any time but only light up
 while GPIO output control is on; turning it off blanks them.
 
+A string can also listen on the network (`network: {protocol: "sacn" | "artnet" | "ddp",
+universe, startChannel, ddpOffset}`): while a show controller (xLights, WLED, QLC+…)
+sends, its data replaces the pattern, which comes back 2.5 s after the packets stop.
+sACN is arbitrated per universe (priority, sequence numbers); a node joins up to three
+universes' multicast groups (unicast works for any number). Art-Net answers ArtPoll, so
+consoles find the node; DDP renders on each frame's push.
+
 | | Pico 2 W | ESP32-C6 |
 | --- | --- | --- |
 | Driver | PIO1, one state machine + DMA channel per string | GP-SPI2 + DMA (one-wire drawn on MOSI, or clocked), and RMT channel 1 (one-wire) |
@@ -191,7 +198,8 @@ sectors, and the ESP32-C6 image is built with `--skip-padding` so it ends with t
   patterns, sACN / Art-Net / DDP parsing and universe mapping). The Pico 2 W drives
   strings with it (`pico2w/src/leds.rs`, `esp32c6/src/leds.rs`); the rest is in
   `plans/gpio-led-strips.md`.
-- `node/`: Embassy glue both boards share: HTTP server, mDNS task, Improv session,
+- `node/`: Embassy glue both boards share: HTTP server, mDNS task, sACN / Art-Net / DDP
+  receivers for LED strings (`lights.rs`), Improv session,
   config store (embedded-storage `NorFlash`), the Wi-Fi request channels, and the
   embedded web UI (`build.rs`).
 - `pico2w/`, `esp32c6/`: the board crates (pins, I²C, flash, USB, Wi-Fi task, LED

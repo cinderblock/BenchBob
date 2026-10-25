@@ -197,6 +197,7 @@ fn main() {
     let listener = TcpListener::bind(&addr).unwrap_or_else(|e| panic!("bind {addr}: {e}"));
     println!("mock node {} on http://{addr}/ (UI from {})", info().build, dist.display());
     let shared: Shared = Arc::new(Mutex::new((Api::new(), Mock::new())));
+    lights(&shared);
     for s in listener.incoming().flatten() {
         let shared = shared.clone();
         std::thread::spawn(move || {
@@ -205,6 +206,38 @@ fn main() {
             }
         });
     }
+}
+
+/// node/src/lights.rs over std sockets: sACN / Art-Net / DDP to the string model (unicast
+/// only), plus the tick the board's LED task does. A port something else holds is skipped.
+fn lights(shared: &Shared) {
+    for port in [5568u16, 6454, 4048] {
+        let sock = match std::net::UdpSocket::bind(("0.0.0.0", port)) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("lights: UDP {port}: {e}");
+                continue;
+            }
+        };
+        let shared = shared.clone();
+        let started = Instant::now();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 2048];
+            while let Ok((n, from)) = sock.recv_from(&mut buf) {
+                let now = started.elapsed().as_millis() as u64;
+                let mut g = shared.lock().unwrap();
+                g.0.leds.receive(port, &buf[..n], &from.ip().to_string(), now);
+            }
+        });
+    }
+    let shared = shared.clone();
+    let started = Instant::now();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            shared.lock().unwrap().0.leds.tick(started.elapsed().as_millis() as u64);
+        }
+    });
 }
 
 /// node/src/http.rs's `connection`, over a std socket.

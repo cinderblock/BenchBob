@@ -337,6 +337,8 @@ pub async fn task(
             let mut g = shared.lock().await;
             let Shared { api, node } = &mut *g;
             let now = Instant::now().as_millis();
+            // Strings whose network input went quiet get their pattern back.
+            api.leds.tick(now);
             for i in 0..MAX_STRINGS {
                 let job: Option<Job> = api.leds.job(i);
                 let st = &mut slots[i];

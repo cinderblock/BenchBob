@@ -84,6 +84,11 @@ async fn http_task(stack: Stack<'static>, shared: &'static SharedNode, bufs: &'s
 }
 
 #[embassy_executor::task]
+async fn lights_task(stack: Stack<'static>, shared: &'static SharedNode, bufs: &'static mut benchbob_node::lights::Buffers) -> ! {
+    benchbob_node::lights::run(stack, shared, bufs).await
+}
+
+#[embassy_executor::task]
 async fn mdns_task(stack: Stack<'static>, bufs: &'static mut benchbob_node::mdns::Buffers) -> ! {
     const TXT: &[&str] = &["board=pico2w", concat!("version=", env!("CARGO_PKG_VERSION")), "api=/api", "mcp=/mcp"];
     benchbob_node::mdns::run(stack, TXT, bufs).await
@@ -140,7 +145,8 @@ async fn main(spawner: Spawner) {
     let mut dhcp = embassy_net::DhcpConfig::default();
     let h = hostname.as_str();
     dhcp.hostname = heapless::String::try_from(&h[..h.len().min(32)]).ok();
-    static RESOURCES: StaticCell<StackResources<{ HTTP_TASKS + 4 }>> = StaticCell::new();
+    // + DHCP, mDNS, two spare, and the three LED lighting receivers (sACN, Art-Net, DDP).
+    static RESOURCES: StaticCell<StackResources<{ HTTP_TASKS + 7 }>> = StaticCell::new();
     let seed = RoscRng.next_u64();
     let (stack, net_runner) = embassy_net::new(net_device, embassy_net::Config::dhcpv4(dhcp), RESOURCES.init(StackResources::new()), seed);
     spawner.spawn(unwrap!(net_task(net_runner)));
@@ -175,6 +181,9 @@ async fn main(spawner: Spawner) {
     // Const-initialised: ~21 KiB that shouldn't pass through the stack.
     static LED_BUFS: ConstStaticCell<leds::Buffers> = ConstStaticCell::new(leds::Buffers::new());
     spawner.spawn(unwrap!(leds::task(shared, Pio::new(p.PIO1, Irqs), dmas, LED_BUFS.take())));
+
+    static LIGHTS_BUFS: ConstStaticCell<benchbob_node::lights::Buffers> = ConstStaticCell::new(benchbob_node::lights::Buffers::new());
+    spawner.spawn(unwrap!(lights_task(stack, shared, LIGHTS_BUFS.take())));
 
     static MDNS_BUFS: StaticCell<benchbob_node::mdns::Buffers> = StaticCell::new();
     spawner.spawn(unwrap!(mdns_task(stack, MDNS_BUFS.init(benchbob_node::mdns::Buffers::new()))));

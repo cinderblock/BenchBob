@@ -69,6 +69,11 @@ async fn http_task(stack: Stack<'static>, shared: &'static SharedNode, bufs: &'s
 }
 
 #[embassy_executor::task]
+async fn lights_task(stack: Stack<'static>, shared: &'static SharedNode, bufs: &'static mut benchbob_node::lights::Buffers) -> ! {
+    benchbob_node::lights::run(stack, shared, bufs).await
+}
+
+#[embassy_executor::task]
 async fn mdns_task(stack: Stack<'static>, bufs: &'static mut benchbob_node::mdns::Buffers) -> ! {
     const TXT: &[&str] = &["board=esp32c6", concat!("version=", env!("CARGO_PKG_VERSION")), "api=/api", "mcp=/mcp"];
     benchbob_node::mdns::run(stack, TXT, bufs).await
@@ -129,7 +134,8 @@ async fn main(spawner: Spawner) {
     dhcp.hostname = heapless::String::try_from(&h[..h.len().min(32)]).ok();
     let rng = Rng::new();
     let seed = (rng.random() as u64) << 32 | rng.random() as u64;
-    static RESOURCES: StaticCell<StackResources<{ HTTP_TASKS + 4 }>> = StaticCell::new();
+    // + DHCP, mDNS, two spare, and the three LED lighting receivers (sACN, Art-Net, DDP).
+    static RESOURCES: StaticCell<StackResources<{ HTTP_TASKS + 7 }>> = StaticCell::new();
     let (stack, net_runner) = embassy_net::new(interfaces.station, embassy_net::Config::dhcpv4(dhcp), RESOURCES.init(StackResources::new()), seed);
     spawner.spawn(net_task(net_runner).expect("net task"));
     spawner.spawn(wifi::task(controller, stack, improv::credentials(&config)).expect("wifi task"));
@@ -163,6 +169,9 @@ async fn main(spawner: Spawner) {
     static LED_BUFS: ConstStaticCell<leds::Buffers> = ConstStaticCell::new(leds::Buffers::new());
     let bufs = LED_BUFS.take();
     spawner.spawn(leds::task(shared, p.SPI2, p.DMA_CH0, rmt.channel1, leds::dma_buffer(), bufs).expect("leds task"));
+
+    static LIGHTS_BUFS: ConstStaticCell<benchbob_node::lights::Buffers> = ConstStaticCell::new(benchbob_node::lights::Buffers::new());
+    spawner.spawn(lights_task(stack, shared, LIGHTS_BUFS.take()).expect("lights task"));
 
     static MDNS_BUFS: StaticCell<benchbob_node::mdns::Buffers> = StaticCell::new();
     spawner.spawn(mdns_task(stack, MDNS_BUFS.init(benchbob_node::mdns::Buffers::new())).expect("mdns task"));
