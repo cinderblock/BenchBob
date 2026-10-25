@@ -521,6 +521,10 @@
   },
   {
     "name": "eject-system",
+    "answers": [
+      { "match": "findmnt -no SOURCE /", "out": "/dev/mmcblk0p2" },
+      { "match": "lsblk -no PKNAME /dev/mmcblk0p2", "out": "mmcblk0" }
+    ],
     "fn": "eject",
     "args": {
       "device": "mmcblk0"
@@ -645,6 +649,10 @@
   },
   {
     "name": "probe-system",
+    "answers": [
+      { "match": "findmnt -no SOURCE /", "out": "/dev/mmcblk0p2" },
+      { "match": "lsblk -no PKNAME /dev/mmcblk0p2", "out": "mmcblk0" }
+    ],
     "fn": "probe",
     "args": {
       "device": "mmcblk0"

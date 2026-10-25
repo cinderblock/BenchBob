@@ -260,7 +260,9 @@ impl Sampler {
                     serde_json::from_str::<Value>(&info.out).ok().and_then(|v| v.get("blockdevices")?.get(0).cloned()).unwrap_or(json!({}));
                 d.size = bd.get("size").and_then(|s| s.as_u64().or_else(|| s.as_str().and_then(|x| x.parse().ok()))).unwrap_or(0);
                 let tran = bd.get("tran").and_then(Value::as_str).unwrap_or("");
-                if name.starts_with("nvme") || tran == "nvme" {
+                if name.starts_with("nbd") {
+                    d.kind = "Netboot (NBD)".into();
+                } else if name.starts_with("nvme") || tran == "nvme" {
                     d.kind = "NVMe".into();
                 } else if name.starts_with("mmcblk") {
                     d.kind = if read_text(format!("/sys/block/{name}/device/type")) == "MMC" { "eMMC" } else { "microSD" }.into();

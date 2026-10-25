@@ -105,6 +105,18 @@ fn device_arg(a: &Value) -> Result<String, HttpError> {
     Ok(d)
 }
 
+impl Inner {
+    /// [`device_arg`], and the device isn't one this machine depends on (its root disk,
+    /// its eMMC). Every route that touches a device goes through here.
+    async fn device(&self, a: &Value) -> Result<String, HttpError> {
+        let d = device_arg(a)?;
+        match devices::refuse(self.sys.as_ref(), &d).await {
+            Some(why) => Err(HttpError::new(400, why)),
+            None => Ok(d),
+        }
+    }
+}
+
 fn busy() -> HttpError {
     HttpError::new(409, "Device busy")
 }
@@ -322,7 +334,7 @@ impl Driver for Drives {
         let mut r = vec![
             self.route(Method::POST, "/api/eject", |i, r| async move {
                 let a = r.json()?;
-                let d = device_arg(&a)?;
+                let d = i.device(&a).await?;
                 if i.queue.busy(&d) {
                     return Err(busy());
                 }
@@ -332,7 +344,7 @@ impl Driver for Drives {
             }),
             self.route(Method::POST, "/api/erase", |i, r| async move {
                 let a = r.json()?;
-                let d = device_arg(&a)?;
+                let d = i.device(&a).await?;
                 if i.queue.busy(&d) {
                     return Err(busy());
                 }
@@ -344,7 +356,7 @@ impl Driver for Drives {
             }),
             self.route(Method::POST, "/api/flash", |i, r| async move {
                 let a = r.json()?;
-                let d = device_arg(&a)?;
+                let d = i.device(&a).await?;
                 let url = a.get("imageUrl").filter(|u| truthy(u)).map(js_string);
                 let Some(url) = url else { return Err(HttpError::bad_request("No image URL")) };
                 // Queueing after an erase is fine; not when something else runs or waits.
@@ -372,15 +384,15 @@ impl Driver for Drives {
                 json(j!({ "ok": true, "message": msg }))
             }),
             self.route(Method::POST, "/api/scan", |i, r| async move {
-                let d = device_arg(&r.json()?)?;
+                let d = i.device(&r.json()?).await?;
                 json(devices::scan(i.sys.as_ref(), &d).await)
             }),
             self.route(Method::POST, "/api/probe", |i, r| async move {
-                let d = device_arg(&r.json()?)?;
+                let d = i.device(&r.json()?).await?;
                 json(probe::probe(i.sys.as_ref(), &d).await)
             }),
             self.route(Method::POST, "/api/deepscan", |i, r| async move {
-                let d = device_arg(&r.json()?)?;
+                let d = i.device(&r.json()?).await?;
                 if i.queue.busy(&d) {
                     return Err(busy());
                 }
@@ -416,7 +428,7 @@ impl Driver for Drives {
                 let a = r.json()?;
                 let sys = i.sys.as_ref();
                 // Goes into sfdisk/mkfs arguments: a plain disk name that exists, nothing else.
-                let d = device_arg(&a)?;
+                let d = i.device(&a).await?;
                 if devices::size_bytes(sys, &d).await == 0.0 {
                     return Err(invalid());
                 }
@@ -447,10 +459,7 @@ impl Driver for Drives {
                 json(j!({ "ok": true, "message": "Writing bootloader card", "operationId": id }))
             }),
             self.route(Method::GET, "/api/osinfo", |i, r| async move {
-                let d = r.query("device").unwrap_or("").to_string();
-                if !valid_name(&d) || is_sys_dev(&d) {
-                    return Err(invalid());
-                }
+                let d = i.device(&j!({ "device": r.query("device").unwrap_or("") })).await?;
                 match i.os_info(&d).await {
                     Ok(v) => json(ok_json(v.as_object().cloned().unwrap_or_default())),
                     Err((code, m)) => Err(HttpError::new(code, m)),

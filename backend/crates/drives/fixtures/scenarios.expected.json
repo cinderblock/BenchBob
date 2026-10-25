@@ -4900,6 +4900,14 @@
     "log": [
       {
         "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
+      {
+        "cmd": [
           "lsblk",
           "-J",
           "-o",
@@ -4966,14 +4974,39 @@
     }
   },
   "eject-system": {
-    "log": [],
+    "log": [
+      {
+        "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-no",
+          "PKNAME",
+          "/dev/mmcblk0p2"
+        ]
+      }
+    ],
     "result": {
       "ok": false,
-      "message": "Cannot eject system device"
+      "message": "That is the disk this machine runs from"
     }
   },
   "scan-partitions": {
     "log": [
+      {
+        "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
       {
         "cmd": [
           "sudo",
@@ -5018,6 +5051,14 @@
     "log": [
       {
         "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
+      {
+        "cmd": [
           "sudo",
           "partprobe",
           "/dev/sdb"
@@ -5056,6 +5097,14 @@
   },
   "scan-file": {
     "log": [
+      {
+        "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
       {
         "cmd": [
           "sudo",
@@ -5106,6 +5155,14 @@
     "log": [
       {
         "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
+      {
+        "cmd": [
           "sudo",
           "partprobe",
           "/dev/sdb"
@@ -5137,6 +5194,14 @@
   },
   "probe": {
     "log": [
+      {
+        "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
       {
         "cmd": [
           "sudo",
@@ -5274,6 +5339,14 @@
     "log": [
       {
         "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
+      {
+        "cmd": [
           "sudo",
           "sfdisk",
           "-J",
@@ -5385,6 +5458,14 @@
     "log": [
       {
         "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
+      {
+        "cmd": [
           "sudo",
           "sfdisk",
           "-J",
@@ -5437,17 +5518,43 @@
     }
   },
   "probe-no-size": {
-    "log": [],
+    "log": [
+      {
+        "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      }
+    ],
     "result": {
       "ok": false,
       "message": "Could not determine device size"
     }
   },
   "probe-system": {
-    "log": [],
+    "log": [
+      {
+        "cmd": [
+          "findmnt",
+          "-no",
+          "SOURCE",
+          "/"
+        ]
+      },
+      {
+        "cmd": [
+          "lsblk",
+          "-no",
+          "PKNAME",
+          "/dev/mmcblk0p2"
+        ]
+      }
+    ],
     "result": {
       "ok": false,
-      "message": "Cannot probe system device"
+      "message": "That is the disk this machine runs from"
     }
   },
   "deepscan": {

@@ -196,9 +196,13 @@ async fn scenarios_match_server_ts() {
                     .collect();
                 json!({ "op": r, "results": res })
             }
-            "eject" => crate::devices::eject(&sys, &dev).await,
-            "scan" => crate::devices::scan(&sys, &dev).await,
-            "probe" => crate::probe::probe(&sys, &dev).await,
+            // The routes refuse the root disk, eMMC and system devices before these run.
+            kind @ ("eject" | "scan" | "probe") => match crate::devices::refuse(&sys, &dev).await {
+                Some(why) => json!({ "ok": false, "message": why }),
+                None if kind == "eject" => crate::devices::eject(&sys, &dev).await,
+                None if kind == "scan" => crate::devices::scan(&sys, &dev).await,
+                None => crate::probe::probe(&sys, &dev).await,
+            },
             "listDir" => {
                 let f = crate::files::Files { sys: &sys, root: "/srv/nfs/drives".into() };
                 match f.list(&s(a, "path")).await {

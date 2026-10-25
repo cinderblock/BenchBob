@@ -43,6 +43,8 @@ export interface Drive {
   size: number;
   serial?: string;
   rev?: string;
+  /** `sd`: a card in the SD slot of a machine that doesn't run from it. Unset: USB. */
+  bus?: "sd";
   usbVersion?: string;
   readRate: number;
   writeRate: number;

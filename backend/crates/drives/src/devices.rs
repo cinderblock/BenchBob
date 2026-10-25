@@ -11,9 +11,42 @@ use crate::sys::Sys;
 pub const NBD_DIR: &str = "/etc/nbd-server/conf.d";
 pub const DRIVES_DIR: &str = "/srv/nfs/drives";
 
-/// Never offered for anything: the SD card / eMMC, zram, loop devices.
+/// Never offered for anything, whatever the machine: zram, loop devices, and network
+/// block devices (a diskless machine's root comes in over NBD). An SD card is *not* on
+/// this list: it is only refused when it is the disk the machine runs from, or eMMC
+/// (see [`refuse`]), so a box that boots from the network can use its SD slot as a
+/// drive bay.
 pub fn is_sys_dev(name: &str) -> bool {
-    name.starts_with("mmcblk") || name.starts_with("zram") || name.starts_with("loop")
+    name.starts_with("zram") || name.starts_with("loop") || name.starts_with("nbd")
+}
+
+/// Built-in eMMC (soldered down, usually the OS) rather than a card in a slot.
+pub async fn is_emmc(sys: &dyn Sys, name: &str) -> bool {
+    name.starts_with("mmcblk") && sys.read_text(&format!("/sys/block/{name}/device/type")).await == "MMC"
+}
+
+/// The disk the root filesystem is on (`nbd0` on a diskless box, `mmcblk0` on a Pi
+/// booting from its card), or `None` when it can't be told (NFS root, say).
+pub async fn root_disk(sys: &dyn Sys) -> Option<String> {
+    let src = sys.run(&["findmnt", "-no", "SOURCE", "/"]).await.out;
+    let dev = src.strip_prefix("/dev/")?.to_string();
+    let parent = sys.run(&["lsblk", "-no", "PKNAME", &src]).await.out.trim().to_string();
+    Some(if parent.is_empty() { dev } else { parent })
+}
+
+/// Why `dev` must not be ejected, erased, written or scanned, or `None` when it may.
+/// Checked at every request that names a device: the drive list is only advice.
+pub async fn refuse(sys: &dyn Sys, dev: &str) -> Option<&'static str> {
+    if is_sys_dev(dev) {
+        return Some("Cannot touch a system device");
+    }
+    if root_disk(sys).await.as_deref() == Some(dev) {
+        return Some("That is the disk this machine runs from");
+    }
+    if is_emmc(sys, dev).await {
+        return Some("That is the built-in eMMC");
+    }
+    None
 }
 
 /// A kernel disk name, nothing else (it ends up in commands, some through a shell).
@@ -86,8 +119,10 @@ fn enrich(d: &mut Value, rates: &IndexMap<String, (f64, f64)>) {
     }
 }
 
-/// `getDevices` from lsblk's JSON: the root disk (enriched) and the USB drives, each
-/// with its USB speed, whether it has partitions, and its operations (`ops`).
+/// `getDevices` from lsblk's JSON: the root disk (enriched) and the drives: USB disks,
+/// and a card in the SD slot when the machine doesn't run from it (eMMC never). Each
+/// comes with its USB speed (a card: `bus: "sd"` instead), whether it has partitions,
+/// and its operations (`ops`).
 pub async fn devices(
     sys: &dyn Sys,
     lsblk: &str,
@@ -106,7 +141,8 @@ pub async fn devices(
     let root_dev = all.iter().find(|d| is_root(d)).cloned();
     let mut drives = Vec::new();
     for mut d in all.into_iter().filter(|d| {
-        d.get("tran").and_then(Value::as_str) == Some("usb")
+        let name = d.get("name").and_then(Value::as_str).unwrap_or("");
+        (d.get("tran").and_then(Value::as_str) == Some("usb") || name.starts_with("mmcblk"))
             && d.get("type").and_then(Value::as_str) == Some("disk")
             && d.get("size").map(benchbob_core::http::js_number).is_some_and(|s| s > 0.0)
     }) {
@@ -114,7 +150,14 @@ pub async fn devices(
             continue;
         }
         let name = d["name"].as_str().unwrap_or("").to_string();
-        d["usbVersion"] = usb_speed(sys, &name).await.map(Value::String).unwrap_or(Value::Null);
+        let sd = name.starts_with("mmcblk");
+        if sd && is_emmc(sys, &name).await {
+            continue;
+        }
+        if sd {
+            d["bus"] = "sd".into();
+        }
+        d["usbVersion"] = if sd { None } else { usb_speed(sys, &name).await }.map(Value::String).unwrap_or(Value::Null);
         d["hasPartitions"] = d.get("children").and_then(Value::as_array).is_some_and(|c| !c.is_empty()).into();
         d["operations"] = Value::Array(ops(&name));
         drives.push(d);
@@ -164,12 +207,16 @@ pub async fn prepare(sys: &dyn Sys, dev: &str) {
     sys.run(&["sudo", "exportfs", "-ra"]).await;
 }
 
-/// `ejectDevice` (the caller has checked it isn't busy).
+/// `ejectDevice` (the caller has checked it isn't busy, and [`refuse`]d what must stay).
+/// A card in the SD slot has no power to cut: it is unmounted and can then be pulled.
 pub async fn eject(sys: &dyn Sys, dev: &str) -> Value {
     if is_sys_dev(dev) {
         return json!({ "ok": false, "message": "Cannot eject system device" });
     }
     prepare(sys, dev).await;
+    if dev.starts_with("mmcblk") {
+        return json!({ "ok": true, "message": format!("{dev} unmounted; the card can be removed") });
+    }
     let r = sys.run(&["sudo", "udisksctl", "power-off", "-b", &format!("/dev/{dev}"), "--no-user-interaction"]).await;
     if r.code != 0 {
         let sp = sys.run(&["readlink", "-f", &format!("/sys/block/{dev}/device")]).await.out;
@@ -212,7 +259,7 @@ mod tests {
     fn names() {
         assert_eq!(part_dev("sda", 1), "/dev/sda1");
         assert_eq!(part_dev("nvme0n1", 2), "/dev/nvme0n1p2");
-        assert!(is_sys_dev("mmcblk0") && is_sys_dev("loop3") && !is_sys_dev("sda"));
+        assert!(is_sys_dev("nbd0") && is_sys_dev("loop3") && !is_sys_dev("sda") && !is_sys_dev("mmcblk0"));
         assert!(valid_name("nvme0n1") && !valid_name("sda; rm -rf /") && !valid_name("../sda") && !valid_name(""));
     }
 
@@ -231,5 +278,55 @@ mod tests {
         let (root, drives) = devices(&sys, lsblk, &rates, Some("mmcblk0"), &ops).await;
         let want: Value = serde_json::from_str(include_str!("../fixtures/devices-desky-usb.expected.json")).unwrap();
         assert_eq!(json!({ "rootDevice": root, "drives": drives }).to_string(), want.to_string());
+    }
+
+    /// The same box booted from the network: its SD card is a drive now, the NBD root
+    /// isn't, and eMMC never is.
+    #[tokio::test]
+    async fn an_sd_card_is_a_drive_when_the_machine_runs_from_the_network() {
+        let lsblk = include_str!("../fixtures/lsblk-desky-usb.json");
+        let no_ops = |_: &str| vec![];
+        let rates = IndexMap::new();
+
+        let sd = Shared(Mock::new(&json!({ "files": { "/sys/block/mmcblk0/device/type": "SD" } })));
+        let (root, drives) = devices(&sd, lsblk, &rates, Some("nbd0"), &no_ops).await;
+        assert!(root.is_null(), "nbd0 isn't in this lsblk");
+        let names: Vec<&str> = drives.as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap()).collect();
+        assert_eq!(names, vec!["mmcblk0", "sda"], "sdb is empty, as before");
+        let card = &drives[0];
+        assert_eq!(card["bus"], "sd");
+        assert!(card["usbVersion"].is_null());
+        assert!(drives[1].get("bus").is_none(), "USB drives are shaped as server.ts shaped them");
+
+        let emmc = Shared(Mock::new(&json!({ "files": { "/sys/block/mmcblk0/device/type": "MMC" } })));
+        let (_, drives) = devices(&emmc, lsblk, &rates, Some("nbd0"), &no_ops).await;
+        let names: Vec<&str> = drives.as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap()).collect();
+        assert_eq!(names, vec!["sda"]);
+
+        // Refusals: the root disk, eMMC and NBD; a card in the slot is fine.
+        let scn = json!({
+            "files": { "/sys/block/mmcblk0/device/type": "SD", "/sys/block/mmcblk1/device/type": "MMC" },
+            "answers": [
+                { "match": "findmnt -no SOURCE /", "out": "/dev/nbd0p2" },
+                { "match": "lsblk -no PKNAME /dev/nbd0p2", "out": "nbd0" }
+            ]
+        });
+        let sys = Shared(Mock::new(&scn));
+        assert_eq!(root_disk(&sys).await.as_deref(), Some("nbd0"));
+        assert!(refuse(&sys, "nbd0").await.is_some());
+        assert!(refuse(&sys, "mmcblk1").await.unwrap().contains("eMMC"));
+        assert!(refuse(&sys, "mmcblk0").await.is_none());
+        assert!(refuse(&sys, "sda").await.is_none());
+        let scn = json!({ "answers": [
+            { "match": "findmnt -no SOURCE /", "out": "/dev/mmcblk0p2" },
+            { "match": "lsblk -no PKNAME /dev/mmcblk0p2", "out": "mmcblk0" }
+        ] });
+        let sys = Shared(Mock::new(&scn));
+        assert!(refuse(&sys, "mmcblk0").await.unwrap().contains("runs from"));
+
+        // Ejecting a card only unmounts it.
+        let r = eject(&sd, "mmcblk0").await;
+        assert_eq!(r["ok"], true);
+        assert!(r["message"].as_str().unwrap().contains("can be removed"));
     }
 }

@@ -82,6 +82,7 @@ function DriveCard({ d, os, drvMax, nbd, filesRoot }: { d: Drive; os: OsInfoCach
             {d.serial ? " · S/N: " + d.serial : ""}
             {d.rev ? " · FW: " + d.rev : ""}
             {d.usbVersion ? " · " + d.usbVersion : ""}
+            {d.bus === "sd" ? " · SD slot" : ""}
           </span>
           {info && <DriveOs info={info} />}
           {os.error(d.name) && (
@@ -264,7 +265,8 @@ async function quickPi(b: BobApi, a: Action, dev: string) {
 type Reply = { message?: string };
 
 async function eject(b: BobApi, a: Action, dev: string, model: string) {
-  if (!(await b.confirm("Eject Device", "Unmount and power off this device?", `${model}\n/dev/${dev}`))) return;
+  const sd = dev.startsWith("mmcblk");
+  if (!(await b.confirm("Eject Device", sd ? "Unmount this card so it can be removed?" : "Unmount and power off this device?", `${model}\n/dev/${dev}`))) return;
   await a.run(() => b.api<Reply>("POST", "/api/eject", { device: dev }), { busy: "Ejecting…", ok: (r) => r.message || "Ejected" });
 }
 
