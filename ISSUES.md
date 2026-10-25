@@ -55,6 +55,11 @@ the app. The package (`fa911fe`) keeps it in `/var/cache/benchbob` and empties i
 upgrade; a git-checkout deploy like desky's still grows it until desky moves to the
 package. The flash download-to-root-filesystem problem is unchanged.
 
+2026-10-25 1:10 AM PDT (08:10Z): desky now boots from the network
+(`plans/pxe-netboot.md`), and its root is a 32 GiB NBD disk on steamboat: 9.6 GB used,
+20 GB free. Space is no longer tight, but a cancelled flash still leaves its partial
+download behind, and the cache can still grow.
+
 ## Full status refresh spawns ~12 processes every 2 s while a dashboard is open
 
 The Bun server's `getStatus()` ran lsusb, lsblk, findmnt, ip (×3), iw, vcgencmd and three

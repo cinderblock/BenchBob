@@ -452,6 +452,18 @@ image is 4–8 GB; a per-device overlay is 1–5 GB; an installer ISO is 1–7 G
 Decided round 2: desky goes diskless eventually, as dogfooding, once the server is solid.
 The SD stays as a rescue card until then. Steps once the server serves Pi boots (Phase 2):
 
+**Status 2026-10-25: steps 1, 2 and 4 done; desky runs from the network.** How it was done:
+`tools/pi-clone-to-nbd.sh` in BootBob, run on desky while it still ran from the SD. It
+created `desky.img` over BootBob's API, partitioned it over NBD like the card (new disk id
+`6d0cae69`), copied boot and root twice with rsync, and pointed the copy's fstab and
+`cmdline.txt` at the NBD root
+(`root=/dev/nbd0p2 nbdroot=10.255.0.5,desky.img,nbd0 ip=dhcp`). `nbd-client` (installed
+on the SD system first) put NBD support in the initramfs. BootBob: Pi image `desky` with
+source `desky.img`, desky (`dc:a6:32:03:fc:36`, serial `575da773`) assigned to it. EEPROM
+first `0xf12` (network, SD fallback) for the first boot, then `0xf2` once it worked. The SD
+still holds the old system, untouched, and is never booted. Step 3 (BenchBob offering the
+SD slot as a drive) is next.
+
 1. Make a golden Pi OS trixie image from desky's current SD (BenchBob can already read
    cards). Add `nbd-client` + initramfs support, fix `fstab` (no `mmcblk0p*` mounts),
    point `/boot/firmware` at a server-side copy so `apt` kernel updates land in the tree
@@ -505,7 +517,7 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
   - [x] Ops stack, Caddy `pxe.tsl` site and `pxe.tsl` DNS name: approved and live
         (2026-10-24, ops `b5747e2`, `a96c090`, `9b88c83`).
   - [x] Ops UniFi tool learned `netboot:` (ops `13100a0`, a no-op until a config uses it).
-  - [ ] **Needs a yes:** the `netboot:` entry for the TSL network (staged, uncommitted).
+  - [x] TSL Network Boot on (2026-10-25, ops `cd2962b`); the doctor is all green.
 - **Phase 2, Pi-native boot, stores, BenchBob integration** *(current step)*:
   - [x] Per-device TFTP trees from images (BootBob `507b401`): new `bootbob-pi` crate; a
         Pi image's boot files come from a directory or a `.img` (FAT boot partition read
@@ -514,7 +526,17 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
         image per boot (one-shot lasts the whole boot); Pi default setting; unassigned Pis
         show as "Pi, nothing to boot"; `GET /api/pi/sources`; UI for all of it. Images
         live in `<data_dir>/images` = `/srv/bootbob-data/images` on steamboat (no ops
-        change needed). Not yet deployed: the ops pin is still `332dbc2`.
+        change needed). Deployed 2026-10-25 (ops `464bd7f`).
+  - [x] NBD server (BootBob `3762ddc`): new `bootbob-nbd` crate; an export is a disk image
+        in the images directory, only for the machine assigned the Pi image it belongs to
+        (or running it); newest connection wins; `POST /api/disks`. On at
+        `10.255.0.5:10809` (ops `d1ca76b`). No copy-on-write overlays yet: one disk per
+        machine.
+  - [x] **desky is diskless** (2026-10-25 1:05 AM PDT, 08:05Z): see "DeskyPi: going
+        diskless". Boot files over TFTP and root over NBD, both from
+        `/srv/bootbob-data/images/desky.img` (32 GiB). EEPROM `BOOT_ORDER=0xf2`,
+        `TFTP_IP=10.255.0.5`. Reboot to login in about 65 s.
+  - [x] TFTP: a client-ended transfer is Cancelled, not Failed (BootBob `f625157`).
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -581,10 +603,11 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Yes to commit and push the `netboot:` entry that turns on Network Boot for the TSL
-   network (server `10.255.0.5`, file `bootbob`)? Staged in the ops checkout, uncommitted.
-   Effect: any TSL machine with network boot ahead of its disk lands on BootBob's menu
-   and boots its disk after 2 minutes untouched (`menu_timeout_secs`).
+1. Commit desky's UniFi reservation to ops (`host: desky`, 10.255.7.45)? It already
+   exists by hand; the entry codifies it and adds `desky.tsl`. Staged, uncommitted.
+2. Next for desky: plan step 3 (BenchBob offers the SD slot as a drive). Wipe or keep the
+   old system on the SD card? Recommendation: keep it until desky has run diskless for a
+   while, then hand the slot to BenchBob.
 
 ## Progress log
 
@@ -670,6 +693,26 @@ All design questions from rounds 1–3 are answered (see decisions).
 - **UniFi networkconf boot fields:** `dhcpd_boot_enabled`, `dhcpd_boot_server`,
   `dhcpd_boot_filename` (the latter two absent until set). `dhcpd_tftp_server` (option 66)
   is separate and not needed: PXE uses next-server.
+
+- **`BOOT_ORDER` is read right to left.** "Network, then SD" is `0xf12`; `0xf21` would
+  try the SD first.
+- **A netbooted Pi 4 applies EEPROM updates only from the SD card.** The ROM loads
+  `recovery.bin` from the SD slot, never the network, so `rpi-eeprom-config --apply`
+  writing to the NBD `/boot/firmware` does nothing. Stage it on the card instead:
+  mount `/dev/mmcblk0p1` and run `sudo env BOOTFS=<mount> rpi-eeprom-config --apply <file>`.
+- **The Pi bootloader ends most TFTP reads with "Early terminate"** (error code 0) after
+  the first block. Normal behaviour, now logged as Cancelled.
+- **NetworkManager leaves the initramfs's eth0 alone** ("connected (externally)") and
+  doesn't renew its DHCP lease (24 h). desky already has a fixed reservation at
+  `10.255.7.45` in UniFi (made by hand), so the address can't move. An ops entry for it
+  is staged (adds `desky.tsl`).
+- **A deploy bot bumps the BootBob pin** in ops after each green BootBob master push
+  (`2d5399f` "deploy: Update ghcr.io/cinderblock/bootbob"). A manual pin commit can race it.
+- **The shared ops checkout's local master can carry other threads' unpushed commits.**
+  Pushing master would push them too. Commit in a worktree on `origin/master` and push
+  `HEAD:master` (run `bun install` there so the hooks work).
+- desky's `nbd-server.service` (BenchBob's drive exports) and `t3serve.service` fail on
+  boot; both did before the move too (see DeskyPi `ISSUES.md`), unrelated to netboot.
 
 ## Things not to do
 
