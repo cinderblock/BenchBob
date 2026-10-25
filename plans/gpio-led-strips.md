@@ -35,11 +35,22 @@ Second half of the request: propose other low-level GPIO features worth adding a
 | Pico 2 W (RP2350) | PIO; embassy-rp ships `pio_programs::ws2812` | PIO (`pio_programs::spi`) or hardware SPI | **Any GPIO.** 3 PIO blocks × 4 state machines = 12, minus the one cyw43 uses → up to ~11 strings |
 | ESP32-C6 | RMT: 4 channels, **only ch0–1 can TX** (esp-metadata `for_each_rmt_channel`: (0,0),(1,1) TX; (2,0),(3,1) RX). Also GP-SPI2 + DMA with SPI-bit encoding, and PARL_IO (parallel TX, DMA) for many strings at once | GP-SPI2 + DMA | **Any GPIO** via the GPIO matrix. 2 strings on RMT + 1 on SPI without trickery; more via PARL_IO later |
 | Pi 5 (RP1) | RP1 has **one PIO block (4 SMs)** reachable from Linux through `/dev/pio0` (rp1-pio driver; ioctls wrapped by piolib in raspberrypi/utils, not documented, but open source). Also the `ws2812-pio` overlay (`/dev/leds%d`, params gpio, num_leds, rgbw, brightness; fixed at boot). SPI MOSI encoding also works | RP1 SPI controllers (spidev), or PIO | **Any of GPIO 0–27** via PIO, up to 4 strings (shared with anything else using PIO, e.g. `pwm-pio`) |
-| Pi 4 / 3 / Zero 2 (BCM283x/2711) | SPI MOSI encoding through spidev (kernel DMA). PWM/PCM+DMA (rpi_ws281x's method) needs `/dev/mem`, uncached mailbox memory and fights onboard audio: not planned | spidev | MOSI pins only. Pi 4: SPI0 GPIO10, SPI1 GPIO20, SPI3 GPIO2, SPI4 GPIO6, SPI5 GPIO14, SPI6 GPIO20 → **5 distinct pins**, each a config.txt overlay + reboot. Pi 3: GPIO10, GPIO20 |
+| Pi 4 / 3 / Zero 2 (BCM283x/2711) | The classic method (rpi_ws281x's default): **PWM + DMA**. PWM0 on GPIO12/18, PWM1 on GPIO13/19, so two strings at once; PCM_DOUT on GPIO21 as a third. Needs `/dev/mem` (PWM, clock manager and DMA registers), uncached memory from the VideoCore mailbox (`/dev/vcio`), a free DMA channel (rpi_ws281x defaults to 10; 5 corrupts the filesystem on a Pi 3), and PWM conflicts with onboard analog audio (`snd_bcm2835` must be off). Also: SPI MOSI encoding through spidev | spidev | PWM/PCM: GPIO 12, 13, 18, 19, 21 (up to 3 strings: 2 PWM channels + PCM), no reboot. SPI: Pi 4 SPI0 GPIO10, SPI1 GPIO20, SPI3 GPIO2, SPI4 GPIO6, SPI5 GPIO14, SPI6 GPIO20 → 5 distinct pins, each a config.txt overlay + reboot. Pi 3: GPIO10, GPIO20 |
 | Other Linux boards | SPI MOSI encoding via spidev, where the board's overlay enables it | spidev; or userspace bit-bang via the GPIO uAPI (APA102 is clocked, so jitter is harmless) on **any free line** | Whatever SPI overlays the board file documents |
 
-So the "Pi 4 has one pin" impression is really "one pin with no reboot": SPI0 MOSI is on
-GPIO10, and the extra BCM2711 SPI controllers add four more MOSI pins once enabled.
+The "one pin with a timer" the user remembered is PWM0 on GPIO18, rpi_ws281x's default
+(the method most Pi WS2812 guides use). The first draft of this plan recommended SPI only
+and called PWM+DMA "not planned"; the user pushed back, and that was the wrong framing: PWM
+is the standard Pi 4 method and the only one with no reboot on pins other than GPIO10.
+Its real costs:
+
+- BenchBob runs as `User=benchbob` (`packaging/benchbob.service`), and `/dev/gpiomem`
+  only maps the GPIO block. PWM/DMA needs `/dev/mem` (root or CAP_SYS_RAWIO) and
+  `/dev/vcio`, so either the service gains a capability or a small privileged helper does
+  the DMA setup (there is already `packaging/benchbob.sudoers`).
+- Analog audio has to be off while a PWM string runs (PCM on GPIO21 keeps it).
+- Reimplementing rpi_ws281x's register work in Rust (no C dependencies) with per-SoC
+  peripheral bases and DMA channel choice.
 
 ### Gotchas already known (verify during implementation)
 
@@ -138,6 +149,8 @@ are refused as they are today. Drivers, picked per board:
 3. Pico 2 W driver (the easiest any-pin target) + node API/MCP + node UI section.
 4. ESP32-C6 driver (RMT + SPI), status LED.
 5. Linux `leds` crate: spidev driver, GPIO-uAPI APA102, staging of SPI overlays.
+5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), once the privilege model is
+   decided.
 6. Pi 5 `/dev/pio0` driver.
 7. Network receiver on both sides.
 8. Persistence on nodes, README updates (root, firmware, backend), hardware bring-up.
@@ -152,9 +165,12 @@ are refused as they are today. Drivers, picked per board:
 
 1. **Order of work.** Recommend: shared crate → Pico 2 W → ESP32-C6 → Linux spidev → Pi 5
    PIO → sACN/Art-Net/DDP, because the nodes are the any-pin targets.
-2. **Pi 4: SPI only, or also rpi_ws281x-style PWM/PCM DMA?** Recommend SPI only: the DMA
+2. **Pi 4: SPI only, or also rpi_ws281x-style PWM/PCM DMA?** First draft said SPI only: the DMA
    method needs `/dev/mem`, mailbox memory and conflicts with onboard audio, for only
-   GPIO 12/13/18/19/21.
+   GPIO 12/13/18/19/21. **Revised after pushback:** PWM+DMA is the standard Pi method
+   (rpi_ws281x's default, GPIO18), not an exotic one. Recommend both: spidev first
+   (works on every Linux board), then a PWM/PCM+DMA driver for BCM283x/2711 so GPIO
+   12/13/18/19/21 work without a reboot. Open: privilege model for `/dev/mem`.
 3. **What did "RCA" mean?** Composite video out (an RCA jack), RC servo / PWM output, or
    something else?
 4. **Which of the other GPIO features (below) go on the list**, and do they share this
