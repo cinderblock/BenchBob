@@ -478,7 +478,7 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
 ## Phased plan
 
 - **Phase 0, decide:** done (rounds 1–3).
-- **Phase 1, server skeleton** *(current step)*. In the BootBob repo:
+- **Phase 1, server skeleton** (done apart from the TSL Network Boot yes). In the BootBob repo:
   - [x] Rust workspace (axum, tokio). Storage is **redb**, not SQLite: pure Rust, so the
         binary stays static with no C toolchain, like BenchBob's.
   - [x] Dynamic TFTP (blksize, tsize, timeout, windowsize, rollover, loss recovery).
@@ -506,8 +506,15 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
         (2026-10-24, ops `b5747e2`, `a96c090`, `9b88c83`).
   - [x] Ops UniFi tool learned `netboot:` (ops `13100a0`, a no-op until a config uses it).
   - [ ] **Needs a yes:** the `netboot:` entry for the TSL network (staged, uncommitted).
-- **Phase 2, Pi-native boot, stores, BenchBob integration:**
-  - Per-device TFTP trees from images.
+- **Phase 2, Pi-native boot, stores, BenchBob integration** *(current step)*:
+  - [x] Per-device TFTP trees from images (BootBob `507b401`): new `bootbob-pi` crate; a
+        Pi image's boot files come from a directory or a `.img` (FAT boot partition read
+        in place: MBR, GPT, bare FAT); `cmdline.txt` replace / `config.txt` append with
+        `{serial}` `{mac}` `{ip}` `{server}`; serial or MAC prefix; boot sessions keep one
+        image per boot (one-shot lasts the whole boot); Pi default setting; unassigned Pis
+        show as "Pi, nothing to boot"; `GET /api/pi/sources`; UI for all of it. Images
+        live in `<data_dir>/images` = `/srv/bootbob-data/images` on steamboat (no ops
+        change needed). Not yet deployed: the ops pin is still `332dbc2`.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -650,6 +657,12 @@ All design questions from rounds 1–3 are answered (see decisions).
 - **Git Bash heredocs collapse `\\`** before Python sees them; edit Rust strings with the
   Edit tool, not inline Python, when they contain escapes.
 
+- **Pi boot can't be tested end to end in CI**: QEMU's raspi4b has no EEPROM bootloader
+  or netboot. Covered by unit tests (real FAT/MBR/GPT images built in tests) plus a local
+  run with `curl tftp://` playing the Pi. The real test is desky (Phase 2 dogfood).
+- **Bash tool quirk:** a heredoc containing `${…}` or several heredocs in one command
+  failed to parse ("unexpected EOF while looking for matching"). Write the script to a
+  file and run it instead.
 - **TFTP from this Windows PC times out, but it isn't BootBob.** `curl tftp://10.255.0.5/bootbob`
   hangs here and works from sentinel, desky and steamboat. TFTP replies come from a new
   port per transfer, which Windows Firewall drops as unsolicited. Real PXE clients have
