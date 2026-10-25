@@ -642,6 +642,21 @@ impl Leds {
         j.end_obj();
     }
 
+    /// What string `id` shows at `now_ms`, for the dashboard's preview: `{pixels, step,
+    /// output, colors}` with `colors` the hex of every `step`-th pixel (at most `max`),
+    /// brightness applied and white folded into RGB. Shown even with output control off
+    /// (`output: false`), so a string can be set up before it's lit.
+    pub fn preview(&self, id: i64, now_ms: u64, max: usize, j: &mut Json<'_, '_>) -> R {
+        let i = self.index(id)?;
+        let Some(s) = &self.slots[i] else { return Ok(()) };
+        let n = (s.cfg.pixels as usize).min(MAX_PIXELS);
+        let step = n.div_ceil(max.clamp(1, 256)).max(1);
+        j.obj().kv_u64("id", s.id as u64).kv_u64("pixels", n as u64).kv_u64("step", step as u64).kv_bool("output", self.output);
+        j.key("colors").str_fmt(format_args!("{}", Colors { s, n, step, now_ms }));
+        j.end_obj();
+        Ok(())
+    }
+
     /// Bumps whenever the settings [`Self::persist_json`] writes change.
     pub fn persist_gen(&self) -> u32 {
         self.persist_gen
@@ -1048,6 +1063,30 @@ impl Leds {
 }
 
 /// "strip 3".
+/// A string's preview colours as hex, written straight into the JSON.
+struct Colors<'a> {
+    s: &'a Slot,
+    n: usize,
+    step: usize,
+    now_ms: u64,
+}
+
+impl core::fmt::Display for Colors<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let s = self.s;
+        let b = s.cfg.brightness as u16;
+        for k in (0..self.n).step_by(self.step) {
+            let px = match s.source {
+                Source::Pattern { pattern, since_ms } => pattern.pixel(self.now_ms.saturating_sub(since_ms) as u32, k, self.n),
+                Source::Pixels | Source::Network => s.pixels[k],
+            };
+            let ch = |c: u8| ((c as u16 + px.w as u16).min(255) * b / 255) as u8;
+            write!(f, "{:02x}{:02x}{:02x}", ch(px.r), ch(px.g), ch(px.b))?;
+        }
+        Ok(())
+    }
+}
+
 fn default_name(id: u16) -> FixedStr<24> {
     let mut b = *b"strip 00000";
     let mut n = id;

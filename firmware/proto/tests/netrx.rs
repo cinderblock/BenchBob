@@ -240,3 +240,22 @@ fn settings_persist_and_restore_without_live_state() {
     assert_eq!(persisted(&r, b), pb);
     assert!(r.restore_json(&INFO, b"{}", 0).is_err());
 }
+
+#[test]
+fn preview_downsamples_what_the_string_shows() {
+    let mut l = Leds::new();
+    let id = add(&mut l, r#"{"chip":"sk6812","pin":2,"pixels":300,"order":"GRBW","brightness":128}"#);
+    let v = json::parse(r##"{"name":"solid","color":"#ff000080"}"##).unwrap();
+    l.set_pattern(id, Some(&v), 0).ok().unwrap();
+    let mut mem = vec![0u8; 4096];
+    let mut b = Buf::new(&mut mem);
+    l.preview(id, 0, 100, &mut Json::new(&mut b)).ok().unwrap();
+    let s = b.as_str().to_string();
+    assert_eq!(field(&s, &["step"]).as_i64(), Some(3));
+    assert!(!field(&s, &["output"]).as_bool().unwrap());
+    let colors = field(&s, &["colors"]);
+    let c = colors.as_plain_str().unwrap();
+    assert_eq!(c.len(), 100 * 6);
+    // Red + half white, at half brightness: (255+128 → 255) / 2, 128 / 2, 128 / 2.
+    assert_eq!(&c[..6], "804040");
+}

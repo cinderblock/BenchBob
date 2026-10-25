@@ -90,6 +90,7 @@ let-go, so a dropped connection can't leave the LED on. It doesn't need output c
 | `GET /api/leds` | Addressable LED strings and what the board can drive (see [LED strings](#led-strings)) |
 | `POST /api/leds` · `POST`/`DELETE /api/leds/:id` | Create, change, remove a string |
 | `POST /api/leds/:id/pattern` · `…/pixels` | Show a built-in pattern, or set pixels directly |
+| `GET /api/leds/:id/preview?max=` | What the string shows now (every n-th pixel's colour), for the dashboard's live preview |
 | `POST /mcp` | MCP (Streamable HTTP, stateless JSON): `gpio_read`, `gpio_write`, `i2c_buses`, `i2c_scan`, `i2c_read`, and on boards with LED support `leds_list`, `leds_configure`, `leds_pattern`, `leds_set_pixels`, and `onboard_led` |
 
 ```sh

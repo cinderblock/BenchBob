@@ -814,6 +814,12 @@ impl Driver for Leds {
                 i.save();
                 Ok(v)
             }),
+            route(Method::GET, "/api/leds/:id/preview", "GET /api/leds/:id/preview", |i, r| {
+                let id = param_id(&r)?;
+                let max = r.query.iter().find(|(k, _)| k == "max").and_then(|(_, v)| v.parse::<usize>().ok()).unwrap_or(120).clamp(1, 256);
+                let m = i.model.lock().unwrap();
+                write_json(|j| m.preview(id, i.now(), max, j))
+            }),
             route(Method::POST, "/api/leds/:id/pixels", "POST /api/leds/:id/pixels", |i, r| {
                 let id = param_id(&r)?;
                 i.with_body(&r.body, |m, a, _| m.set_pixels(id, a).map(|_| id))

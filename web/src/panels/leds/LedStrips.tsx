@@ -104,6 +104,7 @@ function StringCard({
       {s.error && <Note color="danger">{s.error}</Note>}
       {s.error && fix?.(s.error)}
       {s.network && <NetLine s={s} />}
+      <Preview id={s.id} />
       <div className="pr-row">
         <button className="btn btn-sm" onClick={() => quick("order-test")}>
           Order test
@@ -123,6 +124,21 @@ function StringCard({
         <ActionLine a={a} />
       </div>
       <PatternEditor s={s} patterns={caps.patterns} onDone={onDone} />
+    </div>
+  );
+}
+
+/** About one box per few pixels: what the string shows now (brightness applied), from
+ *  GET /api/leds/:id/preview once a second. Dimmed while output control is off. */
+function Preview({ id }: { id: number }) {
+  const { data } = usePoll<{ pixels: number; step: number; output: boolean; colors: string }>(`/api/leds/${id}/preview?max=120`, 1000);
+  if (!data) return null;
+  const boxes = (data.colors ?? "").match(/.{6}/g) ?? [];
+  return (
+    <div className={`led-preview${data.output ? "" : " dark"}`} role="img" aria-label={`Preview: ${data.pixels} pixels${data.step > 1 ? `, one box per ${data.step}` : ""}${data.output ? "" : " (dark: output control off)"}`}>
+      {boxes.map((c, k) => (
+        <span key={k} style={{ background: `#${c}` }} />
+      ))}
     </div>
   );
 }

@@ -509,6 +509,12 @@ impl Api {
                 self.leds.set_pattern(id, b.as_ref(), now)?;
                 self.leds.string_json(id, &mut Json::new(out))
             }
+            ("GET", ["api", "leds", id, "preview", "", ..]) => {
+                let id = led_id(id)?;
+                let max = query_int(req.query, "max").unwrap_or(120).clamp(1, 256) as usize;
+                let now = node.status().uptime_ms;
+                self.leds.preview(id, now, max, &mut Json::new(out))
+            }
             ("POST", ["api", "leds", id, "pixels", "", ..]) => {
                 let id = led_id(id)?;
                 let b = parse_body(req.body)?;
@@ -520,6 +526,7 @@ impl Api {
                 let allow = match parts {
                     ["api", "leds", id, "", ..] if !id.is_empty() => "POST, DELETE",
                     ["api", "onboard-leds", "", ..] => "POST",
+                    ["api", "leds", _, "preview", "", ..] => "GET",
                     _ => "GET, POST",
                 };
                 return Ok(Reply { allow: Some(allow), ..Reply::json(405) });
@@ -859,8 +866,13 @@ fn route_exists(parts: &[&str; 6]) -> bool {
             | ["api", "i2c", _, _, "raw", "read"]
             | ["api", "leds", "", ..]
             | ["api", "leds", _, "", ..]
-            | ["api", "leds", _, "pattern" | "pixels", "", ..]
+            | ["api", "leds", _, "pattern" | "pixels" | "preview", "", ..]
     )
+}
+
+/// `key=<integer>` from a query string.
+fn query_int(q: &str, key: &str) -> Option<i64> {
+    q.split('&').find_map(|kv| kv.strip_prefix(key)?.strip_prefix('=')?.parse().ok())
 }
 
 fn led_id(s: &str) -> Result<i64, ApiErr> {
@@ -1053,6 +1065,7 @@ const ENDPOINTS: &[(&str, &str)] = &[
     ("POST /api/leds/:id", r#"{"description":"Change any of a string's fields (as for POST /api/leds)","body":{"pixels":120,"brightness":64}}"#),
     ("DELETE /api/leds/:id", r#""Remove a string: it goes dark and its pins are free again""#),
     ("POST /api/leds/:id/pattern", r#"{"description":"Show a pattern: off, solid, gradient, rainbow, chase, breathe, twinkle, order-test (pixels 0-3 red, green, blue, white), ruler (every 10th white, 50th red, last green). Params: color, background, a, b, spread, periodMs, width, speed, density","body":{"name":"rainbow","spread":60,"periodMs":5000}}"#),
+    ("GET /api/leds/:id/preview", r#""What a string shows now, for a preview: pixels, step and colors (hex of every step-th pixel, at most ?max=, default 120, max 256), brightness applied; output says whether output control is on""#),
     ("POST /api/leds/:id/pixels", r#"{"description":"Set pixels directly: pixels as a hex string (6 digits per pixel, 8 on RGBW strings) or an array of colours like #ff0000, from start; or fill (a colour) from start for count","body":{"pixels":"ff0000 00ff00 0000ff","start":0}}"#),
     ("POST /mcp", r#""Model Context Protocol endpoint (Streamable HTTP, stateless JSON): gpio_read, gpio_write, i2c_buses, i2c_scan, i2c_read, leds_list, leds_configure, leds_pattern, leds_set_pixels, onboard_led""#),
 ];

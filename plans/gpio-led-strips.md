@@ -251,8 +251,10 @@ User's answers of 2026-10-25:
   `ui/PinPicker.tsx` (header-ordered pin buttons, refusals explained on tap). 3 tests;
   MCU bundle 28.3 KB gz of 60. Checked end to end against the mock node: added a string
   through the dialog, and the GPIO section showed both strings' pins as taken.
-- [ ] Follow-up: a live pixel preview in the UI (port the patterns to TS, or have the
-  node report a downsampled frame). Not started.
+- [x] Follow-up: live pixel preview (2026-10-25): `GET /api/leds/:id/preview?max=`
+  (every n-th pixel's colour, brightness applied, white folded in; `output` says whether
+  it's lit) on nodes and Linux, drawn under each string card, polled once a second.
+  Server-side, so no pattern code is duplicated in TS. Checked against the mock node.
 - [x] Onboard-LED hold (2026-10-25, `291862f` firmware, then the Linux + UI commit):
   proto `Hold`/`Node::hold_onboard_led`, `/api/onboard-leds`, `onboardLeds` in status,
   `onboard_led` tool (5 tests, `proto/tests/onboard.rs`); Pico LED follows it in the Wi-Fi

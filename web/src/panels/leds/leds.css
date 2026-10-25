@@ -1,3 +1,7 @@
 /* LED strings. */
 .led-card{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:8px 0;display:flex;flex-direction:column;gap:4px}
 .led-card input[type=color]{width:34px;height:22px;padding:0;border:none;background:none;vertical-align:middle}
+/* Live preview: one box per (step of) pixel(s). */
+.led-preview{display:flex;gap:1px;height:12px;border-radius:3px;overflow:hidden;background:#000}
+.led-preview>span{flex:1;min-width:1px}
+.led-preview.dark{opacity:.35}

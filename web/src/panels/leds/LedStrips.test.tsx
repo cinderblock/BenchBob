@@ -42,7 +42,10 @@ function make(state: LedsState) {
     return { ok: true };
   });
   const b = {
-    conn: { hostname: "node", json: async () => state },
+    conn: {
+      hostname: "node",
+      json: async (_m: string, path: string) => (path.includes("/preview") ? { pixels: 60, step: 2, output: false, colors: "ff0000".repeat(30) } : state),
+    },
     api,
     openModal: (c: ReactNode) => (modal = c),
     closeModal: () => (modal = null),
@@ -68,6 +71,8 @@ describe("LED strings", () => {
     expect(await screen.findByText("desk")).toBeTruthy();
     expect(screen.getByText("dark: output control off")).toBeTruthy();
     expect(screen.getByText(/Output control is off, so the strings are dark/)).toBeTruthy();
+    const preview = await screen.findByRole("img", { name: "Preview: 60 pixels, one box per 2 (dark: output control off)" });
+    expect(preview.children.length).toBe(30);
     fireEvent.click(screen.getByRole("button", { name: "Order test" }));
     await waitFor(() => expect(calls).toContainEqual(["POST", "/api/leds/1/pattern", { name: "order-test" }]));
   });
