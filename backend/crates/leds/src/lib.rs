@@ -173,10 +173,34 @@ impl Inner {
 
     fn buses(&self) -> Vec<SpiBus> {
         if !self.gpio.is_pi() {
-            return vec![]; // no SPI pin maps for other boards yet
+            return self.board_buses();
         }
         let b = self.bcm2711();
         hw::spi_buses(&self.dev_dir, |n| hw::pi_spi_pins(n, b))
+    }
+
+    /// Other boards: the spidev buses their board file's SPI overlays make, where the
+    /// device exists (the overlay is in effect). Pins are physical header pins.
+    fn board_buses(&self) -> Vec<SpiBus> {
+        let mut v: Vec<SpiBus> = Vec::new();
+        let Some(boot) = &self.gpio.board().def.boot else { return v };
+        for s in boot.overlays.iter().filter_map(|o| o.spi.as_ref()) {
+            let Some(name) = std::path::Path::new(&s.dev).file_name() else { continue };
+            let dev = self.dev_dir.join(name);
+            let bus = name.to_str().and_then(|n| n.strip_prefix("spidev")?.split('.').next()?.parse().ok());
+            if let Some(bus) = bus
+                && dev.exists()
+                && !v.iter().any(|b| b.mosi == s.mosi)
+            {
+                v.push(SpiBus { bus, dev, mosi: s.mosi, sclk: s.sclk });
+            }
+        }
+        v
+    }
+
+    /// The board file has SPI overlays (whether or not one is in effect).
+    fn board_has_spi_overlays(&self) -> bool {
+        self.gpio.board().def.boot.as_ref().is_some_and(|b| b.overlays.iter().any(|o| o.spi.is_some()))
     }
 
     fn spi_clock(&self) -> Result<SpiClock, String> {
@@ -236,7 +260,14 @@ impl Inner {
 
     fn one_wire_hint(&self, buses: &[SpiBus]) -> String {
         if !self.gpio.is_pi() {
-            return "one-wire strings (WS2812 family) need SPI, and BenchBob has no SPI pin map for this board yet; clocked strings (APA102, WS2801) work on any free GPIO".into();
+            if !buses.is_empty() {
+                let pins: Vec<String> = buses.iter().map(|b| format!("pin {} (SPI{})", b.mosi, b.bus)).collect();
+                return format!("one-wire strings (WS2812 family) need an SPI MOSI pin: {}", pins.join(", "));
+            }
+            if self.board_has_spi_overlays() {
+                return "one-wire strings (WS2812 family) need an SPI MOSI pin: turn on one of this board's SPI overlays in the GPIO panel (boot overlays), then reboot".into();
+            }
+            return "one-wire strings (WS2812 family) need SPI, and this board's file maps no SPI bus; clocked strings (APA102, WS2801) work on any free GPIO".into();
         }
         let mut pins: Vec<String> = buses.iter().map(|b| format!("GPIO{} (SPI{})", b.mosi, b.bus)).collect();
         if self.pwm_ok() {

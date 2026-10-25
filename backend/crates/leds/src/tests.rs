@@ -183,3 +183,22 @@ fn ddp_over_udp_reaches_the_string_and_the_port_closes_after() {
     l.inner.epoch.fetch_add(1, Ordering::SeqCst);
     rx.join().unwrap();
 }
+
+#[test]
+fn other_boards_take_their_spi_map_from_the_board_file() {
+    let t = tempfile::tempdir().unwrap();
+    let boards = benchbob_boards::Boards::builtin();
+    let input = benchbob_boards::DetectInput::default();
+    let board = Arc::new(benchbob_boards::describe(boards.get("orangepi-zero3").unwrap(), &input, true));
+    let gpio = benchbob_gpio::Gpio::new(board);
+    let l = Leds::with_dev_dir(gpio.handle(), t.path().to_path_buf());
+    // No spidev yet: the hint points at the overlays.
+    let e = post(&l, None, json!({ "chip": "ws2812b", "pin": 19, "pixels": 10 })).unwrap_err();
+    assert!(e.message.contains("SPI overlays in the GPIO panel"), "{}", e.message);
+    // With SPI1's device there, physical pin 19 (its MOSI) takes one-wire strings.
+    std::fs::write(t.path().join("spidev1.1"), "").unwrap();
+    post(&l, None, json!({ "chip": "ws2812b", "pin": 19, "pixels": 10 })).unwrap();
+    let v = l.inner.view().unwrap();
+    let p19 = v["capabilities"]["pinInfo"].as_array().unwrap().iter().find(|p| p["gpio"] == 19).unwrap().clone();
+    assert_eq!((p19["oneWire"].clone(), p19["via"].clone()), (json!(true), json!("SPI1 MOSI")));
+}

@@ -333,6 +333,19 @@ pub struct OverlayChoice {
     pub what: String,
     /// Physical pins on the board's first header.
     pub pins: Vec<u32>,
+    /// An overlay that makes a spidev bus: the device and its MOSI / SCLK (physical
+    /// pins). LED strips use it to put WS2812 strings on that MOSI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spi: Option<OverlaySpi>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct OverlaySpi {
+    /// "/dev/spidev4.1"
+    pub dev: String,
+    pub mosi: u32,
+    pub sclk: u32,
 }
 
 /// Health readings: built-in or a script.

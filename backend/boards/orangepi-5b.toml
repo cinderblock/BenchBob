@@ -117,7 +117,7 @@ overlays = [
   { name = "uart1-m1", what = "UART1 (TX 5, RX 3)", pins = [5, 3] },
   { name = "uart3-m0", what = "UART3 (TX 19, RX 21)", pins = [19, 21] },
   { name = "uart4-m0", what = "UART4 (TX 18, RX 16)", pins = [18, 16] },
-  { name = "spi4-m0-cs1-spidev", what = "SPI4 → /dev/spidev4.1 (MOSI 19, MISO 21, CLK 23, CS1 24)", pins = [19, 21, 23, 24] },
+  { name = "spi4-m0-cs1-spidev", what = "SPI4 → /dev/spidev4.1 (MOSI 19, MISO 21, CLK 23, CS1 24)", pins = [19, 21, 23, 24], spi = { dev = "/dev/spidev4.1", mosi = 19, sclk = 23 } },
   { name = "pwm0-m1", what = "PWM0 on 18", pins = [18] },
   { name = "pwm1-m1", what = "PWM1 on 16", pins = [16] },
   { name = "pwm1-m2", what = "PWM1 on 26", pins = [26] },

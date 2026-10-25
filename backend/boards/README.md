@@ -78,6 +78,9 @@ overlay_dirs = ["/boot/dtb/rockchip/overlay"]   # installed .dtbo files
 # overlay_ref = "/overlays/"   # extlinux/uEnv: how a .dtbo is written in the file
 overlays = [                   # documented header overlays, for pin-conflict checks
   { name = "uart7-m2", what = "UART7 (TX 3)", pins = [3] },
+  # An overlay that makes a spidev bus also says which device and which pins (physical):
+  # the LED strips panel puts WS2812 strings on that MOSI once the device exists.
+  { name = "spi4-m0-cs1-spidev", what = "SPI4 → /dev/spidev4.1 (MOSI 19, CLK 23…)", pins = [19, 21, 23, 24], spi = { dev = "/dev/spidev4.1", mosi = 19, sclk = 23 } },
 ]
 ```
 

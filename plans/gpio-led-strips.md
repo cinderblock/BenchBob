@@ -211,8 +211,10 @@ User's answers of 2026-10-25:
 5c. ~~Staging for the SPI prerequisites~~: done. The GPIO panel's Interfaces → SPI card
    stages `core_freq` + `core_freq_min` (config.txt) and `spidev.bufsiz` (cmdline.txt) in
    one diff/apply (both files backed up); a string whose error needs it gets an
-   "SPI settings…" button. Left: SPI pin maps for non-Pi boards (from their overlay
-   entries), and the Pi 5's extra RP1 SPI buses.
+   "SPI settings…" button. Non-Pi boards: done (board files' SPI overlays carry
+   `spi = { dev, mosi, sclk }`; the Orange Pis are annotated, 16 entries). Left: the
+   Pi 5's extra RP1 SPI buses; the BeagleBones (their spidev numbering is unconfirmed);
+   real SPI clock maths for Rockchip/Allwinner (assumed exact for now).
 5b. ~~BCM283x/2711 PWM + DMA driver~~ (privileged helper): written, unit-tested,
    cross-compiles; **not run on a Pi** (see Open questions). PCM on GPIO21 (a third
    string) not done.

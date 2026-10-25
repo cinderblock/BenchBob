@@ -128,7 +128,7 @@ overlays = [
   { name = "ph-pwm12", what = "PWM1 on 10, PWM2 on 8", pins = [10, 8] },
   { name = "pwm1-ph3", what = "PWM1 on 10", pins = [10] },
   { name = "pwm2-ph2", what = "PWM2 on 8", pins = [8] },
-  { name = "spi1-cs0-spidev", what = "SPI1 → spidev1.0 (CLK 23, MOSI 19, MISO 21, CS0 3)", pins = [23, 19, 21, 3] },
-  { name = "spi1-cs1-spidev", what = "SPI1 → spidev1.1 (CLK 23, MOSI 19, MISO 21, CS1 24)", pins = [23, 19, 21, 24] },
-  { name = "spi1-cs0-cs1-spidev", what = "SPI1, both chip selects (23, 19, 21, CS0 3, CS1 24)", pins = [23, 19, 21, 3, 24] },
+  { name = "spi1-cs0-spidev", what = "SPI1 → spidev1.0 (CLK 23, MOSI 19, MISO 21, CS0 3)", pins = [23, 19, 21, 3], spi = { dev = "/dev/spidev1.0", mosi = 19, sclk = 23 } },
+  { name = "spi1-cs1-spidev", what = "SPI1 → spidev1.1 (CLK 23, MOSI 19, MISO 21, CS1 24)", pins = [23, 19, 21, 24], spi = { dev = "/dev/spidev1.1", mosi = 19, sclk = 23 } },
+  { name = "spi1-cs0-cs1-spidev", what = "SPI1, both chip selects (23, 19, 21, CS0 3, CS1 24)", pins = [23, 19, 21, 3, 24], spi = { dev = "/dev/spidev1.0", mosi = 19, sclk = 23 } },
 ]

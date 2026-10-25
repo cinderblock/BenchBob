@@ -128,5 +128,5 @@ overlays = [
   { name = "uart9-m2", what = "UART9 (TX 22, RX 29)", pins = [22, 29] },
   { name = "pwm11-m1", what = "PWM11 on 32", pins = [32] },
   { name = "pwm15-m1", what = "PWM15 on 7", pins = [7] },
-  { name = "spi3-m0-cs0-spidev", what = "SPI3 → spidev3.0 (MOSI 19, MISO 21, CLK 23, CS0 24)", pins = [19, 21, 23, 24] },
+  { name = "spi3-m0-cs0-spidev", what = "SPI3 → spidev3.0 (MOSI 19, MISO 21, CLK 23, CS0 24)", pins = [19, 21, 23, 24], spi = { dev = "/dev/spidev3.0", mosi = 19, sclk = 23 } },
 ]
