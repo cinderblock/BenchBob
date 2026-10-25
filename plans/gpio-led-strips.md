@@ -158,6 +158,8 @@ User's answers of 2026-10-25:
   restart, output follows GPIO output control, which is off at start like every other
   output. If the user later wants "boot straight into the pattern", that's a change to
   the output-control rule for everything, not a special case here.
+- Pi 1–4 PWM/DMA privileges: **a small privileged helper** owns `/dev/mem`, `/dev/vcio`
+  and the DMA setup; the main `benchbob` process stays unprivileged (answer 2026-10-25).
 - Order of work: as recommended (shared crate → Pico 2 W → ESP32-C6 → Linux spidev →
   Pi 1–4 PWM/DMA → Pi 5 PIO → receivers). No objection was raised.
 - Other features: **all of them**, plus composite video ("RCA") and RC servo PWM.
@@ -165,13 +167,13 @@ User's answers of 2026-10-25:
 
 ## Plan / steps
 
-1. ~~Answer the open questions~~ (done, except question 8)
+1. ~~Answer the open questions~~ (all answered)
 2. ~~Shared `pixels` crate~~: done, `firmware/pixels` (see Progress log).
 3. Pico 2 W driver ← current step (the easiest any-pin target) + node API/MCP + node UI section.
 4. ESP32-C6 driver (RMT + SPI), status LED.
 5. Linux `leds` crate: spidev driver, GPIO-uAPI APA102, staging of SPI overlays; GPIO
    panel exclusions; pin picker component.
-5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), once question 8 is answered.
+5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), in a privileged helper.
 6. Pi 5 `/dev/pio0` driver.
 7. Network receivers (sACN, Art-Net, DDP) on both sides.
 8. DMX512 output over a UART (sACN → DMX bridge).
@@ -182,7 +184,7 @@ User's answers of 2026-10-25:
 
 - [x] Hardware research for each platform (this doc)
 - [x] Open questions 1–7 answered (2026-10-25)
-- [ ] Question 8 (privilege model for `/dev/mem`)
+- [x] Question 8: privileged helper
 - [x] Step 2: `firmware/pixels` (`benchbob-pixels`), 30 host tests, clippy-clean, builds for
   thumbv8m and riscv32imac; CI runs its tests in `firmware-test`. Modules: `color` (Rgbw,
   any RGB/RGBW order, gamma 2.6, brightness, `PowerBudget`), `timing` (presets ws2812b,
@@ -195,9 +197,7 @@ User's answers of 2026-10-25:
 
 ## Open questions for the user
 
-8. **Pi 1–4 PWM/DMA privileges:** give `benchbob.service` CAP_SYS_RAWIO (simpler), or a
-   small privileged helper that owns `/dev/mem` + `/dev/vcio` and the DMA setup (keeps the
-   main process unprivileged)? Recommend the helper. Only blocks step 5b.
+None open.
 
 ## Other GPIO features (own plans)
 
