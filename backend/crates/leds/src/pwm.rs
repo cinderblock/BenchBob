@@ -425,7 +425,7 @@ mod helper {
             let Some(soc) = soc else { return Err("this isn't a Raspberry Pi 1–4 (no BCM2835-family SoC in the device tree)".into()) };
             let cards = String::from_utf8_lossy(&read_bytes("/proc/asound/cards")).to_string();
             if cards.contains("Headphones") || cards.contains("bcm2835 ALSA") {
-                return Err("analog audio uses the PWM: turn it off (dtparam=audio=off; GPIO panel → SPI settings) and reboot; HDMI audio is unaffected".into());
+                return Err("analog audio uses the PWM: turn it off (dtparam=audio=off; GPIO panel → SPI settings) and reboot, or until the next boot: sudo modprobe -r snd_bcm2835. HDMI audio is unaffected".into());
             }
             let base = periph_base(&read_bytes("/proc/device-tree/soc/ranges"))
                 .ok_or("couldn't read the peripheral base (/proc/device-tree/soc/ranges)")?;

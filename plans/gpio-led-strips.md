@@ -304,12 +304,21 @@ User's answers of 2026-10-25:
   Tests: 7 new in the crate (pins, clock/fit, interleave, ranges/ioctl/control block,
   config, PWM-pin validation, hub config). The helper's refusal path ran in WSL;
   aarch64 and armv6 musl builds pass.
-- [ ] Hardware bring-up of 5b on desky: the user said yes (2026-10-25). **Blocked**:
-  at 4:30 PM PDT desky's NBD root had dropped (about 3:27 PM, probably a BootBob/NBD
-  restart by the netboot thread) and is read-only with I/O errors (ISSUES.md). Needs desky
-  rebooted, coordinated with the netboot work, before a test build can go on it. Nothing
-  was changed on desky. Also found: analog audio is on there (`dtparam=audio=on`), and
-  no spidev.
+- [x] Hardware bring-up of 5b on desky (2026-10-25 4:45–4:55 PM PDT, after desky was
+  rebooted): the aarch64 build in `~/bb-leds`, nothing installed. With analog audio on,
+  the helper refused (Headphones card). `sudo modprobe -r snd_bcm2835` freed the PWM
+  without a config.txt change or reboot. Driving the helper directly: setup ok, GPIO18
+  `a5 PWM0_0` while running, 200 + 300 frames with no DMA error, back to input on exit.
+  Back-to-back 60-px frames took 2.59 ms each (wire time 2.15 ms + 300 µs reset), so the
+  DMA is paced by the PWM's DREQ at the configured 2.348 MHz. Full stack in a side
+  instance (:8097, only GPIO + LED strips enabled): string `running`, the GPIO panel
+  showed "used by LED strip desk", helper 0.7 % CPU at 50 fps; output control off →
+  `off`; DELETE → helper exited, pin back to input. Afterwards: side instance stopped by
+  PID, snd_bcm2835 reloaded, live service untouched. **Not yet seen on real LEDs**: no
+  string is wired (the user will say when).
+- [ ] Light a real WS2812 string from desky's GPIO18 (needs the user to wire one).
+- [ ] Nobody has a scope trace of the waveform yet; the timing is inferred from the
+  frame period and the clock divider.
 - [x] Step 7 (2026-10-25): model in `benchbob_proto::api::leds` (`NetIn`, `receive`,
   `tick`, per-universe `SacnArbiter`s, the pattern comes back after 2.5 s of quiet, like
   WLED; a pattern set while receiving becomes the one that comes back; set_pixels is
