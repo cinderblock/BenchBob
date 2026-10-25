@@ -11,12 +11,13 @@ SUBSYSTEM=="block", ACTION=="add", ENV{DEVTYPE}=="disk", ENV{ID_USB_DRIVER}!="",
 SUBSYSTEM=="block", ACTION=="remove", ENV{ID_USB_DRIVER}!="", \
   RUN+="/usr/lib/benchbob/drives/nfs-drive-handler.sh remove %E{DEVNAME} %E{DEVTYPE}"
 
-# A card in the SD slot (MMC_TYPE=SD; eMMC is MMC), the same way. The handler skips it
-# when it is the disk the machine runs from, so this only does anything on a machine
+# A card in the SD slot, the same way. The handler skips it when it is the disk the
+# machine runs from, or eMMC (udev's MMC_TYPE only reaches the whole disk, not its
+# partitions, so the handler reads /sys itself), so this only does anything on a machine
 # that boots from somewhere else (USB, or the network, like desky).
-SUBSYSTEM=="block", ACTION=="add", KERNEL=="mmcblk*", ENV{DEVTYPE}=="partition", ENV{MMC_TYPE}=="SD", \
+SUBSYSTEM=="block", ACTION=="add", KERNEL=="mmcblk*", ENV{DEVTYPE}=="partition", \
   RUN+="/usr/lib/benchbob/drives/nfs-drive-handler.sh add %E{DEVNAME} partition"
-SUBSYSTEM=="block", ACTION=="add", KERNEL=="mmcblk*", ENV{DEVTYPE}=="disk", ENV{MMC_TYPE}=="SD", \
+SUBSYSTEM=="block", ACTION=="add", KERNEL=="mmcblk*", ENV{DEVTYPE}=="disk", \
   RUN+="/usr/lib/benchbob/drives/nfs-drive-handler.sh add %E{DEVNAME} disk"
-SUBSYSTEM=="block", ACTION=="remove", KERNEL=="mmcblk*", ENV{MMC_TYPE}=="SD", \
+SUBSYSTEM=="block", ACTION=="remove", KERNEL=="mmcblk*", \
   RUN+="/usr/lib/benchbob/drives/nfs-drive-handler.sh remove %E{DEVNAME} %E{DEVTYPE}"
