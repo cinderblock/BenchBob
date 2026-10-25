@@ -228,7 +228,14 @@ User's answers of 2026-10-25:
 - [x] Step 3b: Pico 2 W driver (`firmware/pico2w/src/leds.rs`): PIO1, 4 strings, any free
   GPIO, per-string program (fitted ws2812 or clocked), DMA of bytes, 50 fps. Builds;
   untested on hardware.
-- [ ] Step 3c: node web UI section
+- [x] Step 3c: web UI: `web/src/panels/leds/LedStrips.tsx` (shared body: string cards
+  with state, quick order-test/ruler/off, pattern editor, add/edit dialog), the node
+  section `sections/node/NodeLeds.tsx` (shown when the node lists `GET /api/leds`), and
+  `ui/PinPicker.tsx` (header-ordered pin buttons, refusals explained on tap). 3 tests;
+  MCU bundle 28.3 KB gz of 60. Checked end to end against the mock node: added a string
+  through the dialog, and the GPIO section showed both strings' pins as taken.
+- [ ] Follow-up: a live pixel preview in the UI (port the patterns to TS, or have the
+  node report a downsampled frame). Not started.
 - [ ] Steps 4–9
 
 ## Open questions for the user
@@ -271,6 +278,8 @@ None open.
   so `leds_list` has to stay well under ~3.5 KiB: capabilities list chip names, pattern
   names and pin numbers only.
 - `gen` is a reserved keyword in edition 2024.
+- Web tests: `fireEvent.change` on a happy-dom `<select>` doesn't reach preact's handler;
+  set `.value` and dispatch a real `change` event instead (LedStrips.test.tsx).
 
 ## Things not to do
 

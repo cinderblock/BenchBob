@@ -380,5 +380,11 @@ details[open] summary{margin-bottom:8px}
 .pr-pill.on{background:rgba(76,175,125,.18);color:var(--success)}
 .pr-pill.warn{background:rgba(245,166,35,.15);color:var(--warning)}
 .pr-pill.bad{background:rgba(255,92,92,.15);color:var(--danger)}
+/* Pin picker (ui/PinPicker): header-ordered pin buttons; refused ones dimmed. */
+.pin-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:4px;margin:4px 0 8px}
+.pin-btn{display:flex;flex-direction:column;align-items:center;padding:3px 2px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font:inherit;font-size:.74rem;cursor:pointer}
+.pin-btn .pin-h{font-size:.62rem;color:var(--dim)}
+.pin-btn.on{border-color:var(--accent,var(--success));background:rgba(76,175,125,.18)}
+.pin-btn.off{opacity:.45;cursor:help}
 .pr-log{background:#07080b;border:1px solid var(--border);border-radius:4px;font-family:'SF Mono',ui-monospace,monospace;font-size:.75rem;padding:6px 8px;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-all}
 .pr-endpoint{font-family:'SF Mono',ui-monospace,monospace;font-size:.75rem;background:var(--surface3);border-radius:4px;padding:1px 6px;user-select:all}

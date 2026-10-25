@@ -25,5 +25,5 @@ export interface Registry {
   /** Peripheral panels by driver id. */
   panels: Record<string, Lazy<PanelProps>>;
   /** Sections of a microcontroller node. */
-  node: { status: Lazy<{}>; gpio: Lazy<{}>; i2c: Lazy<{}> };
+  node: { status: Lazy<{}>; gpio: Lazy<{}>; i2c: Lazy<{}>; leds: Lazy<{}> };
 }

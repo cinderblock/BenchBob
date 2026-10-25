@@ -29,6 +29,7 @@ const registry: Registry = {
     status: lazy(() => import("./sections/node/NodeStatus")),
     gpio: lazy(() => import("./sections/node/NodeGpio")),
     i2c: lazy(() => import("./sections/node/NodeI2c")),
+    leds: lazy(() => import("./sections/node/NodeLeds")),
   },
 };
 

@@ -233,6 +233,11 @@ function Dashboard({ open, setTitle, modalOpen }: { open: Set<string>; setTitle:
                 <N.i2c />
               </Lazy>
             )}
+            {"GET /api/leds" in nodeEndpoints && (
+              <Lazy name="node-leds">
+                <N.leds />
+              </Lazy>
+            )}
           </>
         )}
         {snap.kind === "connecting" && (

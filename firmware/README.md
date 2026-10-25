@@ -4,7 +4,7 @@ A **node** is a small Wi-Fi microcontroller board that speaks a subset of BenchB
 the same REST shapes and MCP tool names as the Linux server, for the GPIO and I²C it has.
 Scripts and AI agents that work against a BenchBob work against a node too. Like every
 bob it stands alone and serves its own dashboard: open `http://<hostname>.local/` for the
-web UI's node build (status, GPIO, I²C), embedded in the firmware.
+web UI's node build (status, GPIO, I²C, LED strings), embedded in the firmware.
 
 > **Status: v0.1, untested on hardware.** Everything here compiles, and the shared logic
 > (API, MCP, JSON, Improv framing, config record, UF2, mDNS) has host tests, but nobody
