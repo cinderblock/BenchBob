@@ -5,3 +5,6 @@
 .led-preview{display:flex;gap:1px;height:12px;border-radius:3px;overflow:hidden;background:#000}
 .led-preview>span{flex:1;min-width:1px}
 .led-preview.dark{opacity:.35}
+/* DMX: 512 bars, one per channel. */
+.dmx-levels{display:flex;align-items:flex-end;gap:0;height:28px;background:#000;border-radius:3px;overflow:hidden}
+.dmx-levels>span{flex:1;min-width:0;background:var(--accent)}

@@ -20,13 +20,16 @@
 //!   strings come back, dark until output control is turned on again.
 //!
 //! - **Network input** ([`net`]): strings with a `network` input listen for sACN, Art-Net
-//!   or DDP; the ports are only bound while some string wants them.
+//!   or DDP; the ports are only bound while some string (or DMX output) wants them.
+//! - **DMX512 outputs** ([`dmx`], `/api/dmx`): a universe out of a serial port (a plain
+//!   RS-485 adapter or an Enttec DMX USB Pro), from the network or set by hand.
 //!
 //! A worker thread renders at up to 50 fps and does the (blocking) device writes.
 
 // The nodes' ApiErr carries its message inline (no heap), so its Results are large.
 #![allow(clippy::result_large_err)]
 
+pub mod dmx;
 pub mod hw;
 pub mod net;
 pub mod pwm;
@@ -83,6 +86,7 @@ pub(crate) struct Inner {
     /// Where spidev devices are (`BENCHBOB_SPIDEV_DIR` for tests).
     dev_dir: std::path::PathBuf,
     rx: Mutex<net::RxStatus>,
+    dmx: Mutex<dmx::Dmx>,
 }
 
 impl Leds {
@@ -121,6 +125,7 @@ impl Leds {
                 epoch: AtomicU64::new(0),
                 dev_dir,
                 rx: Mutex::default(),
+                dmx: Mutex::default(),
             }),
         }
     }
@@ -403,9 +408,56 @@ impl Inner {
         }
     }
 
+    fn dmx_view(&self) -> Value {
+        let output = self.gpio.output_enabled();
+        let d = self.dmx.lock().unwrap();
+        json!({
+            "outputEnabled": output,
+            "maxOutputs": dmx::MAX_OUTPUTS,
+            "ports": dmx::ports(),
+            "outputs": d.outs.iter().map(|o| dmx::Dmx::out_json(o, output)).collect::<Vec<_>>(),
+        })
+    }
+
+    fn dmx_one(&self, id: u16) -> Value {
+        let output = self.gpio.output_enabled();
+        let d = self.dmx.lock().unwrap();
+        d.outs.iter().find(|o| o.id == id).map(|o| dmx::Dmx::out_json(o, output)).unwrap_or(Value::Null)
+    }
+
+    fn dmx_save(&self) {
+        let v = self.dmx.lock().unwrap().saved();
+        if let Some(c) = self.ctx.get() {
+            c.set_setting("dmx", v);
+        }
+        self.changed();
+    }
+
+    fn dmx_configure(&self, id: Option<i64>, a: &Value) -> Result<Value, HttpError> {
+        let id = self.dmx.lock().unwrap().configure(id, a)?;
+        self.dmx_save();
+        Ok(self.dmx_one(id))
+    }
+
+    fn dmx_remove(&self, id: i64) -> Result<Value, HttpError> {
+        self.dmx.lock().unwrap().remove(id)?;
+        self.dmx_save();
+        Ok(json!({ "ok": true, "removed": id }))
+    }
+
+    fn dmx_levels(&self, id: i64, a: &Value) -> Result<Value, HttpError> {
+        self.dmx.lock().unwrap().set_levels(id, a)?;
+        Ok(self.dmx_one(id as u16))
+    }
+
     fn summary(&self) -> Value {
         let m = self.model.lock().unwrap();
+        let d = self.dmx.lock().unwrap().outs.len();
         let n = m.ids().count();
+        if d > 0 {
+            let strings = if n == 1 { "1 string".to_string() } else { format!("{n} strings") };
+            return json!({ "active": true, "summary": format!("{strings}, {d} DMX out"), "strings": n, "dmx": d });
+        }
         json!({ "active": n > 0, "summary": if n == 0 { "no strings".to_string() } else if n == 1 { "1 string".to_string() } else { format!("{n} strings") }, "strings": n })
     }
 }
@@ -746,8 +798,31 @@ fn param_id(r: &Request) -> Result<i64, HttpError> {
 }
 
 fn doc(key: &str) -> Option<Json> {
+    if let Some(d) = DMX_DOCS.iter().find(|(k, _)| *k == key) {
+        return serde_json::from_str(d.1).ok();
+    }
     benchbob_proto::api::led_endpoint_docs().find(|(k, _)| *k == key).and_then(|(_, v)| serde_json::from_str(v).ok())
 }
+
+const DMX_DOCS: &[(&str, &str)] = &[
+    (
+        "GET /api/dmx",
+        r#""DMX512 outputs: outputEnabled, ports (serial devices to choose from), and each output (port, mode raw|enttec-pro, refreshHz, network input, source network|manual, what it's receiving, state, levels as hex)""#,
+    ),
+    (
+        "POST /api/dmx",
+        r#"{"description":"Create a DMX output on a serial port. mode raw (a plain RS-485 adapter: BenchBob makes the break and timing) or enttec-pro (Enttec DMX USB Pro). network {protocol sacn|artnet, universe} bridges that universe (holding the last look when it stops). Sends only while GPIO output control is on","body":{"port":"/dev/serial/by-id/usb-FTDI_...","mode":"raw","name":"stage","network":{"protocol":"sacn","universe":1},"refreshHz":40}}"#,
+    ),
+    (
+        "POST /api/dmx/:id",
+        r#"{"description":"Change a DMX output (fields as for POST /api/dmx; network: null for levels by hand only)","body":{"refreshHz":30}}"#,
+    ),
+    ("DELETE /api/dmx/:id", r#""Remove a DMX output (its port is released)""#),
+    (
+        "POST /api/dmx/:id/levels",
+        r#"{"description":"Set levels by hand from channel start (1-based): values as an array of 0-255 or hex, or fill for count channels. The output follows these until the next network packet","body":{"start":1,"values":[255,128,0]}}"#,
+    ),
+];
 
 /// Tool arguments as a body for the shared handlers.
 fn args_body(a: &Value) -> Vec<u8> {
@@ -775,10 +850,15 @@ impl Driver for Leds {
         if let Some(saved) = ctx.setting(SETTING) {
             i.load(&saved);
         }
+        if let Some(saved) = ctx.setting("dmx") {
+            i.dmx.lock().unwrap().load(&saved);
+        }
         let me = i.clone();
         std::thread::Builder::new().name("leds".into()).spawn(move || me.worker())?;
         let me = i.clone();
         std::thread::Builder::new().name("leds-net".into()).spawn(move || net::run(me))?;
+        let me = i.clone();
+        std::thread::Builder::new().name("leds-dmx".into()).spawn(move || dmx::supervise(me))?;
         Ok(())
     }
 
@@ -814,6 +894,11 @@ impl Driver for Leds {
                 i.save();
                 Ok(v)
             }),
+            route(Method::GET, "/api/dmx", "GET /api/dmx", |i, _| Ok(i.dmx_view())),
+            route(Method::POST, "/api/dmx", "POST /api/dmx", |i, r| i.dmx_configure(None, &r.json()?)),
+            route(Method::POST, "/api/dmx/:id", "POST /api/dmx/:id", |i, r| i.dmx_configure(Some(param_id(&r)?), &r.json()?)),
+            route(Method::DELETE, "/api/dmx/:id", "DELETE /api/dmx/:id", |i, r| i.dmx_remove(param_id(&r)?)),
+            route(Method::POST, "/api/dmx/:id/levels", "POST /api/dmx/:id/levels", |i, r| i.dmx_levels(param_id(&r)?, &r.json()?)),
             route(Method::GET, "/api/leds/:id/preview", "GET /api/leds/:id/preview", |i, r| {
                 let id = param_id(&r)?;
                 let max = r.query.iter().find(|(k, _)| k == "max").and_then(|(_, v)| v.parse::<usize>().ok()).unwrap_or(120).clamp(1, 256);
@@ -828,6 +913,59 @@ impl Driver for Leds {
     }
 
     fn tools(&self) -> Vec<Tool> {
+        let mut tools = self.dmx_tools();
+        tools.extend(self.led_tools());
+        tools
+    }
+}
+
+impl Leds {
+    fn dmx_tools(&self) -> Vec<Tool> {
+        let i = self.inner.clone();
+        let mut v = Vec::new();
+        let mk = |name: &str, desc: &str, schema: Value, f: fn(&Inner, &Value) -> Result<Value, HttpError>| {
+            let i = i.clone();
+            Tool::new(name, desc, schema, move |a: Value| {
+                let i = i.clone();
+                async move { tokio::task::spawn_blocking(move || f(&i, &a)).await.map_err(|e| HttpError::new(500, e.to_string()))? }
+            })
+        };
+        v.push(mk(
+            "dmx_list",
+            "List BenchBob's DMX512 outputs (serial port, mode, network input, whether it's sending, current levels as hex) and the serial ports one can use.",
+            json!({ "type": "object", "properties": {} }),
+            |i, _| Ok(i.dmx_view()),
+        ));
+        v.push(mk(
+            "dmx_configure",
+            "Create (no id), change (id) or remove (id + delete: true) a DMX512 output on a serial port: mode raw (any RS-485 adapter; BenchBob makes the break and timing) or enttec-pro (Enttec DMX USB Pro); network {protocol sacn|artnet, universe} to bridge a universe from a show controller. Frames go out only while GPIO output control is on.",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "integer" }, "delete": { "type": "boolean" }, "name": { "type": "string" },
+                "port": { "type": "string", "description": "e.g. /dev/serial/by-id/usb-FTDI_... (see ports in dmx_list)" },
+                "mode": { "enum": ["raw", "enttec-pro"] }, "refreshHz": { "type": "integer", "minimum": 1, "maximum": 44 },
+                "network": { "type": ["object", "null"], "properties": { "protocol": { "enum": ["sacn", "artnet"] }, "universe": { "type": "integer" } } },
+            } }),
+            |i, a| {
+                let id = a.get("id").and_then(Value::as_i64);
+                if a.get("delete").and_then(Value::as_bool) == Some(true) {
+                    return i.dmx_remove(id.ok_or_else(|| HttpError::bad_request("delete needs an id"))?);
+                }
+                i.dmx_configure(id, a)
+            },
+        ));
+        v.push(mk(
+            "dmx_levels",
+            "Set a DMX output's levels by hand from channel start (1-based): values as an array of 0-255 or a hex string, or fill with one value for count channels. It follows these until its network input sends again.",
+            json!({ "type": "object", "properties": {
+                "id": { "type": "integer" }, "start": { "type": "integer", "minimum": 1, "maximum": 512 },
+                "values": { "type": ["array", "string"] }, "fill": { "type": "integer", "minimum": 0, "maximum": 255 }, "count": { "type": "integer" },
+            }, "required": ["id"] }),
+            |i, a| i.dmx_levels(a.get("id").and_then(Value::as_i64).ok_or_else(|| HttpError::bad_request("id is required"))?, a),
+        ));
+        v
+    }
+
+    fn led_tools(&self) -> Vec<Tool> {
         benchbob_proto::api::led_tools()
             .map(|(name, desc, schema)| {
                 let i = self.inner.clone();

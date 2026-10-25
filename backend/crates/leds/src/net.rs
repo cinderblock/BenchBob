@@ -98,8 +98,12 @@ pub(crate) fn run(inner: Arc<Inner>) {
             let m = inner.model.lock().unwrap();
             let mut u = [0u16; 64];
             let n = m.sacn_universes(&mut u);
-            (m.protocols(), u[..n].to_vec())
+            let (dbits, du) = inner.dmx.lock().unwrap().wants();
+            let mut all = u[..n].to_vec();
+            all.extend(du);
+            (m.protocols() | dbits, all)
         };
+        universes.dedup();
         universes.sort_unstable();
         if refreshed.elapsed().as_secs() >= 30 {
             addrs = ipv4_addrs(); // interfaces come and go
@@ -190,6 +194,7 @@ pub(crate) fn run(inner: Arc<Inner>) {
                 let now = inner.now();
                 // The worker renders what changed on its next frame; the dashboard polls.
                 inner.model.lock().unwrap().receive(port, pkt, &who, now);
+                inner.dmx.lock().unwrap().receive(port, pkt, &who, now as u32);
             }
         }
     }
@@ -200,7 +205,16 @@ fn reply_artpoll(inner: &Inner, s: &UdpSocket, from: SocketAddr) {
         let m = inner.model.lock().unwrap();
         let mut u = [0u16; 32];
         let n = m.artnet_universes(&mut u);
-        u[..n].to_vec()
+        let mut v = u[..n].to_vec();
+        // DMX outputs bridging Art-Net are ports a console should see too.
+        for o in &inner.dmx.lock().unwrap().outs {
+            if let Some((crate::dmx::Proto::ArtNet, x)) = o.cfg.net
+                && !v.contains(&x)
+            {
+                v.push(x);
+            }
+        }
+        v
     };
     if universes.is_empty() {
         return;

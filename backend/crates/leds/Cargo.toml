@@ -12,6 +12,7 @@ benchbob-core.workspace = true
 benchbob-gpio.workspace = true
 benchbob-pixels.workspace = true
 benchbob-proto.workspace = true
+benchbob-serial.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true

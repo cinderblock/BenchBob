@@ -221,7 +221,8 @@ User's answers of 2026-10-25:
    it would be written blind; step 7 is fully testable.
 7. ~~Network receivers (sACN, Art-Net, DDP) on both sides~~: done (see Progress log).
    Next: 8 (DMX512 out), unless the user would rather have 6 or 5b's bring-up first.
-8. DMX512 output over a UART (sACN → DMX bridge).
+8. ~~DMX512 output over a UART (sACN → DMX bridge)~~: Linux done (see Progress log);
+   nodes (a UART TX + DE pin) not done.
 9. Persistence per the rule above: Linux done in step 5; nodes done (see Progress
    log). README updates done along the way. Left: hardware bring-up (Pico, C6, desky).
 
@@ -325,7 +326,16 @@ User's answers of 2026-10-25:
   last change. Improv now shares the store through a mutex. Tests: config round trip
   with chunks and unknown tags written back byte-for-byte; persist/restore round trip.
   The config.uf2 golden tests still pass (bun). Builds; untested on hardware.
-- [ ] Steps 6, 8 (and hardware bring-up of everything)
+- [x] Step 8, Linux (2026-10-25): `backend/crates/leds/src/dmx.rs`, `/api/dmx*`,
+  `dmx_list` / `dmx_configure` / `dmx_levels`. Raw mode: 250 kbaud 8N2 via termios2,
+  tcdrain, TIOCSBRK 100 µs, MAB 12 µs, start code + 512 slots, up to 44 Hz; Enttec Pro:
+  label-6 message. Port opened with TIOCEXCL (the serial panel sees it busy). Network
+  input holds the last look; manual levels until the next packet; sends only with output
+  control on. Settings `drivers.leds.dmx`. UI: `panels/leds/Dmx.tsx` in the Linux wrapper
+  (bars for 512 channels, a channel fader, all 0/255, add/edit dialog). Tests: 4 Rust
+  (one writes a real frame through a pty), 2 web. Live in WSL: sACN universe 1 →
+  DMX on a Python pty "adapter": 345 frames of exactly 513 bytes in ~9 s.
+- [ ] Steps 6, 8 on nodes (and hardware bring-up of everything)
 
 ## Open questions for the user
 
@@ -410,6 +420,8 @@ User's answers of 2026-10-25:
   under load. Watch for it.
 
 ## Things not to do
+
+- Don't name anything `gen` in Rust: it's reserved in edition 2024 (hit three times).
 
 - Don't bit-bang WS2812 through the GPIO uAPI on Linux: the timing can't be met.
 - Don't depend on rpi_ws281x or piolib (C libraries): the backend has no C dependencies.

@@ -318,6 +318,7 @@ dependencies = [
  "benchbob-gpio",
  "benchbob-pixels",
  "benchbob-proto",
+ "benchbob-serial",
  "libc",
  "serde_json",
  "socket2",
