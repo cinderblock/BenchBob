@@ -99,9 +99,9 @@ describe("LED strings", () => {
 
   it("on a Linux bob, offers only SPI MOSI pins to one-wire strings, without asking /api/gpio", async () => {
     const pinInfo = [
-      { gpio: 10, header: 19, oneWire: true, clocked: true, spi: "SPI0 MOSI", refusal: null },
-      { gpio: 5, header: 29, oneWire: false, clocked: true, spi: null, refusal: null },
-      { gpio: 4, header: 7, oneWire: false, clocked: true, spi: null, refusal: "claimed by the kernel (onewire@4)" },
+      { gpio: 10, header: 19, oneWire: true, clocked: true, via: "SPI0 MOSI", refusal: null },
+      { gpio: 5, header: 29, oneWire: false, clocked: true, via: null, refusal: null },
+      { gpio: 4, header: 7, oneWire: false, clocked: true, via: null, refusal: "claimed by the kernel (onewire@4)" },
     ];
     const { calls, openModal } = make({ outputEnabled: true, capabilities: { ...caps, pins: [10, 5, 4], pinInfo, oneWireHint: "GPIO10 (SPI0)" }, strings: [] });
     fireEvent.click(await screen.findByRole("button", { name: "Add string…" }));

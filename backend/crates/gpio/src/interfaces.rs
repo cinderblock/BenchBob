@@ -176,6 +176,9 @@ pub fn parse_changes(a: &Value) -> Result<Changes, HttpError> {
     if let Some(e) = a.get("spi").and_then(|s| present(s, "enabled")) {
         ch.spi = Some(bool_field(&e, "spi.enabled")?);
     }
+    if let Some(e) = a.get("audio").and_then(|s| present(s, "enabled")) {
+        ch.audio = Some(bool_field(&e, "audio.enabled")?);
+    }
     // null clears; absent leaves it alone.
     let maybe = |k: &str| a.get("spi").and_then(|s| s.get(k)).cloned();
     if let Some(v) = maybe("fixedCoreMhz") {
@@ -275,6 +278,9 @@ pub fn describe(before: &Interfaces, after: &Interfaces) -> Vec<String> {
     }
     if before.spi != after.spi {
         s.push(format!("SPI0 {}", onoff(after.spi)));
+    }
+    if before.audio != after.audio {
+        s.push(format!("analog audio {}", onoff(after.audio)));
     }
     if before.fixed_core_mhz() != after.fixed_core_mhz() {
         s.push(match after.fixed_core_mhz() {
@@ -415,5 +421,13 @@ dtparam=spi=on
 "
         );
         assert!(G::edit_cmdline(cmd, Some(10)).is_err());
+
+        // Analog audio holds the PWM: turning it off edits Pi OS's stock line in place.
+        let base = "[all]\ndtparam=audio=on\n";
+        let before = read_interfaces(base);
+        assert!(before.audio);
+        let next = edit_config(base, &parse_changes(&json!({ "audio": { "enabled": false } })).unwrap()).unwrap();
+        assert!(next.contains("dtparam=audio=off"), "{next}");
+        assert_eq!(describe(&before, &read_interfaces(&next)), ["analog audio off"]);
     }
 }

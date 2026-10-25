@@ -84,6 +84,7 @@ function Interfaces({ info, focus }: { info: IfaceInfo; focus?: IfaceGroup }) {
       if (mhz !== (c.spi.fixedCoreMhz ?? null)) req.spi.fixedCoreMhz = mhz;
       const buf = num("spi-buf");
       if (buf !== (L.spi.bootBufsiz ?? null)) req.spi.spidevBufsiz = buf;
+      if (on("audio") !== !!c.audio?.enabled) req.audio = { enabled: on("audio") };
     }
     if (show("uart")) {
       req.uart = { enabled: on("uart") };
@@ -214,8 +215,13 @@ function Interfaces({ info, focus }: { info: IfaceInfo; focus?: IfaceGroup }) {
                 spidev transfers up to <input id="gi-spi-buf" type="number" min={4096} max={1048576} step={4096} placeholder="4096" defaultValue={L.spi.bootBufsiz ?? ""} style={{ width: 90 }} /> bytes
               </label>
             </div>
+            <div className="pr-row">
+              <label>
+                <input type="checkbox" id="gi-audio" defaultChecked={!!c.audio?.enabled} /> Analog audio (3.5 mm jack)
+              </label>
+            </div>
             <div className="pr-note">
-              A Pi 1–4's SPI clock divides the core clock, which normally changes with load; a WS2812 waveform drawn on SPI needs it fixed (core_freq and core_freq_min: 500 MHz on a Pi 4, 250 on a Pi 3). Each frame is one transfer, so long strings need a bigger spidev limit (cmdline.txt; about 9 bytes per RGB pixel). Now: {L.spi.bufsiz ?? 4096} bytes.
+              Analog audio uses the PWM, so strings on GPIO12/13/18/19 (PWM + DMA) need it off; HDMI audio is unaffected. A Pi 1–4's SPI clock divides the core clock, which normally changes with load; a WS2812 waveform drawn on SPI needs it fixed (core_freq and core_freq_min: 500 MHz on a Pi 4, 250 on a Pi 3). Each frame is one transfer, so long strings need a bigger spidev limit (cmdline.txt; about 9 bytes per RGB pixel). Now: {L.spi.bufsiz ?? 4096} bytes.
             </div>
           </Row>
         )}

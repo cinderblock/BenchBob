@@ -78,8 +78,8 @@ export interface LedPin {
   header: number | null;
   oneWire: boolean;
   clocked: boolean;
-  /** "SPI0 MOSI" when the pin is an SPI bus's. */
-  spi: string | null;
+  /** What drives a string there: "SPI0 MOSI", "PWM0"… */
+  via: string | null;
   refusal: string | null;
 }
 

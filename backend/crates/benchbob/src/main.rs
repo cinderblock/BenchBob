@@ -41,6 +41,11 @@ fn main() -> ExitCode {
         println!("benchbob {} (app {})", env!("CARGO_PKG_VERSION"), version());
         return ExitCode::SUCCESS;
     }
+    // The LED strips' PWM + DMA helper: this binary again, run as root through sudo
+    // (backend/crates/leds/src/pwm.rs). Not for people to run.
+    if args.first().map(String::as_str) == Some("led-pwm-helper") {
+        return ExitCode::from(benchbob_leds::pwm::helper_main() as u8);
+    }
     if !args.is_empty() {
         print!("{HELP}");
         return if args.iter().any(|a| a == "--help" || a == "-h") { ExitCode::SUCCESS } else { ExitCode::from(2) };

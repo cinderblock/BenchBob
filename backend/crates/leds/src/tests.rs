@@ -56,10 +56,13 @@ fn capabilities_list_pins_by_kind() {
     let v = l.inner.view().unwrap();
     let pins = v["capabilities"]["pinInfo"].as_array().unwrap();
     let one_wire: Vec<u64> = pins.iter().filter(|p| p["oneWire"] == true).map(|p| p["gpio"].as_u64().unwrap()).collect();
-    assert_eq!(one_wire, [10, 6]); // header order: pin 19, then pin 31
+    // Header order: GPIO18 (pin 12), 10 (19), 6 (31), 12 (32), 13 (33), 19 (35).
+    assert_eq!(one_wire, [18, 10, 6, 12, 13, 19]);
     let g10 = pins.iter().find(|p| p["gpio"] == 10).unwrap();
     assert_eq!(g10["header"], 19);
-    assert_eq!(g10["spi"], "SPI0 MOSI");
+    assert_eq!(g10["via"], "SPI0 MOSI");
+    let g18 = pins.iter().find(|p| p["gpio"] == 18).unwrap();
+    assert_eq!((g18["oneWire"].clone(), g18["via"].clone()), (json!(true), json!("PWM0")));
     assert_eq!(g10["refusal"], Value::Null);
     assert!(v["capabilities"]["oneWireHint"].as_str().unwrap().contains("GPIO6 (SPI4)"));
 }
@@ -106,4 +109,33 @@ fn frames_encode_per_chip() {
     assert_eq!(&out[4..12], &[0xFF, 1, 2, 3, 0xFF, 4, 5, 6]);
     encode_frame(Encoding::Raw, &c, &[9, 9], &mut out);
     assert_eq!(out, [9, 9]);
+}
+
+#[test]
+fn one_wire_strings_on_the_pwm_pins() {
+    let (_t, l) = pi_leds(&[]);
+    // No SPI at all: PWM still takes one-wire strings, inverted too.
+    let v = post(&l, None, json!({ "chip": "ws2812b", "pin": 18, "pixels": 60, "invert": true })).unwrap();
+    assert_eq!(v["invert"], true);
+    post(&l, None, json!({ "chip": "ws2812b", "pin": 13, "pixels": 10 })).unwrap();
+    // GPIO12 is PWM0 too: taken.
+    let e = post(&l, None, json!({ "chip": "ws2812b", "pin": 12, "pixels": 10 })).unwrap_err();
+    assert!(e.message.contains("PWM0 already drives LED string"), "{}", e.message);
+    // Moving the first string within PWM0 is fine.
+    post(&l, Some(1), json!({ "pin": 12 })).unwrap();
+}
+
+#[test]
+fn the_pwm_helper_config_covers_both_channels() {
+    let osc = pwm::osc_hz(true);
+    let f = pwm::fit(&Timing::WS2812B, osc).unwrap();
+    let mut hub = PwmHub::default();
+    assert!(hub.config(osc).is_none());
+    hub.chans[1] = Some(PwmChan { pin: 19, invert: true, fit: f, max_bytes: 700, reset_us: 300 });
+    hub.chans[0] = Some(PwmChan { pin: 18, invert: false, fit: f, max_bytes: 1200, reset_us: 80 });
+    let c = hub.config(osc).unwrap();
+    assert_eq!(c.pins, [Some(18), Some(19)]);
+    assert_eq!(c.invert, [false, true]);
+    assert_eq!(c.clock_div, 23);
+    assert_eq!((c.max_bytes, c.reset_us), (1200, 300));
 }

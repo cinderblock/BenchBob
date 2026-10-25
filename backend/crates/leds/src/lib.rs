@@ -6,9 +6,10 @@
 //! rendering) is the nodes' own (`benchbob_proto::api::Leds`, `benchbob_pixels`), so both
 //! behave the same. This crate adds what Linux needs:
 //!
-//! - **Hardware** ([`hw`]): spidev for one-wire strings (a WS2812 waveform on MOSI) and
-//!   clocked ones on a bus's MOSI + SCLK, or clocked strings bit-banged through the GPIO
-//!   uAPI on any free header GPIO. Pi 1–4 PWM/DMA and Pi 5 PIO come later
+//! - **Hardware** ([`hw`], [`pwm`]): spidev for one-wire strings (a WS2812 waveform on
+//!   MOSI) and clocked ones on a bus's MOSI + SCLK; on a Pi 1–4, one-wire strings on the
+//!   PWM pins (GPIO12/18, GPIO13/19) through a privileged PWM + DMA helper; clocked strings
+//!   bit-banged through the GPIO uAPI on any free header GPIO. Pi 5 PIO comes later
 //!   (plans/gpio-led-strips.md).
 //! - **Pins** are BCM GPIO numbers on a Raspberry Pi and physical header pins elsewhere
 //!   (the GPIO panel's numbering). A running string claims its pins in the GPIO panel,
@@ -24,6 +25,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod hw;
+pub mod pwm;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -194,20 +196,48 @@ impl Inner {
                 Ok(())
             }
             None if c.chip.clocked() => Ok(()),
+            None if self.pwm_ok() && pwm::pwm_channel(c.pin as u32).is_some() => {
+                // One string per PWM channel (GPIO12 and 18 are both PWM0).
+                let ch = pwm::pwm_channel(c.pin as u32);
+                let mine = model.slot_of(me.unwrap_or(-1));
+                for i in (0..MAX_STRINGS).filter(|&i| Some(i) != mine) {
+                    if let Some(j) = model.job(i)
+                        && !j.config.chip.clocked()
+                        && pwm::pwm_channel(j.config.pin as u32) == ch
+                    {
+                        return Err(format!(
+                            "PWM{} already drives LED string {} (GPIO12/18 are PWM0, GPIO13/19 PWM1)",
+                            ch.unwrap_or(0),
+                            j.config.name.as_str()
+                        ));
+                    }
+                }
+                Ok(())
+            }
             None => Err(self.one_wire_hint(&buses)),
         }
+    }
+
+    /// A Pi 1–4: its PWM can drive one-wire strings (the Pi 5's RP1 PWM can't, this way).
+    fn pwm_ok(&self) -> bool {
+        self.gpio.is_pi() && pwm::soc_has_pwm_dma(self.soc().as_deref())
     }
 
     fn one_wire_hint(&self, buses: &[SpiBus]) -> String {
         if !self.gpio.is_pi() {
             return "one-wire strings (WS2812 family) need SPI, and BenchBob has no SPI pin map for this board yet; clocked strings (APA102, WS2801) work on any free GPIO".into();
         }
-        if buses.is_empty() {
+        let mut pins: Vec<String> = buses.iter().map(|b| format!("GPIO{} (SPI{})", b.mosi, b.bus)).collect();
+        if self.pwm_ok() {
+            pins.push("GPIO12/18 (PWM0)".into());
+            pins.push("GPIO13/19 (PWM1)".into());
+        }
+        if buses.is_empty() && !self.pwm_ok() {
             return "one-wire strings (WS2812 family) need an SPI MOSI pin: enable SPI0 in the GPIO panel (then reboot) and use GPIO10"
                 .into();
         }
-        let pins: Vec<String> = buses.iter().map(|b| format!("GPIO{} (SPI{})", b.mosi, b.bus)).collect();
-        format!("one-wire strings (WS2812 family) need an SPI MOSI pin: {}", pins.join(", "))
+        let more = if buses.is_empty() { "; or enable SPI0 in the GPIO panel for GPIO10" } else { "" };
+        format!("one-wire strings (WS2812 family) need an SPI MOSI or PWM pin: {}{more}", pins.join(", "))
     }
 
     /// `capabilities.pinInfo`: every header GPIO, what kind of string it can carry and
@@ -222,6 +252,7 @@ impl Inner {
                 .map(|(id, phys)| {
                     let owner = model.owner(id as u8).map(|n| format!("LED string {n}"));
                     let bus = buses.iter().find(|b| b.mosi == id || b.sclk == id);
+                    let pwm_ch = if self.pwm_ok() { pwm::pwm_channel(id) } else { None };
                     // Our own strings' pins are claimed; that's not a refusal for them.
                     let refusal = match (&owner, bus) {
                         (Some(o), _) => Some(format!("used by {o}")),
@@ -232,9 +263,9 @@ impl Inner {
                     json!({
                         "gpio": id,
                         "header": phys,
-                        "oneWire": buses.iter().any(|b| b.mosi == id),
+                        "oneWire": buses.iter().any(|b| b.mosi == id) || pwm_ch.is_some(),
                         "clocked": true,
-                        "spi": bus.map(|b| format!("SPI{} {}", b.bus, if b.mosi == id { "MOSI" } else { "SCLK" })),
+                        "via": bus.map(|b| format!("SPI{} {}", b.bus, if b.mosi == id { "MOSI" } else { "SCLK" })).or(pwm_ch.map(|c| format!("PWM{c}"))),
                         "refusal": refusal,
                     })
                 })
@@ -377,6 +408,62 @@ impl Inner {
 enum Out {
     Spi(SpiOut),
     Bang(BitBang),
+    /// A channel of the shared PWM helper ([`PwmHub`]).
+    Pwm(usize),
+}
+
+/// The PWM + DMA helper both PWM strings share: one clock and one DMA transfer carry both
+/// channels, so a change to either restarts it with the new pair.
+#[derive(Default)]
+struct PwmHub {
+    client: Option<pwm::PwmClient>,
+    chans: [Option<PwmChan>; 2],
+    frames: [Vec<u8>; 2],
+    dirty: bool,
+}
+
+#[derive(Clone)]
+struct PwmChan {
+    pin: u32,
+    invert: bool,
+    fit: SpiFit,
+    max_bytes: usize,
+    reset_us: u32,
+}
+
+impl PwmHub {
+    fn config(&self, osc: u32) -> Option<pwm::HelperConfig> {
+        let used: Vec<&PwmChan> = self.chans.iter().flatten().collect();
+        let first = used.first()?;
+        Some(pwm::HelperConfig {
+            pins: [self.chans[0].as_ref().map(|c| c.pin), self.chans[1].as_ref().map(|c| c.pin)],
+            invert: [self.chans[0].as_ref().is_some_and(|c| c.invert), self.chans[1].as_ref().is_some_and(|c| c.invert)],
+            clock_div: osc / first.fit.clock_hz.max(1),
+            max_bytes: used.iter().map(|c| c.max_bytes).max().unwrap_or(0),
+            reset_us: used.iter().map(|c| c.reset_us).max().unwrap_or(300),
+        })
+    }
+
+    /// Stop the helper and start it again for the channels in use (if any).
+    fn restart(&mut self, osc: u32) -> Result<(), String> {
+        self.client = None;
+        self.frames = Default::default();
+        if let Some(cfg) = self.config(osc) {
+            self.client = Some(pwm::PwmClient::start(cfg)?);
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), String> {
+        if !self.dirty {
+            return Ok(());
+        }
+        self.dirty = false;
+        match self.client.as_mut() {
+            Some(c) => c.frame([&self.frames[0], &self.frames[1]]),
+            None => Ok(()),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -401,10 +488,16 @@ impl Lane {
         Lane { config_gen: None, content_gen: 0, active: None, out: None, pins: vec![], frame: vec![], go: false }
     }
 
-    fn write(&mut self) -> Result<(), String> {
+    /// Send the frame (a PWM string's goes to the hub, which sends both channels at once).
+    fn write(&mut self, hub: &mut PwmHub) -> Result<(), String> {
         match &mut self.out {
             Some(Out::Spi(s)) => s.write(&self.frame),
             Some(Out::Bang(b)) => b.write(&self.frame),
+            Some(Out::Pwm(ch)) => {
+                hub.frames[*ch].clone_from(&self.frame);
+                hub.dirty = true;
+                Ok(())
+            }
             None => Ok(()),
         }
     }
@@ -429,8 +522,16 @@ fn encode_frame(e: Encoding, c: &StringConfig, wire: &[u8], out: &mut Vec<u8>) {
 
 impl Inner {
     /// Set a string's hardware up; returns its output, encoding and the pins it holds.
-    fn open(&self, c: &StringConfig, owner: &str) -> Result<(Out, Encoding, Vec<u32>), String> {
+    fn open(&self, c: &StringConfig, owner: &str, hub: &mut PwmHub) -> Result<(Out, Encoding, Vec<u32>), String> {
         let buses = self.buses();
+        let on_bus = buses.iter().any(|b| b.mosi == c.pin as u32);
+        if !c.chip.clocked()
+            && !on_bus
+            && self.pwm_ok()
+            && let Some(ch) = pwm::pwm_channel(c.pin as u32)
+        {
+            return self.open_pwm(c, owner, ch, hub);
+        }
         let bus = buses.iter().find(|b| b.mosi == c.pin as u32 && (!c.chip.clocked() || c.clock_pin.map(u32::from) == Some(b.sclk)));
         let (out, enc, pins) = match bus {
             Some(b) => {
@@ -485,12 +586,57 @@ impl Inner {
         Ok((out, enc, pins))
     }
 
-    fn release(&self, lane: &mut Lane) {
+    /// A one-wire string on PWM channel `ch`: joins the helper (restarting it with both
+    /// channels), which needs both strings to share one clock.
+    fn open_pwm(&self, c: &StringConfig, owner: &str, ch: usize, hub: &mut PwmHub) -> Result<(Out, Encoding, Vec<u32>), String> {
+        if hub.chans[ch].is_some() {
+            return Err(format!("PWM{ch} is already driving another string"));
+        }
+        let osc = pwm::osc_hz(self.bcm2711());
+        let f = pwm::fit(&c.timing, osc).ok_or("the PWM clock can't make this timing within 150 ns")?;
+        if let Some(o) = &hub.chans[1 - ch]
+            && (o.fit.clock_hz, o.fit.bits) != (f.clock_hz, f.bits)
+        {
+            return Err("both PWM strings share one clock: give them the same chip timing".into());
+        }
+        let pin = c.pin as u32;
+        self.gpio.refresh_lines();
+        if let Some(r) = self.gpio.refusal(pin, owner).filter(|r| !r.starts_with("muxed to PWM")) {
+            return Err(format!("{}: {r}", self.pin_name(pin)));
+        }
+        self.gpio.claim(pin, owner).map_err(|e| format!("{}: {e}", self.pin_name(pin)))?;
+        hub.chans[ch] = Some(PwmChan {
+            pin,
+            invert: c.invert,
+            fit: f,
+            max_bytes: encode::ws_spi_len(&f, c.wire_len(), c.timing.reset_us),
+            reset_us: c.timing.reset_us,
+        });
+        if let Err(e) = hub.restart(osc) {
+            // Put the other channel's string back as it was.
+            hub.chans[ch] = None;
+            if let Err(e2) = hub.restart(osc) {
+                tracing::warn!("[leds] PWM helper didn't come back for the other string: {e2}");
+            }
+            self.gpio.release(pin);
+            return Err(e);
+        }
+        Ok((Out::Pwm(ch), Encoding::OneWire(f), vec![pin]))
+    }
+
+    fn release(&self, lane: &mut Lane, hub: &mut PwmHub) {
         if let Some((c, enc)) = lane.active.take() {
             // Blank it before letting go, so a removed string goes dark.
             let zeros = vec![0u8; c.wire_len()];
             encode_frame(enc, &c, &zeros, &mut lane.frame);
-            let _ = lane.write();
+            let _ = lane.write(hub);
+            let _ = hub.flush();
+        }
+        if let Some(Out::Pwm(ch)) = lane.out {
+            hub.chans[ch] = None;
+            if let Err(e) = hub.restart(pwm::osc_hz(self.bcm2711())) {
+                tracing::warn!("[leds] PWM helper didn't restart for the other string: {e}");
+            }
         }
         lane.out = None;
         for p in lane.pins.drain(..) {
@@ -502,6 +648,7 @@ impl Inner {
         let epoch = self.epoch.load(Ordering::SeqCst);
         let mut lanes: Vec<Lane> = (0..MAX_STRINGS).map(|_| Lane::new()).collect();
         let mut wire = vec![0u8; MAX_PIXELS * 4];
+        let mut hub = PwmHub::default();
         while self.epoch.load(Ordering::SeqCst) == epoch {
             let output = self.gpio.output_enabled();
             let mut changed = false;
@@ -513,11 +660,11 @@ impl Inner {
                     let want = job.map(|j| j.config_gen);
                     let reconfigured = want != lane.config_gen;
                     if reconfigured {
-                        self.release(lane);
+                        self.release(lane, &mut hub);
                         lane.config_gen = want;
                         if let Some(j) = job {
                             let owner = format!("LED strip {}", j.config.name.as_str());
-                            let r = self.open(&j.config, &owner);
+                            let r = self.open(&j.config, &owner, &mut hub);
                             let r = match r {
                                 Ok((out, enc, pins)) => {
                                     lane.out = Some(out);
@@ -545,16 +692,29 @@ impl Inner {
                     }
                 }
             }
+            let mut failed: Vec<(usize, String)> = Vec::new();
             for (i, lane) in lanes.iter_mut().enumerate() {
                 if lane.go
-                    && let Err(e) = lane.write()
+                    && let Err(e) = lane.write(&mut hub)
                 {
-                    let mut m = self.model.lock().unwrap();
+                    failed.push((i, e));
+                }
+            }
+            if let Err(e) = hub.flush() {
+                for (i, lane) in lanes.iter().enumerate() {
+                    if matches!(lane.out, Some(Out::Pwm(_))) {
+                        failed.push((i, e.clone()));
+                    }
+                }
+            }
+            if !failed.is_empty() {
+                let mut m = self.model.lock().unwrap();
+                for (i, e) in failed {
                     if let Some(j) = m.job(i) {
                         m.report(i, j.config_gen, Err(&e));
                     }
-                    changed = true;
                 }
+                changed = true;
             }
             if changed && let Some(c) = self.ctx.get() {
                 c.changed();
@@ -562,7 +722,7 @@ impl Inner {
             std::thread::sleep(Duration::from_millis(FRAME_MS));
         }
         for lane in &mut lanes {
-            self.release(lane);
+            self.release(lane, &mut hub);
         }
     }
 }

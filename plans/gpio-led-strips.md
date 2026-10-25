@@ -213,9 +213,10 @@ User's answers of 2026-10-25:
    one diff/apply (both files backed up); a string whose error needs it gets an
    "SPI settings…" button. Left: SPI pin maps for non-Pi boards (from their overlay
    entries), and the Pi 5's extra RP1 SPI buses.
-5b. BCM283x/2711 PWM/PCM + DMA driver ← next (privileged helper).
-5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), in a privileged helper.
-6. Pi 5 `/dev/pio0` driver.
+5b. ~~BCM283x/2711 PWM + DMA driver~~ (privileged helper): written, unit-tested,
+   cross-compiles; **not run on a Pi** (see Open questions). PCM on GPIO21 (a third
+   string) not done.
+6. Pi 5 `/dev/pio0` driver ← next.
 7. Network receivers (sACN, Art-Net, DDP) on both sides.
 8. DMX512 output over a UART (sACN → DMX bridge).
 9. Persistence per the rule above, README updates (root, firmware, backend), hardware
@@ -280,11 +281,32 @@ User's answers of 2026-10-25:
   apply wrote both files with backups. The LED panel's button lives in the Linux wrapper
   (`panels/leds/Leds.tsx`), not the shared body, which kept the node bundle at 29.1 KB gz
   (importing the GPIO dialog there cost 3.6 KB).
-- [ ] Steps 5b, 6–9
+- [x] Step 5b code (2026-10-25): `backend/crates/leds/src/pwm.rs`, a port of
+  rpi_ws281x's PWM method (read from its source: ws2811.c, mailbox.c, pwm/dma/clk.h).
+  The serializer is SPI-like, so frames are the same `SpiFit`/`ws_spi` stream, packed
+  into big-endian words and interleaved ch0/ch1. Helper = `benchbob led-pwm-helper`
+  under `sudo -n` (no new binary to package), stdin/stdout protocol (JSON config line,
+  then `F` + two length-prefixed frames per frame, `k` ack), cleans up on EOF/SIGTERM
+  (stops DMA/PWM, pins to inputs, frees the VideoCore memory, which outlives the process
+  otherwise). Refuses with analog audio on (`/proc/asound/cards` Headphones); the GPIO
+  panel's SPI card now also stages `dtparam=audio`. Server side: `PwmHub` shares one
+  helper between the two channels (one clock: both strings must fit the same SPI-style
+  timing), restarts it when the pair changes. DMA channel 10, clock = crystal (54 MHz
+  Pi 4, 19.2 MHz before) / integer divider, rounded so it never runs fast.
+  Tests: 7 new in the crate (pins, clock/fit, interleave, ranges/ioctl/control block,
+  config, PWM-pin validation, hub config). The helper's refusal path ran in WSL;
+  aarch64 and armv6 musl builds pass.
+- [ ] Hardware bring-up of 5b on desky (needs the user's go-ahead: it maps /dev/mem and
+  runs DMA).
+- [ ] Steps 6–9
 
 ## Open questions for the user
 
-None open.
+1. May I run the new PWM + DMA helper on desky (the Pi 4) to bring it up? It needs a
+   test build deployed there, `dtparam=audio=off` (if analog audio is on) and a reboot,
+   and a WS2812 string (or a scope/logic analyzer) on GPIO18. It maps /dev/mem and runs
+   DMA channel 10, as rpi_ws281x does; a mistake there can hang the Pi until a power
+   cycle. Recommendation: yes, at a time you choose, with a string on GPIO18.
 
 ## Other GPIO features (own plans)
 

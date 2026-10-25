@@ -266,6 +266,9 @@ pub struct Interfaces {
     /// a Pi ≤ 4's SPI clock divides: LED strips drawn on SPI need that.
     pub core_freq: Option<i64>,
     pub core_freq_min: Option<i64>,
+    /// `dtparam=audio` (analog audio, the 3.5 mm jack): it holds the PWM that LED strips
+    /// on GPIO12/13/18/19 need. Absent = off.
+    pub audio: bool,
     /// Keys also set in conditional sections (may override the [all] value).
     pub conditional: Vec<(String, String)>,
 }
@@ -283,6 +286,7 @@ impl Interfaces {
         json!({
             "i2c": { "enabled": self.i2c.0, "baudrate": self.i2c.1 },
             "spi": { "enabled": self.spi, "coreFreq": self.core_freq, "coreFreqMin": self.core_freq_min, "fixedCoreMhz": self.fixed_core_mhz() },
+            "audio": { "enabled": self.audio },
             "uart": { "enabled": self.uart },
             "onewire": { "enabled": self.onewire.0, "pin": self.onewire.1, "pullup": self.onewire.2 },
             "extraI2c": self.extra_i2c.iter().map(|(k, x)| (k.clone(), json!({ "enabled": x.enabled, "pins": x.pins, "baudrate": x.baudrate }))).collect::<serde_json::Map<_, _>>(),
@@ -306,6 +310,7 @@ pub fn read_interfaces(text: &str) -> Interfaces {
         i2c_gpio: I2cGpio { enabled: false, sda: I2C_GPIO_DEFAULTS.0 as i64, scl: I2C_GPIO_DEFAULTS.1 as i64, bus: None, delay_us: None },
         core_freq: None,
         core_freq_min: None,
+        audio: false,
         conditional: Vec::new(),
     };
     for l in parse_config(text) {
@@ -314,7 +319,9 @@ pub fn read_interfaces(text: &str) -> Interfaces {
         }
         let (key, value) = (l.key.as_deref().unwrap_or(""), l.value.as_deref().unwrap_or(""));
         let relevant = (key == "dtparam"
-            && params(value).iter().any(|(k, _)| I2C_NAMES.contains(&k.as_str()) || BAUD_NAMES.contains(&k.as_str()) || k == "spi"))
+            && params(value)
+                .iter()
+                .any(|(k, _)| I2C_NAMES.contains(&k.as_str()) || BAUD_NAMES.contains(&k.as_str()) || k == "spi" || k == "audio"))
             || key == "enable_uart"
             || key == "core_freq"
             || key == "core_freq_min"
@@ -338,6 +345,9 @@ pub fn read_interfaces(text: &str) -> Interfaces {
                 }
                 if k == "spi" {
                     r.spi = truthy(v.as_deref());
+                }
+                if k == "audio" {
+                    r.audio = truthy(v.as_deref());
                 }
             }
         }
@@ -410,6 +420,8 @@ pub struct Changes {
     /// spidev.bufsiz on the kernel command line (cmdline.txt), or (None) back to the
     /// default 4096. Not a config.txt change: see [`edit_cmdline`].
     pub spidev_bufsiz: Option<Option<i64>>,
+    /// Analog audio on/off (`dtparam=audio`).
+    pub audio: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -574,6 +586,9 @@ pub fn edit_config(text: &str, ch: &Changes) -> Result<String, String> {
     }
     if let Some(en) = ch.spi {
         set_param(&mut out, &mut append, &["spi"], if en { "on" } else { "off" }, en);
+    }
+    if let Some(en) = ch.audio {
+        set_param(&mut out, &mut append, &["audio"], if en { "on" } else { "off" }, en);
     }
     if let Some(en) = ch.uart {
         let hits: Vec<usize> =

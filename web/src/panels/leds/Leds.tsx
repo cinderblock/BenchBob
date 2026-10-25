@@ -6,7 +6,7 @@ import type { PanelProps } from "../../registry";
 import { IfaceButton } from "../gpio/IfaceButton";
 import { LedStrips } from "./LedStrips";
 
-const NEEDS_SPI_SETUP = /core_freq|spidev\.bufsiz|enable SPI0/;
+const NEEDS_SPI_SETUP = /core_freq|spidev\.bufsiz|enable SPI0|dtparam=audio/;
 
 export default function Leds(_: PanelProps) {
   return (
