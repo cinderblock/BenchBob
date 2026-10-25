@@ -9,6 +9,7 @@ pub fn own_endpoints() -> Map<String, Value> {
         "GET /api": "This documentation",
         "GET /api/status": "System status snapshot (same data as SSE). board: { id, name, model, tested, capabilities } says which board file BenchBob picked and what it supports; sensors: thermal/hwmon/power_supply readings",
         "GET /api/events": "SSE stream, sends status every ~2s",
+        "POST /api/onboard-leds": { "body": { "on": true, "ms": 1000 }, "description": "Light the board's own LEDs (a Pi's ACT and PWR; onboardLeds in the status lists them) for ms (default 1000, max 10000) so a person can find it, then give them back to their kernel trigger; on: false releases now; id picks one LED. Not gated by GPIO output control. The dashboard's hold button renews it while held" },
         "GET /api/boards": "Every board definition BenchBob loaded (TOML files in /usr/share/benchbob/boards and /etc/benchbob/boards.d), which one this machine matched, and files that failed to load",
     });
     v.as_object().unwrap().clone()

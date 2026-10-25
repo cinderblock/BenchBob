@@ -45,6 +45,7 @@ pub struct App {
     pub sse: Sse,
     pub update: Arc<Update>,
     pub ui: Ui,
+    pub onboard_leds: Arc<crate::onboard_leds::OnboardLeds>,
 }
 
 impl App {
@@ -95,6 +96,7 @@ impl App {
         m.insert("sensors".into(), sensors.to_json());
         m.insert("network".into(), network);
         m.insert("rootStorage".into(), root_storage);
+        m.insert("onboardLeds".into(), self.onboard_leds.view());
         if let Some(d) = self.drives() {
             let root = s.root_disk_name();
             for (k, v) in d.status_fields(&s.disk_rates, root.as_deref()).await {
@@ -225,6 +227,23 @@ impl App {
             return text_response(404, "Not Found");
         }
 
+        if path == "/api/onboard-leds" {
+            if method != Method::POST {
+                let mut r = HttpError::new(405, "Use POST").into_response();
+                r.headers_mut().insert(header::ALLOW, HeaderValue::from_static("POST"));
+                return r;
+            }
+            let body = read_body(req.into_body(), BODY_LIMIT).await.unwrap_or_default();
+            let a: Value = if body.is_empty() { json!({}) } else { serde_json::from_slice(&body).unwrap_or(Value::Null) };
+            if !a.is_object() {
+                return HttpError::bad_request("Body must be a JSON object").into_response();
+            }
+            return match self.onboard_leds.hold(&a).await {
+                Ok(v) => json_response(200, &v),
+                Err(e) => e.into_response(),
+            };
+        }
+
         if path == "/api/status" {
             return json_response(200, &self.status().await);
         }
@@ -317,10 +336,15 @@ struct Tools {
 #[async_trait]
 impl ToolSource for Tools {
     async fn list(&self) -> Vec<Value> {
-        self.app.registry.tools().into_iter().map(|(_, t)| mcp::describe(&t)).collect()
+        let mut v: Vec<Value> = self.app.registry.tools().into_iter().map(|(_, t)| mcp::describe(&t)).collect();
+        v.push(mcp::describe(&self.app.onboard_leds.tool()));
+        v
     }
 
     async fn call(&self, name: &str, args: Value) -> Option<Value> {
+        if name == "onboard_led" {
+            return Some(mcp::call_tool(&self.app.onboard_leds.tool(), args).await);
+        }
         let (_, t) = self.app.registry.tools().into_iter().find(|(_, t)| t.name == name)?;
         Some(mcp::call_tool(&t, args).await)
     }

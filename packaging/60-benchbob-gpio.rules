@@ -2,3 +2,6 @@
 # (and watch them) without root. Raspberry Pi OS already does this; stock Debian, Ubuntu
 # and Armbian leave /dev/gpiochip* root-only. postinst creates the group if it's missing.
 SUBSYSTEM=="gpio", KERNEL=="gpiochip*", GROUP="gpio", MODE="0660"
+# Onboard LEDs (a Pi's ACT and PWR): their trigger and brightness for the gpio group too,
+# so the dashboard's hold-to-light button doesn't need sudo (it falls back to it).
+SUBSYSTEM=="leds", ACTION=="add", RUN+="/bin/chgrp gpio /sys%p/trigger /sys%p/brightness", RUN+="/bin/chmod g+w /sys%p/trigger /sys%p/brightness"

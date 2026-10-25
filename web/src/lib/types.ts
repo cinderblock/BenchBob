@@ -132,6 +132,8 @@ export interface Status {
   power?: Power | null;
   network: NetIface[];
   rootStorage?: { kind: string; source?: string; size?: number; usePercent?: number } | null;
+  /** The board's own LEDs, which the header's hold button lights (POST /api/onboard-leds). */
+  onboardLeds?: OnboardLed[];
   rootDevice?: { name: string; size: number; children?: Partition[] } | null;
   drives: Drive[];
   nbdExports: string[];
@@ -156,4 +158,16 @@ export interface NodeStatus {
   chip: string;
   network: { mac: string; wifi: "unprovisioned" | "connecting" | "connected" | string; ssid: string | null; rssi: number | null; ip: string | null };
   heap: { free: number; used: number } | null;
+  onboardLeds?: OnboardLed[];
+}
+
+/** An LED on the board itself: a Pi's ACT/PWR (id is its sysfs name) or a node's (an index). */
+export interface OnboardLed {
+  id: string | number;
+  name: string;
+  /** green, red, rgb, ...; "" when unknown. */
+  color: string;
+  /** What it shows the rest of the time. */
+  normally: string;
+  held: boolean;
 }

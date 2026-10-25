@@ -6,6 +6,7 @@
 pub mod app;
 pub mod docs;
 pub mod health;
+pub mod onboard_leds;
 pub mod sse;
 pub mod status;
 pub mod ui;
@@ -104,6 +105,7 @@ pub async fn serve() -> anyhow::Result<()> {
         sse: Default::default(),
         update: Default::default(),
         ui: ui::Ui::new(app_root()),
+        onboard_leds: Default::default(),
     });
 
     // A peripheral change pushes only the peripherals part, as its own event: a full
@@ -140,6 +142,7 @@ pub async fn serve() -> anyhow::Result<()> {
             let (mut term, mut int) = (signal(SignalKind::terminate()).unwrap(), signal(SignalKind::interrupt()).unwrap());
             tokio::select! { _ = term.recv() => {}, _ = int.recv() => {} }
             tracing::info!("stopping drivers");
+            a.onboard_leds.release_all().await;
             a.registry.shutdown().await;
             std::process::exit(0);
         });

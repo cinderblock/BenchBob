@@ -192,14 +192,21 @@ User's answers of 2026-10-25:
   Pi 1–4 PWM/DMA → Pi 5 PIO → receivers). No objection was raised.
 - Other features: **all of them**, plus composite video ("RCA") and RC servo PWM.
   Each family gets its own plan (below); DMX512 out stays here as a lighting output.
+- **Onboard-LED hold button** (user request 2026-10-25): boards with their own LEDs get
+  an automatic button that keeps them lit while it's held. Built as: a button in the
+  header (shown when the status lists `onboardLeds`), `POST /api/onboard-leds {on, ms,
+  id}` renewed every 400 ms with ms 1500 and released on let-go/blur, MCP `onboard_led`.
+  Not gated by output control (my call: the LEDs aren't on the header). Linux: board LED
+  devices in /sys/class/leds (ACT/PWR), trigger saved and restored.
 
 ## Plan / steps
 
 1. ~~Answer the open questions~~ (all answered)
 2. ~~Shared `pixels` crate~~: done, `firmware/pixels` (see Progress log).
-3. Pico 2 W driver: node API/MCP and PIO driver done; node UI section ← current step (the easiest any-pin target) + node API/MCP + node UI section.
-4. ESP32-C6 driver (RMT + SPI), status LED.
-5. Linux `leds` crate: spidev driver, GPIO-uAPI APA102, staging of SPI overlays; GPIO
+3. ~~Pico 2 W driver~~ + node API/MCP + node UI section: done.
+3b. ~~Onboard-LED hold button~~ (nodes + Linux + header UI): done.
+4. ~~ESP32-C6 driver (RMT + SPI), status LED~~: done (compiles; untested on hardware).
+5. Linux `leds` crate ← current step: spidev driver, GPIO-uAPI APA102, staging of SPI overlays; GPIO
    panel exclusions; pin picker component.
 5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), in a privileged helper.
 6. Pi 5 `/dev/pio0` driver.
@@ -236,7 +243,17 @@ User's answers of 2026-10-25:
   through the dialog, and the GPIO section showed both strings' pins as taken.
 - [ ] Follow-up: a live pixel preview in the UI (port the patterns to TS, or have the
   node report a downsampled frame). Not started.
-- [ ] Steps 4–9
+- [x] Onboard-LED hold (2026-10-25, `291862f` firmware, then the Linux + UI commit):
+  proto `Hold`/`Node::hold_onboard_led`, `/api/onboard-leds`, `onboardLeds` in status,
+  `onboard_led` tool (5 tests, `proto/tests/onboard.rs`); Pico LED follows it in the Wi-Fi
+  task; Linux `backend/crates/benchbob/src/onboard_leds.rs` (3 tests, run in WSL) with a
+  udev rule giving the gpio group trigger/brightness and a `sudo -n tee` fallback;
+  `web/src/ui/HoldLed.tsx` (3 tests). Checked against the mock node: holding in the
+  page renewed every ~400 ms and released on pointer-up.
+- [x] Step 4: ESP32-C6 (`firmware/esp32c6/src/leds.rs`): status LED on RMT ch0 (GPIO8 now
+  reserved), 2 strings: SPI2+DMA (any length, one-wire or clocked) and RMT ch1 (one-wire,
+  ≤ 256 RGB px). Builds, clippy clean; untested on hardware.
+- [ ] Steps 5–9
 
 ## Open questions for the user
 
@@ -280,6 +297,26 @@ None open.
 - `gen` is a reserved keyword in edition 2024.
 - Web tests: `fireEvent.change` on a happy-dom `<select>` doesn't reach preact's handler;
   set `.value` and dispatch a real `change` event instead (LedStrips.test.tsx).
+
+## Findings from the ESP32-C6 work
+
+- esp-hal 1.1's RMT `transmit` takes a `&[PulseCode]`: 4 bytes per data bit (96 B per
+  RGB pixel), so the RMT lane is capped at 256 px (24 KiB). No encoder/iterator API
+  in 1.1. SPI+DMA has no such cost, so it takes the long strings.
+- The C6 has only 2 RMT TX channels; the status LED takes ch0. Time-sharing one channel
+  between the status LED and a string (`with_pin` replaces the pin) is possible but not
+  done.
+- Runtime pins: `Flex::new(AnyPin::steal(n)).into_peripheral_output().with_output_inverter(x)`;
+  SPI2 / DMA_CH0 / RMT ch1 creators are stolen per claim (the task owns the originals).
+  Dropping the driver disconnects the pin (PinGuard). esp-hal `Flex` has no Drop.
+- The GPIO matrix can invert any output, so on the C6 SPI strings can be inverted too.
+- `esp_hal::dma_tx_buffer!` triggers a future-incompat warning (trailing semicolon in the
+  macro); building the DmaTxBuf by hand avoids it. Big buffers go in `ConstStaticCell`
+  so they never pass through the stack (also fixed on the Pico).
+- Backend tests can't build on Windows (libc::kill); run them in WSL Ubuntu
+  (`cargo test -p benchbob`).
+- The Pico's LED hold doesn't react while the Wi-Fi task is inside a join (up to the
+  connect timeout).
 
 ## Things not to do
 

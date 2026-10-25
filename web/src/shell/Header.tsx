@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useBob, useSnapshot } from "../bob/context";
 import { fmtRam, fmtSz, fmtUp } from "../lib/format";
+import { HoldLed } from "../ui/HoldLed";
 
 export function Header() {
   const { conn } = useBob();
@@ -9,6 +10,7 @@ export function Header() {
   const s = snap.status;
   const n = snap.node;
   const remote = !conn.sameOrigin;
+  const leds = s?.onboardLeds ?? n?.onboardLeds ?? [];
 
   let title = "BenchBob";
   let board = "";
@@ -55,6 +57,7 @@ export function Header() {
       </div>
       <div className="hdr-right">
         {remote && <span className="bob-origin">via {conn.host}</span>}
+        {leds.length > 0 && <HoldLed leds={leds} />}
         {right}
         <span className={`dot${snap.connected ? "" : " off"}`} role="status" aria-label={snap.connected ? "Connected" : "Disconnected"} />
       </div>

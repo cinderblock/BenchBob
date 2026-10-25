@@ -21,6 +21,12 @@ header h1{font-size:1.15rem;font-weight:700;letter-spacing:-.5px}
 .hdr-warn{color:var(--warning)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block}
 .dot.off{background:var(--danger)}
+/* Hold-to-light button for the board's own LEDs: no text selection or callout on a long press. */
+.hold-led{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font:inherit;font-size:.75rem;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
+.hold-led:hover{border-color:var(--accent)}
+.hold-led.on{border-color:var(--accent);background:var(--surface3)}
+.hold-led-dot{width:8px;height:8px;border-radius:50%;opacity:.35}
+.hold-led.on .hold-led-dot{opacity:1;box-shadow:0 0 0 2px rgba(255,255,255,.18)}
 main{padding:20px 24px;max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
 
 /* Host power warning */

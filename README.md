@@ -20,6 +20,10 @@ agent.
 Everything the dashboard does is also a REST endpoint (`GET /api` lists them), and the
 peripheral operations are MCP tools at `POST /mcp`.
 
+To find which board on the bench is which, hold the **LED button** in the dashboard's
+header: the board's own LEDs (a Pi's ACT and PWR, a node's status LED) stay lit while
+you hold it and go back to normal when you let go.
+
 ## Peripherals
 
 Each device class is a panel. A panel appears on the dashboard when it has something to
