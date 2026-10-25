@@ -35,6 +35,16 @@ status=1/FAILURE`. Probably nbd-server refusing to start with no exports in
 `/etc/nbd-server/conf.d/`. It recovers on the next plug-in, so NBD works whenever a drive is
 present — but the unit sits failed in between, which shows up as a failed service.
 
+## `camera::tests::ustreamer_giving_up_is_reported` is flaky in CI
+
+CI run 40231817976 (2026-10-25, `b704340`, `backend-test (ubuntu-24.04-arm)`): the test
+failed at `crates/camera/src/tests.rs:213` (`assertion left == right`, the fake
+ustreamer's stderr line not yet recorded as the camera's `error`), and passed on an
+immediate rerun with no code change. None of the 19 commits in that push touched
+`crates/camera`. Looks like a race between the fake process exiting and the error being
+captured; the test should wait for the error rather than read it straight after the
+failed snapshot. Costs a CI rerun whenever it bites.
+
 ## desky's root filesystem is ~95–99% full; flash downloads live on it
 
 Seen 2026-10-16: `/dev/mmcblk0p2 15G 14G 247M 99% /` (772M free after removing a test

@@ -217,10 +217,12 @@ impl Inner {
     async fn os_info(&self, device: &str) -> Result<Value, (u16, String)> {
         let out = self.sys.run(&["lsblk", "-J", "-o", OSINFO_COLS, &format!("/dev/{device}")]).await.out;
         let disk = serde_json::from_str::<Value>(&out).ok().and_then(|v| v.get("blockdevices")?.get(0).cloned());
-        let Some(disk) =
-            disk.filter(|d| d.get("type").and_then(Value::as_str) == Some("disk") && d.get("tran").and_then(Value::as_str) == Some("usb"))
-        else {
-            return Err((404, "Not a USB disk".into()));
+        // A USB disk, or a card in the SD slot (the caller has refused the root disk and eMMC).
+        let Some(disk) = disk.filter(|d| {
+            d.get("type").and_then(Value::as_str) == Some("disk")
+                && (d.get("tran").and_then(Value::as_str) == Some("usb") || device.starts_with("mmcblk"))
+        }) else {
+            return Err((404, "Not a USB disk or SD card".into()));
         };
         let ids = mount_ids(&self.sys.read_text("/proc/self/mountinfo").await);
         let key: Vec<Value> = disk
