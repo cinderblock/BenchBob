@@ -502,8 +502,10 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
         once UniFi hands out boot options.
   - [x] CI publishes `ghcr.io/cinderblock/bootbob` on green master pushes, with the
         revision label and the ops `pin.json` in the run summary (wifi-tester's pattern).
-  - [ ] **Needs per-change approval:** the ops stack `servers/steamboat/stacks/bootbob/`,
-        the Caddy `pxe.tsl` site, the UniFi DNS name, the UniFi Network Boot setting.
+  - [x] Ops stack, Caddy `pxe.tsl` site and `pxe.tsl` DNS name: approved and live
+        (2026-10-24, ops `b5747e2`, `a96c090`, `9b88c83`).
+  - [x] Ops UniFi tool learned `netboot:` (ops `13100a0`, a no-op until a config uses it).
+  - [ ] **Needs a yes:** the `netboot:` entry for the TSL network (staged, uncommitted).
 - **Phase 2, Pi-native boot, stores, BenchBob integration:**
   - Per-device TFTP trees from images.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
@@ -572,10 +574,10 @@ The SD stays as a rescue card until then. Steps once the server serves Pi boots 
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Yes to commit and push ops changes 1–3 (see the progress log)? Each can be approved
-   separately.
-2. Change 4: add Network Boot support to the ops UniFi tool (recommended), or set it by
-   hand?
+1. Yes to commit and push the `netboot:` entry that turns on Network Boot for the TSL
+   network (server `10.255.0.5`, file `bootbob`)? Staged in the ops checkout, uncommitted.
+   Effect: any TSL machine with network boot ahead of its disk lands on BootBob's menu
+   and boots its disk after 2 minutes untouched (`menu_timeout_secs`).
 
 ## Progress log
 
@@ -602,14 +604,20 @@ All design questions from rounds 1–3 are answered (see decisions).
       reply that day): steamboat stack, `pxe.tsl` DNS, Caddy site, UniFi Network Boot.
   - [x] 2026-10-24: user said yes in principle to all four, with `pxe.tsl` as a CNAME to
         steamboat (the ops repo's `names:` list already does exactly that).
-  - [ ] Changes 1–3 written in the ops checkout, uncommitted, waiting for a yes to commit
-        and push: `servers/steamboat/stacks/bootbob/` (compose.yml, bootbob.toml,
-        pin.json at `332dbc2`, digest checked against GHCR), `sites.d/pxe.tsl.caddy`,
-        a `pxe.tsl` line under steamboat in `unifi/config/tomsawyerlabs.yaml`, and a
-        stacks README entry. Pushing to ops master is what applies them: `servers/**`
-        triggers the steamboat deploy and `unifi/config/**` triggers the UniFi sync.
-  - [ ] Change 4 (Network Boot): the ops UniFi tool doesn't model it yet. Either add it
-        there (recommended) or set it by hand in the UniFi UI.
+  - [x] Changes 1–3 approved (2026-10-24 morning) and pushed: ops `b5747e2` (stack, pin
+        `332dbc2`), `a96c090` (Caddy), `9b88c83` (DNS). Steamboat deploy and UniFi sync
+        green. Verified: `http://10.255.0.5:8067` and `http://pxe.tsl` serve the UI,
+        `pxe.tsl` is a CNAME to `steamboat.tsl`, and TFTP serves `bootbob` (312 KB
+        x86-64 UEFI iPXE) to sentinel, desky and steamboat itself.
+  - [x] Change 4: user chose to add Network Boot to the ops UniFi tool. Done as a
+        `netboot:` site block (network name → `server` + `filename`, or `false`), ops
+        `13100a0`, 135 unifi tests pass. CI sync after the push: everything in sync.
+        Local dry run with the TSL entry shows exactly the three `dhcpd_boot_*` changes
+        on network "TSL".
+  - [x] Doctor before the change (2026-10-24): iPXE, TFTP, listener, rogue, stuck all OK;
+        `dhcp-efi-x64` and `dhcp-bios` fail ("10.255.0.1 offers boot server 10.255.0.1
+        and file (none)"), as expected.
+  - [ ] Waiting on a yes for the TSL `netboot:` entry; then push and rerun the doctor.
 
 ## Findings / gotchas
 
@@ -641,6 +649,14 @@ All design questions from rounds 1–3 are answered (see decisions).
   `eno1` also carries 10.0.100.5/24.
 - **Git Bash heredocs collapse `\\`** before Python sees them; edit Rust strings with the
   Edit tool, not inline Python, when they contain escapes.
+
+- **TFTP from this Windows PC times out, but it isn't BootBob.** `curl tftp://10.255.0.5/bootbob`
+  hangs here and works from sentinel, desky and steamboat. TFTP replies come from a new
+  port per transfer, which Windows Firewall drops as unsolicited. Real PXE clients have
+  no firewall. Test TFTP from a Linux host.
+- **UniFi networkconf boot fields:** `dhcpd_boot_enabled`, `dhcpd_boot_server`,
+  `dhcpd_boot_filename` (the latter two absent until set). `dhcpd_tftp_server` (option 66)
+  is separate and not needed: PXE uses next-server.
 
 ## Things not to do
 
