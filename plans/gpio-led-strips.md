@@ -304,8 +304,12 @@ User's answers of 2026-10-25:
   Tests: 7 new in the crate (pins, clock/fit, interleave, ranges/ioctl/control block,
   config, PWM-pin validation, hub config). The helper's refusal path ran in WSL;
   aarch64 and armv6 musl builds pass.
-- [ ] Hardware bring-up of 5b on desky (needs the user's go-ahead: it maps /dev/mem and
-  runs DMA).
+- [ ] Hardware bring-up of 5b on desky: the user said yes (2026-10-25). **Blocked**:
+  at 4:30 PM PDT desky's NBD root had dropped (about 3:27 PM, probably a BootBob/NBD
+  restart by the netboot thread) and is read-only with I/O errors (ISSUES.md). Needs desky
+  rebooted, coordinated with the netboot work, before a test build can go on it. Nothing
+  was changed on desky. Also found: analog audio is on there (`dtparam=audio=on`), and
+  no spidev.
 - [x] Step 7 (2026-10-25): model in `benchbob_proto::api::leds` (`NetIn`, `receive`,
   `tick`, per-universe `SacnArbiter`s, the pattern comes back after 2.5 s of quiet, like
   WLED; a pattern set while receiving becomes the one that comes back; set_pixels is

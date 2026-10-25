@@ -1,5 +1,24 @@
 # Issues
 
+## desky's NBD root dropped and didn't reconnect; root is now read-only with I/O errors
+
+Seen 2026-10-25 4:30 PM PDT (23:30Z) by the LED-strips thread (it hadn't touched desky
+yet). desky's kernel log, at about 13,030 s of uptime (≈ 3:27 PM PDT, 22:27Z):
+`block nbd0: Receive control failed (result -32)`, then `Dead connection, failed to find a
+fallback`, `Aborting journal on device nbd0p2-8`, `Remounting filesystem read-only`.
+`/` is mounted `emergency_ro`, reads give `I/O error, dev nbd0`, and new programs fail to
+load (`sudo: unable to execute /usr/bin/true: Input/output error`). The live benchbob
+service still shows active (it's in memory). steamboat's 10.255.0.5:10809 accepts TCP
+connections now, so the server came back; the client never reconnects (the kernel's
+nbdroot client has no reconnect). The timing fits a BootBob/NBD restart (copy-on-write
+landed in BootBob at f80f0b5 that afternoon).
+
+Why it matters: any restart of the NBD server takes desky's root away until desky is
+rebooted, and writes in flight at that moment are lost. Fixing it probably means
+reconnect support (a userspace nbd client with persistence, or BootBob keeping
+connections across restarts) or never restarting the server under a live client. Not
+rebooted or changed by the LED thread; the netboot thread / user should decide.
+
 ## NTFS partitions unmount immediately after auto-mount; vfat sometimes never mounts — fixed in `c260345`, installed on the Pi 2026-10-11
 
 Seen 2026-10-11 on `benchbob` with a Windows NVMe (`sda`: SYSTEM vfat, Windows ntfs,
