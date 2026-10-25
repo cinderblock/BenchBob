@@ -461,8 +461,19 @@ created `desky.img` over BootBob's API, partitioned it over NBD like the card (n
 on the SD system first) put NBD support in the initramfs. BootBob: Pi image `desky` with
 source `desky.img`, desky (`dc:a6:32:03:fc:36`, serial `575da773`) assigned to it. EEPROM
 first `0xf12` (network, SD fallback) for the first boot, then `0xf2` once it worked. The SD
-still holds the old system, untouched, and is never booted. Step 3 (BenchBob offering the
-SD slot as a drive) is next.
+still holds the old system, untouched, and is never booted.
+
+**Step 3 done (2026-10-25, BenchBob `b704340`, `4d93d34`, `6232c4e` + the rule fix after
+it).** The SD slot is a drive bay on desky: the card shows in Connected Drives as
+"mmcblk0 · SD slot" with its partitions and every action (backup, probe, deep scan,
+erase, bootloader card, eject = unmount only), is mounted read-only under
+`/srv/nfs/drives/{bootfs,rootfs}` and exported over NFS/NBD by the udev handler, and OS
+detection reads it ("Debian GNU/Linux 13 (trixie), hostname deskypi"). What a request
+may touch is decided per request (`devices::refuse`): system devices (zram, loop, nbd),
+the root disk (findmnt + lsblk PKNAME), eMMC. The root shows as "Netboot (NBD)". Running
+on desky: `0.5.0+git28.6232c4e` plus the rule fix by hand (same file as the commit after
+it). The old system stays on the card for now (user's call 2026-10-25); hot-plug of the
+card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 1. Make a golden Pi OS trixie image from desky's current SD (BenchBob can already read
    cards). Add `nbd-client` + initramfs support, fix `fstab` (no `mmcblk0p*` mounts),
@@ -537,6 +548,9 @@ SD slot as a drive) is next.
         `/srv/bootbob-data/images/desky.img` (32 GiB). EEPROM `BOOT_ORDER=0xf2`,
         `TFTP_IP=10.255.0.5`. Reboot to login in about 65 s.
   - [x] TFTP: a client-ended transfer is Cancelled, not Failed (BootBob `f625157`).
+  - [x] BenchBob: the SD slot as a drive bay on a network-booted machine (2026-10-25,
+        `b704340` drives + refuse, `4d93d34` OS detection, `6232c4e` udev/handler + test,
+        and the MMC_TYPE rule fix). Installed on desky from the CI arm64 .deb.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -603,9 +617,11 @@ SD slot as a drive) is next.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Next for desky: plan step 3 (BenchBob offers the SD slot as a drive). Wipe or keep the
-   old system on the SD card? Recommendation: keep it until desky has run diskless for a
-   while, then hand the slot to BenchBob.
+1. The old system on desky's SD card: kept for now. Say when to wipe it (then the slot is
+   just a drive bay; a `BOOT_ORDER` of `0xf2` never boots it anyway).
+2. The next Phase 2 piece: shared base images with per-machine copy-on-write overlays in
+   BootBob's NBD server (so one golden Pi OS image serves many Pis), then stores and
+   caching, mDNS for BenchBob, the EEPROM setter. Recommendation: copy-on-write first.
 
 ## Progress log
 
@@ -692,6 +708,16 @@ All design questions from rounds 1–3 are answered (see decisions).
   `dhcpd_boot_filename` (the latter two absent until set). `dhcpd_tftp_server` (option 66)
   is separate and not needed: PXE uses next-server.
 
+- **udev's `MMC_TYPE` is only set on the whole mmcblk disk, not its partitions**, so a rule
+  can't use it to tell SD from eMMC for partition events; the drive handler reads
+  `/sys/block/<disk>/device/type` itself. Apply a rule change without a reboot:
+  `udevadm control --reload; udevadm trigger --action=add --subsystem-match=block
+  --sysname-match='mmcblk0*'`.
+- **BenchBob's backend doesn't build on Windows** (`libc::kill` in `core/child.rs`); run
+  `cargo test` in WSL with `CARGO_TARGET_DIR=$HOME/.cache/benchbob-target`, and `rustfmt`
+  only your own files (`cargo fmt --all` would reformat other threads' uncommitted work).
+- **`camera::tests::ustreamer_giving_up_is_reported` is flaky** on the arm CI runner
+  (ISSUES.md); a rerun of the failed job is enough.
 - **`BOOT_ORDER` is read right to left.** "Network, then SD" is `0xf12`; `0xf21` would
   try the SD first.
 - **A netbooted Pi 4 applies EEPROM updates only from the SD card.** The ROM loads
