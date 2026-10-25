@@ -603,9 +603,7 @@ SD slot as a drive) is next.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Commit desky's UniFi reservation to ops (`host: desky`, 10.255.7.45)? It already
-   exists by hand; the entry codifies it and adds `desky.tsl`. Staged, uncommitted.
-2. Next for desky: plan step 3 (BenchBob offers the SD slot as a drive). Wipe or keep the
+1. Next for desky: plan step 3 (BenchBob offers the SD slot as a drive). Wipe or keep the
    old system on the SD card? Recommendation: keep it until desky has run diskless for a
    while, then hand the slot to BenchBob.
 
@@ -703,9 +701,10 @@ All design questions from rounds 1–3 are answered (see decisions).
 - **The Pi bootloader ends most TFTP reads with "Early terminate"** (error code 0) after
   the first block. Normal behaviour, now logged as Cancelled.
 - **NetworkManager leaves the initramfs's eth0 alone** ("connected (externally)") and
-  doesn't renew its DHCP lease (24 h). desky already has a fixed reservation at
-  `10.255.7.45` in UniFi (made by hand), so the address can't move. An ops entry for it
-  is staged (adds `desky.tsl`).
+  doesn't renew its DHCP lease (24 h). Fixed with a UniFi reservation for desky at
+  `10.255.7.45` (ops `f645617`, 2026-10-25, which also adds `desky.tsl`). Correction: I
+  first reported the reservation already existed; the live sync shows it didn't
+  (`use_fixedip: false → true`). My dry-run grep had dropped those lines.
 - **A deploy bot bumps the BootBob pin** in ops after each green BootBob master push
   (`2d5399f` "deploy: Update ghcr.io/cinderblock/bootbob"). A manual pin commit can race it.
 - **The shared ops checkout's local master can carry other threads' unpushed commits.**
