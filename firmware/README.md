@@ -148,6 +148,11 @@ sectors, and the ESP32-C6 image is built with `--skip-padding` so it ends with t
 - `proto/`: `no_std`, dependency-free, host-tested: the API router and MCP, JSON, HTTP
   framing and CORS, serving the web UI, Improv packets, the config record, UF2 blocks,
   mDNS. `examples/mock_node.rs` is the host-side pretend node.
+- `pixels/`: `no_std`, dependency-free, host-tested, and shared with the Linux server:
+  addressable LED strings (colour order, gamma, power budget, WS2812-family timing
+  presets and fitting them to SPI or PIO, WS2812-over-SPI / APA102 / WS2801 encodings,
+  patterns, sACN / Art-Net / DDP parsing and universe mapping). Not wired into the
+  boards yet (`plans/gpio-led-strips.md`).
 - `node/`: Embassy glue both boards share: HTTP server, mDNS task, Improv session,
   config store (embedded-storage `NorFlash`), the Wi-Fi request channels, and the
   embedded web UI (`build.rs`).

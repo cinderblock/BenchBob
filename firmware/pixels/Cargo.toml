@@ -1,0 +1,11 @@
+[package]
+name = "benchbob-pixels"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "BenchBob addressable LED strings: colour order, timing, wire encodings, patterns, sACN/Art-Net/DDP"
+publish = false
+
+# no_std and dependency-free, like benchbob-proto: the Linux server (backend/) and both
+# node boards use this one tested implementation, and `cargo test` runs it on the host.
+[dependencies]

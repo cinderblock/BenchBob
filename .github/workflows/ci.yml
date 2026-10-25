@@ -131,10 +131,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: firmware/proto
+          workspaces: |
+            firmware/proto
+            firmware/pixels
       - name: benchbob-proto (host)
         run: cargo test --locked
         working-directory: firmware/proto
+      - name: benchbob-pixels (host)
+        run: cargo test --locked
+        working-directory: firmware/pixels
       - name: UF2 and config tools
         run: bun test firmware/tools/
 

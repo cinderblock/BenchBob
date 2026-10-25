@@ -166,9 +166,8 @@ User's answers of 2026-10-25:
 ## Plan / steps
 
 1. ~~Answer the open questions~~ (done, except question 8)
-2. Shared `pixels` crate: config, timing presets, encoders, patterns, E1.31/Art-Net/DDP
-   parsers, with host tests (golden bit streams per preset). ← current step
-3. Pico 2 W driver (the easiest any-pin target) + node API/MCP + node UI section.
+2. ~~Shared `pixels` crate~~: done, `firmware/pixels` (see Progress log).
+3. Pico 2 W driver ← current step (the easiest any-pin target) + node API/MCP + node UI section.
 4. ESP32-C6 driver (RMT + SPI), status LED.
 5. Linux `leds` crate: spidev driver, GPIO-uAPI APA102, staging of SPI overlays; GPIO
    panel exclusions; pin picker component.
@@ -184,7 +183,15 @@ User's answers of 2026-10-25:
 - [x] Hardware research for each platform (this doc)
 - [x] Open questions 1–7 answered (2026-10-25)
 - [ ] Question 8 (privilege model for `/dev/mem`)
-- [ ] Everything in "Plan / steps" 2–9
+- [x] Step 2: `firmware/pixels` (`benchbob-pixels`), 30 host tests, clippy-clean, builds for
+  thumbv8m and riscv32imac; CI runs its tests in `firmware-test`. Modules: `color` (Rgbw,
+  any RGB/RGBW order, gamma 2.6, brightness, `PowerBudget`), `timing` (presets ws2812b,
+  sk6812, ws2813, ws2811-400k; `SpiFit::find` takes the controller's real clock function;
+  `PioFit` for the SDK ws2812 program's three phases), `encode` (wire bytes, ws-over-SPI,
+  APA102/SK9822, WS2801), `pattern` (off, solid, gradient, rainbow, chase, breathe,
+  twinkle, order-test, ruler), `net` (sACN, Art-Net, DDP, `SacnArbiter`, `Patch`).
+  Formatted with backend's rustfmt.toml (140 cols), since the backend will use it too.
+- [ ] Steps 3–9
 
 ## Open questions for the user
 
@@ -200,6 +207,19 @@ User's answers of 2026-10-25:
   counter, pulse width, quadrature encoder.
 - [`plans/gpio-timing-sensors.md`](gpio-timing-sensors.md): DHT11/22, HX711.
 - [`plans/gpio-composite-video.md`](gpio-composite-video.md): composite video ("RCA").
+
+## Findings from building the shared crate
+
+- Output inversion (for an inverting level shifter) is a driver feature (PIO/RMT/GPIO
+  invert), not an encoding: SPI MOSI's idle level can't be inverted, so SPI strings
+  can't offer it.
+- Art-Net controllers that discover nodes (QLC+, Resolume, MadMapper) expect an
+  ArtPollReply to ArtPoll; `parse_artnet` returns `Other` for ArtPoll. A reply builder is
+  still to write, in step 7. xLights and WLED-style senders don't need it.
+- DDP: only render on `push` (WLED does the same); a sender that never sets push is
+  rare, but render after a short idle (e.g. 50 ms) as a fallback.
+- SPI fitting on a Pi 4 at core_freq=500 lands at 3 bits/2.38 MHz (40 ns worst error) for
+  WS2812B, with spi-bcm2835's even-divider rounding.
 
 ## Things not to do
 
