@@ -134,12 +134,16 @@ jobs:
           workspaces: |
             firmware/proto
             firmware/pixels
+            firmware/ir
       - name: benchbob-proto (host)
         run: cargo test --locked
         working-directory: firmware/proto
       - name: benchbob-pixels (host)
         run: cargo test --locked
         working-directory: firmware/pixels
+      - name: benchbob-ir (host)
+        run: cargo test --locked
+        working-directory: firmware/ir
       - name: UF2 and config tools
         run: bun test firmware/tools/
 

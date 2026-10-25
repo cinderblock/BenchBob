@@ -52,7 +52,37 @@ Answered 2026-10-25: a **named-codes library** (named buttons per device, in set
 and receive stays **BenchBob-only** (raw LIRC mode2, no Linux input device). Recorded in
 Decisions.
 
+## Plan / steps
+
+1. **Codec crate** `firmware/ir` (`benchbob-ir`, `no_std`, no deps, host-tested; shared
+   by the Linux crate and the nodes). Timings are µs, alternating mark/space, starting
+   with a mark. Protocols: NEC (8-bit and extended 16-bit address, plus its repeat
+   code), Samsung32, Sony SIRC 12/15/20, RC5, RC6 mode 0, JVC; anything else is raw.
+   Pronto hex import/export. Done (see Progress log).
+2. **Linux** `backend/crates/ir` (panel id `ir`) ← current step: `/dev/lirc*` (features ioctl, mode2
+   receive, pulse write with carrier/duty), a receive thread that splits frames on long
+   spaces and decodes them, a ring of recent captures, `capture` (wait for the next
+   frame), send (gated by output control), the named-codes library in settings. Overlays
+   (`gpio-ir`, `gpio-ir-tx`, `pwm-ir-tx`) staged through the GPIO panel's interfaces, with
+   `rc-map-name=rc-empty` so nothing becomes keypresses. Pins claimed in the GPIO panel.
+3. **Web**: an IR panel: receivers/transmitters, live captures (decoded + raw), Learn
+   (capture → name → save to a device), the library with send buttons, raw/Pronto send.
+   MCP: `ir_list`, `ir_capture`, `ir_send`, `ir_codes`.
+4. **Nodes**: Pico (PIO) and ESP32-C6 (RMT RX ch 2–3, TX with hardware carrier).
+
 ## Progress log
 
-- [ ] Open questions answered
-- [ ] Implementation
+- [x] Open questions answered (2026-10-25)
+- [x] Step 1 (2026-10-25): `firmware/ir` (`benchbob-ir`): `decode`/`encode` for NEC,
+  NEC extended, NEC repeat, Samsung32, Sony 12/15/20, RC5 (incl. RC5X), RC6 mode 0, JVC;
+  `pronto::{parse, format}`. 7 host tests: every protocol round-trips, also with marks
+  10 % long and spaces 10 % short (receiver skew); known frames; noise. Builds for
+  thumbv8m and riscv32imac. In CI's firmware-test job.
+- [ ] Steps 2–4
+
+## Findings
+
+- An extended-NEC address whose two bytes are complements is indistinguishable from
+  plain NEC on the wire; it decodes as `nec`.
+- Pulse-distance decoders must check the frame length: JVC's 16 bits otherwise match the
+  first half of any NEC frame (NEC's 9 ms leader is within JVC's 8.4 ms ± 30 %).

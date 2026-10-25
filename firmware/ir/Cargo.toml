@@ -1,0 +1,11 @@
+[package]
+name = "benchbob-ir"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "BenchBob consumer infrared: NEC, Samsung, Sony SIRC, RC5, RC6, JVC encode/decode, Pronto hex"
+publish = false
+
+# no_std and dependency-free, like benchbob-pixels: the Linux server (backend/) and the
+# node boards share this one tested implementation, and `cargo test` runs it on the host.
+[dependencies]
