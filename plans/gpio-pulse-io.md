@@ -44,7 +44,8 @@ alongside composite video, which has its own plan).
 
 ## Open questions for the user
 
-1. Include stepper step/dir generation now or later? Recommend later.
+1. Stepper step/dir generation: taking the recommendation (later) unless the user says
+   otherwise.
 
 ## Progress log
 

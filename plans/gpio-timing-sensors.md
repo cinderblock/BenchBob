@@ -27,10 +27,14 @@ load-cell ADC, clocked). Asked for by the user on 2026-10-25.
 - Same REST shapes and MCP tool names on the Linux server and the firmware nodes.
 - Order: after LED strips steps 2–5, so pin claims, the picker and node plumbing exist.
 
+## Decisions already made (don't re-ask)
+
+- Own small "Sensors" panel, which other pin-attached sensors join later. (User, 2026-10-25.)
+
 ## Open questions for the user
 
-1. Own panel, or fold into an existing one (1-Wire is the nearest)? Recommend a small
-   "Sensors" panel that other pin-attached sensors can join later.
+Answered 2026-10-25: a new small **"Sensors" panel** that later pin-attached sensors can
+join. Recorded in Decisions.
 
 ## Progress log
 

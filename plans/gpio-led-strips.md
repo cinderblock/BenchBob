@@ -341,11 +341,8 @@ User's answers of 2026-10-25:
 
 ## Open questions for the user
 
-1. May I run the new PWM + DMA helper on desky (the Pi 4) to bring it up? It needs a
-   test build deployed there, `dtparam=audio=off` (if analog audio is on) and a reboot,
-   and a WS2812 string (or a scope/logic analyzer) on GPIO18. It maps /dev/mem and runs
-   DMA channel 10, as rpi_ws281x does; a mistake there can hang the Pi until a power
-   cycle. Recommendation: yes, at a time you choose, with a string on GPIO18.
+None open. (2026-10-25: the user said yes to bringing the PWM + DMA helper up on desky:
+deploy a test build, turn analog audio off, reboot; they'll say when a string is wired.)
 
 ## Other GPIO features (own plans)
 

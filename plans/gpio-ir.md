@@ -42,12 +42,15 @@ by the user on 2026-10-25 (from the "other GPIO features" list in
 - Same REST shapes and MCP tool names on the Linux server and the firmware nodes.
 - Order: after LED strips steps 2–5, so pin claims, the picker and node plumbing exist.
 
+## Decisions already made (don't re-ask)
+
+- Saved codes: a named list per device in settings. Receive is BenchBob-only (LIRC mode2); no rc-core keypresses. (User, 2026-10-25.)
+
 ## Open questions for the user
 
-1. A saved-codes library on the box (named buttons per device), or capture/send only?
-   Recommend a simple named list in settings.
-2. Should receive also inject keypresses as a Linux input device (rc-core's default), or
-   stay BenchBob-only? Recommend BenchBob-only (raw LIRC_MODE_MODE2).
+Answered 2026-10-25: a **named-codes library** (named buttons per device, in settings),
+and receive stays **BenchBob-only** (raw LIRC mode2, no Linux input device). Recorded in
+Decisions.
 
 ## Progress log
 

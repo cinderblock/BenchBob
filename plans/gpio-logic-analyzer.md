@@ -39,10 +39,9 @@ for by the user on 2026-10-25.
 
 ## Open questions for the user
 
-1. Also speak the SUMP/OLS protocol over USB CDC, so PulseView/sigrok can drive the Pico
-   directly? Recommend yes, later: cheap, and it makes the node useful without BenchBob.
-2. Is the Linux edge-timestamp mode worth having, given its low rate? Recommend yes, as a
-   clearly labelled "slow signals" mode.
+1. SUMP/OLS over USB CDC (PulseView/sigrok driving the Pico directly): not asked yet;
+   taking the recommendation (yes, later) unless the user says otherwise.
+2. Linux edge-timestamp mode: taking the recommendation (yes, labelled "slow signals").
 
 ## Progress log
 

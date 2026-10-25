@@ -25,12 +25,15 @@ the hardware can do.
 - A status display on a small composite screen.
 - Showing something from the API (an agent puts an image or text on a screen).
 
+## Decisions already made (don't re-ask)
+
+- Uses: test patterns, a BenchBob status screen, and a known signal for capture devices. So both a Pi side (the Pi's composite out, rendering patterns / a status screen) and the Pico (PIO/DMA video) are in scope. (User, 2026-10-25.)
+
 ## Open questions for the user
 
-1. What do you want composite for: test patterns, a status screen, something else? That
-   decides whether it's a Pi config switch, a Pico firmware feature, or both.
-2. Composite *input* is already covered by the Camera panel with a USB capture stick; is
-   anything more needed there?
+1. Answered 2026-10-25: composite is for **test patterns, a status screen, and feeding a
+   capture device** (not just a Pi config switch). Recorded in Decisions.
+2. Composite input beyond the Camera panel's USB capture: not raised; assume no.
 
 ## Progress log
 
