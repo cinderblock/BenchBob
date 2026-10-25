@@ -117,8 +117,8 @@ are refused as they are today. Drivers, picked per board:
   timing; a clocked program for APA102), any pin.
 - ESP32-C6: RMT (2 strings), SPI+DMA (1 more, and the APA102 path), status LED on GPIO8.
 - String configs persisted in the config record (new TLV fields; the format is already
-  TLV and versioned) so a node boots straight into its pattern or sACN listening and works
-  as a standalone pixel controller. Needs the config.uf2 tool to stay byte-exact.
+  TLV and versioned), under the same persistence rule as everything else (see Decisions).
+  Needs the config.uf2 tool to stay byte-exact.
 
 ### API / MCP / UI (same shapes everywhere)
 
@@ -129,83 +129,81 @@ are refused as they are today. Drivers, picked per board:
   `POST /api/leds/:id/off`.
 - `POST /api/leds/receiver`: sACN / Art-Net / DDP on or off, universes.
 - MCP: `leds_list`, `leds_configure`, `leds_pattern`, `leds_set_pixels`, `leds_off`.
-- Web UI: a "LED strips" panel: string list, a pin picker that greys out unusable pins
-  with the reason, the timing preset dropdown with a "custom" disclosure, a live pixel
+- Web UI: a "LED strips" panel of its own: string list, a pin picker (a header diagram)
+  that greys out unusable pins with the reason, the timing preset dropdown with a "custom" disclosure, a live pixel
   preview, pattern picker, receiver status (packets/s per universe, active source).
 - Gated by GPIO output control, like every other write.
+- **The GPIO panel shows the exclusions**: pins a string holds appear there with
+  "LED strip <name>" as their owner and can't be driven, exactly as pins held by I²C/SPI
+  or a kernel driver are shown today. The pin picker is a reusable header-diagram
+  component, so the GPIO panel and the other pin-based features below can share it.
 
 ## Decisions already made (don't re-ask)
+
+User's answers of 2026-10-25:
 
 - Both one-wire (WS2812-style) and clocked (APA102-style) strings.
 - Color order, timing (simplified: presets + 4-number custom), and length are per string.
 - Firmware nodes: any pin.
-- sACN receiver is wanted ("heck, even").
+- Pi 1–4: SPI (every Linux board) **and** PWM/PCM + DMA (GPIO 12/13/18/19/21). PWM+DMA is
+  the standard Pi method; SPI-only was a wrong first recommendation.
+- Network receivers: **sACN, Art-Net and DDP**, all three.
+- **Own panel ("LED strips")**, but the GPIO panel must show the pins it holds as
+  exclusions, as for other peripheral features, and it gets a pin picker.
+- **Persistence: no special rule.** "Things keep working until they are reconfigured",
+  and across a restart or reboot only to the same extent anything else persists.
+  Concretely, matching today's code: string configs are settings (`peripherals.json` on
+  Linux, like serial bridges; the config record on nodes); animations and receivers are
+  runtime and stop with the process (a strip physically holds its last frame); after a
+  restart, output follows GPIO output control, which is off at start like every other
+  output. If the user later wants "boot straight into the pattern", that's a change to
+  the output-control rule for everything, not a special case here.
+- Order of work: as recommended (shared crate → Pico 2 W → ESP32-C6 → Linux spidev →
+  Pi 1–4 PWM/DMA → Pi 5 PIO → receivers). No objection was raised.
+- Other features: **all of them**, plus composite video ("RCA") and RC servo PWM.
+  Each family gets its own plan (below); DMX512 out stays here as a lighting output.
 
 ## Plan / steps
 
-1. **Answer the open questions below** ← current step
+1. ~~Answer the open questions~~ (done, except question 8)
 2. Shared `pixels` crate: config, timing presets, encoders, patterns, E1.31/Art-Net/DDP
-   parsers, with host tests (golden bit streams per preset).
+   parsers, with host tests (golden bit streams per preset). ← current step
 3. Pico 2 W driver (the easiest any-pin target) + node API/MCP + node UI section.
 4. ESP32-C6 driver (RMT + SPI), status LED.
-5. Linux `leds` crate: spidev driver, GPIO-uAPI APA102, staging of SPI overlays.
-5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), once the privilege model is
-   decided.
+5. Linux `leds` crate: spidev driver, GPIO-uAPI APA102, staging of SPI overlays; GPIO
+   panel exclusions; pin picker component.
+5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), once question 8 is answered.
 6. Pi 5 `/dev/pio0` driver.
-7. Network receiver on both sides.
-8. Persistence on nodes, README updates (root, firmware, backend), hardware bring-up.
+7. Network receivers (sACN, Art-Net, DDP) on both sides.
+8. DMX512 output over a UART (sACN → DMX bridge).
+9. Persistence per the rule above, README updates (root, firmware, backend), hardware
+   bring-up.
 
 ## Progress log
 
 - [x] Hardware research for each platform (this doc)
-- [ ] Open questions answered
-- [ ] Everything in "Plan / steps" 2–8
+- [x] Open questions 1–7 answered (2026-10-25)
+- [ ] Question 8 (privilege model for `/dev/mem`)
+- [ ] Everything in "Plan / steps" 2–9
 
 ## Open questions for the user
 
-1. **Order of work.** Recommend: shared crate → Pico 2 W → ESP32-C6 → Linux spidev → Pi 5
-   PIO → sACN/Art-Net/DDP, because the nodes are the any-pin targets.
-2. **Pi 4: SPI only, or also rpi_ws281x-style PWM/PCM DMA?** First draft said SPI only: the DMA
-   method needs `/dev/mem`, mailbox memory and conflicts with onboard audio, for only
-   GPIO 12/13/18/19/21. **Revised after pushback:** PWM+DMA is the standard Pi method
-   (rpi_ws281x's default, GPIO18), not an exotic one. Recommend both: spidev first
-   (works on every Linux board), then a PWM/PCM+DMA driver for BCM283x/2711 so GPIO
-   12/13/18/19/21 work without a reboot. Open: privilege model for `/dev/mem`.
-3. **What did "RCA" mean?** Composite video out (an RCA jack), RC servo / PWM output, or
-   something else?
-4. **Which of the other GPIO features (below) go on the list**, and do they share this
-   plan or get their own?
-5. **Network protocols:** sACN only, or also Art-Net and DDP? Recommend all three: the
-   parsers are tiny and DDP is what WLED/xLights use.
-6. **Persist strings on nodes** so they boot into their pattern/receiver? Recommend yes.
-7. **Own panel ("LED strips") or a section of GPIO?** Recommend its own panel.
+8. **Pi 1–4 PWM/DMA privileges:** give `benchbob.service` CAP_SYS_RAWIO (simpler), or a
+   small privileged helper that owns `/dev/mem` + `/dev/vcio` and the DMA setup (keeps the
+   main process unprivileged)? Recommend the helper. Only blocks step 5b.
 
-## Other GPIO features
+## Other GPIO features (own plans)
 
-Proposed, roughly by value on a bench:
-
-- **IR receive and transmit.** Linux: `gpio-ir` (rc-core decoding, any GPIO) and
-  `gpio-ir-tx` / `pwm-ir-tx` overlays, used through `/dev/lirc*` (raw pulse/space capture
-  and send) by ioctl, no LIRC daemon. Nodes: ESP32-C6 RMT was built for this (RX on
-  ch2–3); Pico PIO. Features: capture raw timings, decode NEC/RC5/RC6/Sony/Samsung,
-  replay, send by protocol + code. Good for testing remotes and driving TVs/projectors.
-- **Logic analyzer / pulse capture** on the Pico (PIO at up to sys clock, 8–16 channels,
-  export to sigrok/PulseView `.sr` or VCD). Probably the single most useful bench feature
-  here. Linux: low-rate edge timestamps from the GPIO uAPI's event stream.
-- **PWM / servo / frequency generator**: duty + frequency, servo pulse widths. Pi hardware
-  PWM (GPIO 12/13/18/19), Pi 5 `pwm-pio` on any pin, nodes on any pin.
-- **Frequency counter / pulse-width measurement / quadrature encoder** (embassy-rp has a
-  rotary encoder PIO program; ESP32-C6 PCNT).
-- **DMX512 output** over a UART at 250 kbaud with break: pairs with the sACN receiver into
-  an sACN → DMX bridge (needs an RS-485 transceiver).
-- **Timing-critical sensors**: DHT11/22, HX711 load cells.
-- **Clock output** (Pi GPCLK0 on GPIO4, node PWM): a quick known-frequency source.
-- **Composite video** (if that's what "RCA" meant): Pi 4 has it on the AV jack, Pi 5 on
-  TV pads, and the RP2350 can generate it with PIO/HSTX. Low value on a bench; not
-  recommended unless there's a specific use.
+- [`plans/gpio-ir.md`](gpio-ir.md): IR receive and transmit.
+- [`plans/gpio-logic-analyzer.md`](gpio-logic-analyzer.md): logic analyzer / pulse capture.
+- [`plans/gpio-pulse-io.md`](gpio-pulse-io.md): PWM, RC servo, clock output, frequency
+  counter, pulse width, quadrature encoder.
+- [`plans/gpio-timing-sensors.md`](gpio-timing-sensors.md): DHT11/22, HX711.
+- [`plans/gpio-composite-video.md`](gpio-composite-video.md): composite video ("RCA").
 
 ## Things not to do
 
 - Don't bit-bang WS2812 through the GPIO uAPI on Linux: the timing can't be met.
 - Don't depend on rpi_ws281x or piolib (C libraries): the backend has no C dependencies.
 - Don't put two drivers on one pin or one PIO SM: claim through the GPIO crate.
+- Don't invent a LED-specific "resume at boot" rule (see the persistence decision).
