@@ -2,7 +2,7 @@
 // a pattern editor per string, and the add/edit dialog with a pin picker. The same body
 // serves a node's section and a Linux bob's panel: both speak /api/leds.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useBob } from "../../bob/context";
 import { Hint, Note, Pill } from "../../ui/common";
 import { PinPicker, type PickPin } from "../../ui/PinPicker";
@@ -22,7 +22,11 @@ const isColour = (k: string) => ["color", "background", "a", "b"].includes(k);
 /** #rrggbb for <input type=color> (which has no white channel). */
 const rgb = (c: string | undefined) => (c && /^#[0-9a-f]{6}/i.test(c) ? c.slice(0, 7) : "#ffffff");
 
-export function LedStrips() {
+/**
+ * `fix`: what to offer beside a string's error (the Linux panel's "SPI settings…"). A prop
+ * so the node build doesn't carry the GPIO panel's dialog.
+ */
+export function LedStrips({ fix }: { fix?: (error: string) => ReactNode } = {}) {
   const b = useBob();
   const { data, error, reload } = usePoll<LedsState>("/api/leds", 2000);
   const caps = data?.capabilities;
@@ -49,7 +53,7 @@ export function LedStrips() {
           </div>
           {!data.outputEnabled && data.strings.length > 0 && <Note>Output control is off, so the strings are dark. Turn GPIO output control on to light them.</Note>}
           {data.strings.map((s) => (
-            <StringCard key={s.id} s={s} caps={caps} others={data.strings} onDone={reload} />
+            <StringCard key={s.id} s={s} caps={caps} others={data.strings} onDone={reload} fix={fix} />
           ))}
         </>
       )}
@@ -57,7 +61,19 @@ export function LedStrips() {
   );
 }
 
-function StringCard({ s, caps, others, onDone }: { s: LedString; caps: NonNullable<LedsState["capabilities"]>; others: LedString[]; onDone(): void }) {
+function StringCard({
+  s,
+  caps,
+  others,
+  onDone,
+  fix,
+}: {
+  s: LedString;
+  caps: NonNullable<LedsState["capabilities"]>;
+  others: LedString[];
+  onDone(): void;
+  fix?: (error: string) => ReactNode;
+}) {
   const b = useBob();
   const a = useAction();
   const [cls, text] = STATE_PILL[s.state];
@@ -79,6 +95,7 @@ function StringCard({ s, caps, others, onDone }: { s: LedString; caps: NonNullab
         </span>
       </div>
       {s.error && <Note color="danger">{s.error}</Note>}
+      {s.error && fix?.(s.error)}
       <div className="pr-row">
         <button className="btn btn-sm" onClick={() => quick("order-test")}>
           Order test

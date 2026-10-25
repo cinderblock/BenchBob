@@ -450,7 +450,7 @@ impl Inner {
                 let max = hw::spidev_bufsiz();
                 if len > max {
                     return Err(format!(
-                        "a frame is {len} bytes, more than spidev's {max}-byte transfer limit: add spidev.bufsiz=65536 to the kernel command line (cmdline.txt) and reboot, or use fewer pixels"
+                        "a frame is {len} bytes, more than spidev's {max}-byte transfer limit: raise spidev.bufsiz (GPIO panel → SPI settings, cmdline.txt) and reboot, or use fewer pixels"
                     ));
                 }
                 (Out::Spi(SpiOut::open(&b.dev, hz)?), enc, vec![b.mosi, b.sclk])

@@ -262,15 +262,27 @@ pub struct Interfaces {
     pub extra_i2c: OrderedMap<I2cX>,
     pub extra_uart: OrderedMap<UartX>,
     pub i2c_gpio: I2cGpio,
+    /// `core_freq` / `core_freq_min` in [all] (MHz). Equal values pin the core clock, which
+    /// a Pi ≤ 4's SPI clock divides: LED strips drawn on SPI need that.
+    pub core_freq: Option<i64>,
+    pub core_freq_min: Option<i64>,
     /// Keys also set in conditional sections (may override the [all] value).
     pub conditional: Vec<(String, String)>,
 }
 
 impl Interfaces {
+    /// The core clock config.txt pins (core_freq_min ≥ core_freq), if it does.
+    pub fn fixed_core_mhz(&self) -> Option<i64> {
+        match (self.core_freq, self.core_freq_min) {
+            (Some(f), Some(m)) if f > 0 && m >= f => Some(f),
+            _ => None,
+        }
+    }
+
     pub fn to_json(&self) -> Value {
         json!({
             "i2c": { "enabled": self.i2c.0, "baudrate": self.i2c.1 },
-            "spi": { "enabled": self.spi },
+            "spi": { "enabled": self.spi, "coreFreq": self.core_freq, "coreFreqMin": self.core_freq_min, "fixedCoreMhz": self.fixed_core_mhz() },
             "uart": { "enabled": self.uart },
             "onewire": { "enabled": self.onewire.0, "pin": self.onewire.1, "pullup": self.onewire.2 },
             "extraI2c": self.extra_i2c.iter().map(|(k, x)| (k.clone(), json!({ "enabled": x.enabled, "pins": x.pins, "baudrate": x.baudrate }))).collect::<serde_json::Map<_, _>>(),
@@ -292,6 +304,8 @@ pub fn read_interfaces(text: &str) -> Interfaces {
         ),
         extra_uart: OrderedMap(EXTRA_UART.iter().map(|x| (x.name.to_string(), UartX { enabled: false, ctsrts: false })).collect()),
         i2c_gpio: I2cGpio { enabled: false, sda: I2C_GPIO_DEFAULTS.0 as i64, scl: I2C_GPIO_DEFAULTS.1 as i64, bus: None, delay_us: None },
+        core_freq: None,
+        core_freq_min: None,
         conditional: Vec::new(),
     };
     for l in parse_config(text) {
@@ -302,6 +316,8 @@ pub fn read_interfaces(text: &str) -> Interfaces {
         let relevant = (key == "dtparam"
             && params(value).iter().any(|(k, _)| I2C_NAMES.contains(&k.as_str()) || BAUD_NAMES.contains(&k.as_str()) || k == "spi"))
             || key == "enable_uart"
+            || key == "core_freq"
+            || key == "core_freq_min"
             || (key == "dtoverlay" && is_managed_overlay(&overlay_name(value)));
         if !relevant {
             continue;
@@ -327,6 +343,12 @@ pub fn read_interfaces(text: &str) -> Interfaces {
         }
         if key == "enable_uart" {
             r.uart = value == "1";
+        }
+        if key == "core_freq" {
+            r.core_freq = parse_int(value);
+        }
+        if key == "core_freq_min" {
+            r.core_freq_min = parse_int(value);
         }
         if key == "dtoverlay" {
             let ps = params(value);
@@ -382,6 +404,12 @@ pub struct Changes {
     pub extra_uart: Vec<(String, Option<bool>, Option<bool>)>,
     /// enabled, sda, scl, bus (Some(None) = clear), delayUs (Some(None) = clear)
     pub i2c_gpio: Option<I2cGpioChange>,
+    /// Pin the core clock at this many MHz (core_freq and core_freq_min), or (None) stop
+    /// pinning it. For LED strips drawn on SPI.
+    pub core_clock: Option<Option<i64>>,
+    /// spidev.bufsiz on the kernel command line (cmdline.txt), or (None) back to the
+    /// default 4096. Not a config.txt change: see [`edit_cmdline`].
+    pub spidev_bufsiz: Option<Option<i64>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -721,6 +749,28 @@ pub fn edit_config(text: &str, ch: &Changes) -> Result<String, String> {
         }
     }
 
+    if let Some(mhz) = ch.core_clock {
+        for key in ["core_freq", "core_freq_min"] {
+            let hits: Vec<usize> = all_lines(&out).iter().filter(|l| l.active && l.key.as_deref() == Some(key)).map(|l| l.i).collect();
+            match mhz {
+                Some(m) => {
+                    if !(100..=1000).contains(&m) {
+                        return Err("core clock must be 100–1000 MHz".into());
+                    }
+                    match hits.last() {
+                        Some(&i) => out[i] = format!("{key}={m}"),
+                        None => append.push(format!("{key}={m}")),
+                    }
+                }
+                None => {
+                    for &i in &hits {
+                        out[i] = comment_out(&out[i]);
+                    }
+                }
+            }
+        }
+    }
+
     if !append.is_empty() {
         while out.last().is_some_and(|l| l.trim().is_empty()) {
             out.pop();
@@ -737,6 +787,29 @@ pub fn edit_config(text: &str, ch: &Changes) -> Result<String, String> {
         out.push(String::new());
     }
     Ok(out.join("\n").replace('\n', eol))
+}
+
+/// `spidev.bufsiz=N` on a kernel command line, if set.
+pub fn cmdline_bufsiz(text: &str) -> Option<i64> {
+    // The last one wins, as the kernel reads them.
+    text.split_whitespace().rev().filter_map(|w| w.strip_prefix("spidev.bufsiz=")).find_map(parse_int)
+}
+
+/// cmdline.txt with `spidev.bufsiz` set to `bufsiz` (or removed). cmdline.txt is one line;
+/// everything else on it, and its line ending, stays as it was.
+pub fn edit_cmdline(text: &str, bufsiz: Option<i64>) -> Result<String, String> {
+    if let Some(n) = bufsiz
+        && !(4096..=1_048_576).contains(&n)
+    {
+        return Err("spidev.bufsiz must be 4096–1048576 bytes".into());
+    }
+    let body = text.trim_end_matches(['\r', '\n']);
+    let ending = &text[body.len()..];
+    let mut words: Vec<String> = body.split_whitespace().filter(|w| !w.starts_with("spidev.bufsiz=")).map(String::from).collect();
+    if let Some(n) = bufsiz {
+        words.push(format!("spidev.bufsiz={n}"));
+    }
+    Ok(format!("{}{}", words.join(" "), if ending.is_empty() { "\n" } else { ending }))
 }
 
 /// A number as JavaScript prints it in a template string.

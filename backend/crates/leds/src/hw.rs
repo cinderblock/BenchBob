@@ -188,7 +188,7 @@ pub fn pi_fixed_core_hz() -> Result<u32, String> {
     };
     match (get("core_freq"), get("core_freq_min")) {
         (Some(f), Some(min)) if f > 0 && min >= f => Ok(f * 1_000_000),
-        (Some(_), Some(_)) => Err("the Pi's core clock (and with it SPI's) changes with load: add core_freq=500 and core_freq_min=500 to config.txt [all] and reboot (core_freq=250 / core_freq_min=250 on a Pi 3)".into()),
+        (Some(_), Some(_)) => Err("the Pi's core clock (and with it SPI's) changes with load: fix it with core_freq and core_freq_min (500 on a Pi 4, 250 on a Pi 3; GPIO panel → SPI settings) and reboot".into()),
         _ => Err("couldn't read the core clock (vcgencmd get_config core_freq)".into()),
     }
 }

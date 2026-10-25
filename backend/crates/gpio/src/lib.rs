@@ -105,6 +105,8 @@ pub(crate) struct Staged {
     pub summary: Vec<String>,
     /// Script backends: the change to apply.
     pub change: Option<Value>,
+    /// A second file the change also writes (cmdline.txt): path, base text, new text.
+    pub also: Option<(String, String, String)>,
 }
 
 #[derive(Default)]

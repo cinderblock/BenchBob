@@ -208,11 +208,12 @@ User's answers of 2026-10-25:
 4. ~~ESP32-C6 driver (RMT + SPI), status LED~~: done (compiles; untested on hardware).
 5. ~~Linux `leds` crate~~: spidev, GPIO-uAPI bit-banged clocked strings, GPIO panel
    claims, persistence, Linux panel (done; see Progress log). Left over, as 5c below.
-5c. Staging for the SPI prerequisites ← next: a Pi 4/3 needs `core_freq=500` +
-   `core_freq_min=500` (250 on a Pi 3) for WS2812-over-SPI, and frames over 4096 bytes need
-   `spidev.bufsiz=65536` in cmdline.txt. Today the string's error says exactly that; make
-   them a GPIO-panel staged change (diff + apply + reboot) with a button from the LED panel.
-   Also: SPI pin maps for non-Pi boards (from their overlay entries).
+5c. ~~Staging for the SPI prerequisites~~: done. The GPIO panel's Interfaces → SPI card
+   stages `core_freq` + `core_freq_min` (config.txt) and `spidev.bufsiz` (cmdline.txt) in
+   one diff/apply (both files backed up); a string whose error needs it gets an
+   "SPI settings…" button. Left: SPI pin maps for non-Pi boards (from their overlay
+   entries), and the Pi 5's extra RP1 SPI buses.
+5b. BCM283x/2711 PWM/PCM + DMA driver ← next (privileged helper).
 5b. BCM283x/2711 PWM/PCM + DMA driver (GPIO 12/13/18/19/21), in a privileged helper.
 6. Pi 5 `/dev/pio0` driver.
 7. Network receivers (sACN, Art-Net, DDP) on both sides.
@@ -272,7 +273,14 @@ User's answers of 2026-10-25:
   7 in the crate, 1 new GPIO test, 1 new web test. Run for real in WSL as a forced `rpi`
   board with a fake spidev: strings created, persisted across a restart, and their setup
   errors shown in the panel. Not run on a Pi yet.
-- [ ] Steps 5c–9
+- [x] Step 5c (2026-10-25): `Changes.core_clock` / `spidev_bufsiz`, `edit_cmdline`,
+  `cmdline_bufsiz`, `Staged.also` (a second file); stage body `spi: {fixedCoreMhz,
+  spidevBufsiz}` (null clears; the dialog only sends what changed). GPIO test
+  `led_spi_prerequisites`. Run in WSL against test copies: one stage showed both diffs,
+  apply wrote both files with backups. The LED panel's button lives in the Linux wrapper
+  (`panels/leds/Leds.tsx`), not the shared body, which kept the node bundle at 29.1 KB gz
+  (importing the GPIO dialog there cost 3.6 KB).
+- [ ] Steps 5b, 6–9
 
 ## Open questions for the user
 

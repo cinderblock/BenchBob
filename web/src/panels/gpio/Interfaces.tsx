@@ -76,7 +76,15 @@ function Interfaces({ info, focus }: { info: IfaceInfo; focus?: IfaceGroup }) {
         req.i2cGpio = { enabled: on("i2cgpio"), ...(on("i2cgpio") ? { sda: num("ig-sda"), scl: num("ig-scl"), bus: num("ig-bus"), delayUs: num("ig-delay") } : {}) };
       }
     }
-    if (show("spi")) req.spi = { enabled: on("spi") };
+    if (show("spi")) {
+      req.spi = { enabled: on("spi") };
+      // Only send what changed: core_freq may be set for other reasons, and unticking
+      // a box that was never ticked shouldn't touch it.
+      const mhz = on("spi-core") ? num("spi-mhz") : null;
+      if (mhz !== (c.spi.fixedCoreMhz ?? null)) req.spi.fixedCoreMhz = mhz;
+      const buf = num("spi-buf");
+      if (buf !== (L.spi.bootBufsiz ?? null)) req.spi.spidevBufsiz = buf;
+    }
     if (show("uart")) {
       req.uart = { enabled: on("uart") };
       if (cat) req.extraUart = Object.fromEntries(Object.keys(cat.extraUart).map((n) => [n, { enabled: on(n), ctsrts: on(`${n}-cts`) }]));
@@ -194,7 +202,23 @@ function Interfaces({ info, focus }: { info: IfaceInfo; focus?: IfaceGroup }) {
             )}
           </>
         )}
-        {show("spi") && <Row id="spi" name={`SPI0 on ${gp(7, 8, 9, 10, 11)}`} on={c.spi.enabled} live={L.spi.enabled ? `on, ${L.spi.devices.join(", ") || "no spidev nodes"}` : "off"} />}
+        {show("spi") && (
+          <Row id="spi" name={`SPI0 on ${gp(7, 8, 9, 10, 11)}`} on={c.spi.enabled} live={L.spi.enabled ? `on, ${L.spi.devices.join(", ") || "no spidev nodes"}` : "off"}>
+            <div className="stat-label">For LED strips (WS2812 family) on SPI</div>
+            <div className="pr-row">
+              <label>
+                <input type="checkbox" id="gi-spi-core" defaultChecked={c.spi.fixedCoreMhz != null} /> Fix the core clock at{" "}
+                <input id="gi-spi-mhz" type="number" min={100} max={1000} defaultValue={c.spi.fixedCoreMhz ?? (L.board?.bcm2711 ? 500 : 250)} style={{ width: 64 }} /> MHz
+              </label>
+              <label>
+                spidev transfers up to <input id="gi-spi-buf" type="number" min={4096} max={1048576} step={4096} placeholder="4096" defaultValue={L.spi.bootBufsiz ?? ""} style={{ width: 90 }} /> bytes
+              </label>
+            </div>
+            <div className="pr-note">
+              A Pi 1–4's SPI clock divides the core clock, which normally changes with load; a WS2812 waveform drawn on SPI needs it fixed (core_freq and core_freq_min: 500 MHz on a Pi 4, 250 on a Pi 3). Each frame is one transfer, so long strings need a bigger spidev limit (cmdline.txt; about 9 bytes per RGB pixel). Now: {L.spi.bufsiz ?? 4096} bytes.
+            </div>
+          </Row>
+        )}
         {show("uart") && (
           <>
             <Row

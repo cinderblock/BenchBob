@@ -114,7 +114,13 @@ pub fn live(cmdline_txt: &Path) -> Value {
         "extraUart": extra_uart,
         "i2cGpio": { "nodes": gpio_buses },
         "i2c": { "enabled": i2c.as_ref().is_some_and(|s| s.1), "dev": Path::new("/dev/i2c-1").exists().then_some("/dev/i2c-1"), "hz": hz },
-        "spi": { "enabled": spi.as_ref().is_some_and(|s| s.1), "devices": spidev },
+        "spi": {
+            "enabled": spi.as_ref().is_some_and(|s| s.1),
+            "devices": spidev,
+            // The transfer limit now, and what cmdline.txt will set at the next boot.
+            "bufsiz": read_text("/sys/module/spidev/parameters/bufsiz").parse::<i64>().ok(),
+            "bootBufsiz": G::cmdline_bufsiz(&boot_cmdline),
+        },
         "uart": {
             "serial0": serial0.as_ref().map(|s| format!("/dev/{s}")),
             "consoleOnSerial": serial_console,
@@ -169,6 +175,14 @@ pub fn parse_changes(a: &Value) -> Result<Changes, HttpError> {
     }
     if let Some(e) = a.get("spi").and_then(|s| present(s, "enabled")) {
         ch.spi = Some(bool_field(&e, "spi.enabled")?);
+    }
+    // null clears; absent leaves it alone.
+    let maybe = |k: &str| a.get("spi").and_then(|s| s.get(k)).cloned();
+    if let Some(v) = maybe("fixedCoreMhz") {
+        ch.core_clock = Some(opt_num(&v, "spi.fixedCoreMhz")?.map(|n| n as i64));
+    }
+    if let Some(v) = maybe("spidevBufsiz") {
+        ch.spidev_bufsiz = Some(opt_num(&v, "spi.spidevBufsiz")?.map(|n| n as i64));
     }
     if let Some(e) = a.get("uart").and_then(|s| present(s, "enabled")) {
         ch.uart = Some(bool_field(&e, "uart.enabled")?);
@@ -262,6 +276,12 @@ pub fn describe(before: &Interfaces, after: &Interfaces) -> Vec<String> {
     if before.spi != after.spi {
         s.push(format!("SPI0 {}", onoff(after.spi)));
     }
+    if before.fixed_core_mhz() != after.fixed_core_mhz() {
+        s.push(match after.fixed_core_mhz() {
+            Some(m) => format!("core clock fixed at {m} MHz (LED strips on SPI)"),
+            None => "core clock no longer fixed".into(),
+        });
+    }
     if before.uart != after.uart {
         s.push(format!("UART (GPIO14/15) {}", onoff(after.uart)));
     }
@@ -336,5 +356,64 @@ mod tests {
         )
         .unwrap();
         assert_eq!(describe(&before, &read_interfaces(&next)), ["I²C speed 400 kHz", "UART3 (GPIO4/5) on"]);
+    }
+
+    #[test]
+    fn led_spi_prerequisites() {
+        let c = parse_changes(&json!({ "spi": { "enabled": true, "fixedCoreMhz": 500, "spidevBufsiz": 65536 } })).unwrap();
+        assert_eq!((c.spi, c.core_clock, c.spidev_bufsiz), (Some(true), Some(Some(500)), Some(Some(65536))));
+        let c = parse_changes(&json!({ "spi": { "fixedCoreMhz": null } })).unwrap();
+        assert_eq!((c.spi, c.core_clock, c.spidev_bufsiz), (None, Some(None), None));
+
+        // Pin the core clock: an existing core_freq is edited, core_freq_min appended.
+        let base = "[all]
+core_freq=400
+dtparam=spi=on
+";
+        let before = read_interfaces(base);
+        assert_eq!(before.fixed_core_mhz(), None);
+        let next = edit_config(base, &parse_changes(&json!({ "spi": { "fixedCoreMhz": 500 } })).unwrap()).unwrap();
+        assert!(
+            next.contains(
+                "core_freq=500
+"
+            ) && next.contains("core_freq_min=500"),
+            "{next}"
+        );
+        let after = read_interfaces(&next);
+        assert_eq!(after.fixed_core_mhz(), Some(500));
+        assert_eq!(describe(&before, &after), ["core clock fixed at 500 MHz (LED strips on SPI)"]);
+        // And unpin it: both lines commented out.
+        let back = edit_config(&next, &parse_changes(&json!({ "spi": { "fixedCoreMhz": null } })).unwrap()).unwrap();
+        assert!(back.contains("#core_freq=500") && back.contains("#core_freq_min=500"), "{back}");
+        assert_eq!(describe(&after, &read_interfaces(&back)), ["core clock no longer fixed"]);
+        assert!(edit_config(base, &parse_changes(&json!({ "spi": { "fixedCoreMhz": 5 } })).unwrap()).is_err());
+
+        // cmdline.txt: one line, everything else kept.
+        let cmd = "console=serial0,115200 root=PARTUUID=1-02 rootwait
+";
+        assert_eq!(
+            G::edit_cmdline(cmd, Some(65536)).unwrap(),
+            "console=serial0,115200 root=PARTUUID=1-02 rootwait spidev.bufsiz=65536
+"
+        );
+        let set = G::edit_cmdline(
+            "a spidev.bufsiz=8192 b
+",
+            Some(65536),
+        )
+        .unwrap();
+        assert_eq!(
+            set,
+            "a b spidev.bufsiz=65536
+"
+        );
+        assert_eq!(G::cmdline_bufsiz(&set), Some(65536));
+        assert_eq!(
+            G::edit_cmdline(&set, None).unwrap(),
+            "a b
+"
+        );
+        assert!(G::edit_cmdline(cmd, Some(10)).is_err());
     }
 }

@@ -311,6 +311,7 @@ pub async fn stage(i: &Arc<Inner>, a: &Value) -> Result<Value, HttpError> {
     let token = uuid::Uuid::new_v4().to_string();
     let base = if script_diff.is_some() { cur.enabled.join(" ") } else { raw };
     i.st.lock().unwrap().staged_ov = Some(Staged {
+        also: None,
         token: token.clone(),
         text: next,
         base,
@@ -434,12 +435,30 @@ pub async fn stage_config(i: &Arc<Inner>, a: &Value) -> Result<Value, HttpError>
     if ch.i2c_gpio.as_ref().is_some_and(|g| g.enabled == Some(true)) && after.i2c_gpio.bus.is_none() {
         warnings.push("i2c-gpio without a bus number gets the next free /dev/i2c-N (probably 3, or higher if I²C3 is on); set a bus number for a stable name.".into());
     }
+    // spidev.bufsiz lives on the kernel command line: the same change also edits cmdline.txt.
+    let mut diff = diff;
+    let mut also = None;
+    let mut cmd_summary = Vec::new();
+    if let Some(n) = ch.spidev_bufsiz {
+        let path = i.env.cmdline.display().to_string();
+        let raw_cmd = read_raw(&path)?;
+        let next_cmd = G::edit_cmdline(&raw_cmd, n).map_err(|e| http(400, e))?;
+        if next_cmd != raw_cmd {
+            diff.push_str(&G::unified_diff(&raw_cmd, &next_cmd, &path, 0));
+            cmd_summary.push(match n {
+                Some(n) => format!("spidev transfers up to {n} bytes (cmdline.txt)"),
+                None => "spidev transfer limit back to 4096 bytes (cmdline.txt)".into(),
+            });
+            also = Some((path, raw_cmd, next_cmd));
+        }
+    }
     if diff.is_empty() {
         i.st.lock().unwrap().staged = None;
         return Ok(json!({ "diff": "", "summary": [], "warnings": warnings, "message": "No change: config.txt already says that." }));
     }
     let token = uuid::Uuid::new_v4().to_string();
-    let summary = crate::interfaces::describe(&before, &after);
+    let mut summary = crate::interfaces::describe(&before, &after);
+    summary.extend(cmd_summary);
     i.st.lock().unwrap().staged = Some(Staged {
         token: token.clone(),
         text: next,
@@ -448,6 +467,7 @@ pub async fn stage_config(i: &Arc<Inner>, a: &Value) -> Result<Value, HttpError>
         at: now_ms(),
         summary: summary.clone(),
         change: None,
+        also,
     });
     Ok(
         json!({ "token": token, "diff": diff, "summary": summary, "warnings": warnings, "configPath": cfg, "testCopy": i.env.config_overridden }),
@@ -469,7 +489,20 @@ pub async fn apply_config(i: &Arc<Inner>, a: &Value) -> Result<Value, HttpError>
     if std::fs::read_to_string(&staged.path).unwrap_or_default() != staged.base {
         return Err(http(409, format!("{} changed since the diff was made; stage again", staged.path)));
     }
-    let backup = backup_and_write(&staged.path, &staged.text).await?;
+    if let Some((p, base, _)) = &staged.also
+        && std::fs::read_to_string(p).unwrap_or_default() != *base
+    {
+        return Err(http(409, format!("{p} changed since the diff was made; stage again")));
+    }
+    // config.txt may not change at all (a cmdline.txt-only change).
+    let mut backup = String::new();
+    if staged.text != staged.base {
+        backup = backup_and_write(&staged.path, &staged.text).await?;
+    }
+    if let Some((p, _, text)) = &staged.also {
+        let b = backup_and_write(p, text).await?;
+        backup = if backup.is_empty() { b } else { format!("{backup}, {b}") };
+    }
     i.st.lock().unwrap().reboot_required = true;
     i.ctx().event(&format!("config.txt changed ({}); backup {backup}; reboot required", staged.summary.join(", ")), None);
     i.ctx().changed();
