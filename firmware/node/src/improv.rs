@@ -9,6 +9,8 @@ use benchbob_proto::api::WifiState;
 use benchbob_proto::config::{self, Config, FixedStr};
 use benchbob_proto::improv::{self, Command, ErrorCode, Packet, ParseError, State};
 use core::fmt::Write as _;
+use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, with_timeout};
 use embedded_io_async::{Read, Write};
 use embedded_storage::nor_flash::NorFlash;
@@ -21,16 +23,17 @@ pub struct DeviceInfo {
     pub chip: &'static str,
 }
 
-struct Session<'a, W, F> {
+struct Session<'a, W, M: RawMutex, F> {
     tx: &'a mut W,
-    store: &'a mut ConfigStore<F>,
+    /// Shared with the LED settings' saver.
+    store: &'a Mutex<M, ConfigStore<F>>,
     dev: &'a DeviceInfo,
     error: ErrorCode,
     out: [u8; improv::MAX_PACKET],
 }
 
 /// Serve Improv on one connection until the port reports an error (e.g. USB unplugged).
-pub async fn run<R: Read, W: Write, F: NorFlash>(rx: &mut R, tx: &mut W, store: &mut ConfigStore<F>, dev: &DeviceInfo) {
+pub async fn run<R: Read, W: Write, M: RawMutex, F: NorFlash>(rx: &mut R, tx: &mut W, store: &Mutex<M, ConfigStore<F>>, dev: &DeviceInfo) {
     let mut parser = improv::Parser::new();
     let mut s = Session { tx, store, dev, error: ErrorCode::None, out: [0; improv::MAX_PACKET] };
     let mut buf = [0u8; 64];
@@ -61,7 +64,7 @@ fn api_url(ip: [u8; 4]) -> StrBuf<32> {
     u
 }
 
-impl<W: Write, F: NorFlash> Session<'_, W, F> {
+impl<W: Write, M: RawMutex, F: NorFlash> Session<'_, W, M, F> {
     async fn send(&mut self, n: usize) -> Io {
         self.tx.write_all(&self.out[..n]).await.map_err(|_| ())?;
         self.tx.flush().await.map_err(|_| ())
@@ -155,10 +158,14 @@ impl<W: Write, F: NorFlash> Session<'_, W, F> {
             self.set_error(ErrorCode::UnableToConnect).await?;
             return self.state(State::Authorized).await;
         };
-        let mut c = self.store.config().copied().unwrap_or_default();
-        c.ssid = ssid;
-        c.password = password;
-        if self.store.save(&c).is_err() {
+        let saved = {
+            let mut st = self.store.lock().await;
+            let mut c = st.config().copied().unwrap_or_default();
+            c.ssid = ssid;
+            c.password = password;
+            st.save(&c)
+        };
+        if saved.is_err() {
             // Connected now, but it won't survive a reset: say so.
             self.set_error(ErrorCode::Unknown).await?;
         }
@@ -188,9 +195,13 @@ impl<W: Write, F: NorFlash> Session<'_, W, F> {
         let Some(h) = core::str::from_utf8(h).ok().filter(|h| config::valid_hostname(h)).and_then(FixedStr::from_text) else {
             return self.set_error(ErrorCode::BadHostname).await;
         };
-        let mut c = self.store.config().copied().unwrap_or_default();
-        c.hostname = h;
-        if self.store.save(&c).is_err() {
+        let saved = {
+            let mut st = self.store.lock().await;
+            let mut c = st.config().copied().unwrap_or_default();
+            c.hostname = h;
+            st.save(&c)
+        };
+        if saved.is_err() {
             return self.set_error(ErrorCode::Unknown).await;
         }
         // mDNS picks it up now; the DHCP hostname changes at the next reset.

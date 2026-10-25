@@ -249,6 +249,9 @@ pub struct Leds {
     output: bool,
     /// The time of the last tick/receive, for "how long ago" in the view.
     now_ms: u64,
+    /// Changes when something worth saving does (a string's config, its pattern, a
+    /// string added or removed); not for pixels or network data.
+    persist_gen: u32,
 }
 
 impl Default for Leds {
@@ -259,7 +262,7 @@ impl Default for Leds {
 
 impl Leds {
     pub const fn new() -> Self {
-        Leds { slots: [const { None }; MAX_STRINGS], next_id: 1, counter: 0, output: false, now_ms: 0 }
+        Leds { slots: [const { None }; MAX_STRINGS], next_id: 1, counter: 0, output: false, now_ms: 0, persist_gen: 0 }
     }
 
     fn bump(&mut self) -> u32 {
@@ -639,6 +642,73 @@ impl Leds {
         j.end_obj();
     }
 
+    /// Bumps whenever the settings [`Self::persist_json`] writes change.
+    pub fn persist_gen(&self) -> u32 {
+        self.persist_gen
+    }
+
+    /// String `id` as settings to store: its config and pattern, nothing live (no state,
+    /// no receiving, no timing for a preset chip). [`Self::restore_json`] reads it back.
+    pub fn persist_json(&self, id: i64, j: &mut Json<'_, '_>) -> R {
+        let i = self.index(id)?;
+        let Some(s) = &self.slots[i] else { return Ok(()) };
+        let c = &s.cfg;
+        j.obj().kv_u64("id", s.id as u64).kv_str("name", c.name.as_str()).kv_str("chip", c.chip.name()).kv_u64("pin", c.pin as u64);
+        if let Some(p) = c.clock_pin {
+            j.kv_u64("clockPin", p as u64);
+        }
+        let mut name = [0u8; 4];
+        let n = c.order.name(&mut name);
+        j.kv_u64("pixels", c.pixels as u64).kv_str("order", core::str::from_utf8(&name[..n]).unwrap_or("GRB"));
+        if c.chip.clocked() {
+            j.kv_u64("clockHz", c.clock_hz as u64);
+        } else if c.chip.preset().is_none() {
+            let t = c.timing;
+            j.key("timing").obj().kv_u64("t0hNs", t.t0h_ns as u64).kv_u64("t1hNs", t.t1h_ns as u64);
+            j.kv_u64("periodNs", t.period_ns as u64).kv_u64("resetUs", t.reset_us as u64).end_obj();
+        }
+        j.kv_u64("brightness", c.brightness as u64).kv_bool("gamma", c.gamma).kv_bool("invert", c.invert);
+        if let Some(p) = c.power {
+            j.key("power").obj().kv_u64("maPerChannel", p.ma_per_channel as u64).kv_u64("idleMa", p.idle_ma as u64);
+            j.kv_u64("maxMa", p.max_ma as u64).end_obj();
+        }
+        if let Some(n) = c.net {
+            j.key("network").obj().kv_str("protocol", n.protocol.name()).kv_u64("universe", n.universe as u64);
+            j.kv_u64("startChannel", n.start_channel as u64).kv_u64("ddpOffset", n.ddp_offset as u64).end_obj();
+        }
+        let pattern = match s.source {
+            Source::Pattern { pattern, .. } => Some(pattern),
+            Source::Network => match s.net.prev {
+                Some(Source::Pattern { pattern, .. }) => Some(pattern),
+                _ => Some(Pattern::Off),
+            },
+            // Pixels set through the API aren't settings: such a string comes back dark.
+            Source::Pixels => Some(Pattern::Off),
+        };
+        if let Some(p) = pattern {
+            j.key("pattern");
+            pattern_view(&p, j);
+        }
+        j.end_obj();
+        Ok(())
+    }
+
+    /// Re-create a string from what [`Self::persist_json`] wrote. Returns its id.
+    pub fn restore_json(&mut self, info: &BoardInfo, text: &[u8], now_ms: u64) -> Result<i64, ApiErr> {
+        let text = core::str::from_utf8(text).map_err(|_| err!(400, "stored LED string isn't UTF-8"))?;
+        let v = crate::json::parse(text).map_err(|_| err!(400, "stored LED string isn't valid JSON"))?;
+        let id = v
+            .get("id")
+            .and_then(|i| i.as_i64())
+            .filter(|&i| (1..=u16::MAX as i64).contains(&i))
+            .ok_or_else(|| err!(400, "stored LED string has no id"))?;
+        let id = self.restore(info, id as u16, Some(&v), now_ms)?;
+        if let Some(p) = v.get("pattern").filter(|p| p.kind() == Kind::Object) {
+            self.set_pattern(id, Some(&p), now_ms)?;
+        }
+        Ok(id)
+    }
+
     pub fn string_json(&self, id: i64, j: &mut Json<'_, '_>) -> R {
         let i = self.index(id)?;
         if let Some(s) = &self.slots[i] {
@@ -800,6 +870,7 @@ impl Leds {
         self.check(info, l, &c, existing)?;
         let config_gen = self.bump();
         let content_gen = self.bump();
+        self.persist_gen = self.persist_gen.wrapping_add(1);
         let i = match existing {
             Some(i) => i,
             None => {
@@ -869,6 +940,7 @@ impl Leds {
     pub fn remove(&mut self, id: i64) -> R {
         let i = self.index(id)?;
         self.slots[i] = None;
+        self.persist_gen = self.persist_gen.wrapping_add(1);
         Ok(())
     }
 
@@ -898,6 +970,7 @@ impl Leds {
             None => current.ok_or_else(|| err!(400, "name is required (the string is showing pixels, not a pattern)"))?,
         };
         apply_params(&mut p, a, s.cfg.pixels)?;
+        self.persist_gen = self.persist_gen.wrapping_add(1);
         let pat = Source::Pattern { pattern: p, since_ms: now_ms };
         if matches!(s.source, Source::Network) {
             // The network has the string; this is what comes back when it lets go.

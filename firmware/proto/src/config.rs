@@ -14,8 +14,11 @@
 //! | 16 | n | payload: TLV fields, each tag (1 byte), length (1 byte), value |
 //!
 //! Tags: 1 = SSID (1–32 bytes), 2 = password (0–64 bytes, empty for an open network),
-//! 3 = hostname (RFC 1123 label, 1–63 chars). Unknown tags are skipped, so later
-//! versions can add fields. The firmware writes the slot that does not hold the current
+//! 3 = hostname (RFC 1123 label, 1–63 chars), 4 = a chunk of one LED string's settings
+//! (`[string, part, bytes…]`: the parts of each string in order make its JSON, as
+//! `Leds::persist_json` writes it). Tags this version doesn't know are kept as they are
+//! ([`Config::rest`]) and written back, so saving the Wi-Fi settings never drops a later
+//! version's fields; older firmware skips them. The firmware writes the slot that does not hold the current
 //! record (erase, then program), with the sequence number one higher, so a power cut
 //! mid-write leaves the old record valid. A `config.uf2` writes the whole region: slot 0
 //! with sequence 1 and slot 1 erased (all 0xFF), so it always replaces what was there.
@@ -32,10 +35,69 @@ pub const HEADER_LEN: usize = 16;
 pub const TAG_SSID: u8 = 1;
 pub const TAG_PASSWORD: u8 = 2;
 pub const TAG_HOSTNAME: u8 = 3;
+pub const TAG_LED_STRING: u8 = 4;
 
 pub const MAX_SSID: usize = 32;
 pub const MAX_PASSWORD: usize = 64;
 pub const MAX_HOSTNAME: usize = 63;
+/// Room for the TLVs after the Wi-Fi ones (LED strings and anything newer): what a slot
+/// has left.
+pub const REST_MAX: usize = SLOT_SIZE - HEADER_LEN - (2 + MAX_SSID) - (2 + MAX_PASSWORD) - (2 + MAX_HOSTNAME);
+/// Data bytes per LED string chunk (a TLV value is at most 255: two go to the indices).
+const CHUNK: usize = 253;
+
+/// TLVs this version keeps but doesn't interpret itself (raw tag, length, value runs).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Rest {
+    buf: [u8; REST_MAX],
+    len: u16,
+}
+
+impl Rest {
+    pub const fn new() -> Self {
+        Rest { buf: [0; REST_MAX], len: 0 }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buf[..self.len as usize]
+    }
+
+    fn push(&mut self, tag: u8, v: &[u8]) -> bool {
+        let n = self.len as usize;
+        if v.len() > 255 || n + 2 + v.len() > REST_MAX {
+            return false;
+        }
+        self.buf[n] = tag;
+        self.buf[n + 1] = v.len() as u8;
+        self.buf[n + 2..n + 2 + v.len()].copy_from_slice(v);
+        self.len = (n + 2 + v.len()) as u16;
+        true
+    }
+
+    /// Each TLV as (tag, value).
+    pub fn tlvs(&self) -> impl Iterator<Item = (u8, &[u8])> {
+        let b = self.as_bytes();
+        let mut i = 0;
+        core::iter::from_fn(move || {
+            let (&tag, &l) = (b.get(i)?, b.get(i + 1)?);
+            let v = b.get(i + 2..i + 2 + l as usize)?;
+            i += 2 + l as usize;
+            Some((tag, v))
+        })
+    }
+}
+
+impl Default for Rest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl core::fmt::Debug for Rest {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Rest({} bytes)", self.len)
+    }
+}
 
 /// CRC-32/ISO-HDLC (the zlib / PNG / Ethernet CRC), bitwise to stay small.
 pub fn crc32(parts: &[&[u8]]) -> u32 {
@@ -104,6 +166,8 @@ pub struct Config {
     pub password: FixedStr<MAX_PASSWORD>,
     /// Empty means "use the default" (`benchbob-<last 3 MAC bytes>`).
     pub hostname: FixedStr<MAX_HOSTNAME>,
+    /// LED strings and tags from later versions, kept as they are.
+    pub rest: Rest,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,7 +199,55 @@ impl Config {
             ssid: FixedStr::from_text(ssid).ok_or(ConfigError::SsidLength)?,
             password: FixedStr::from_text(password).ok_or(ConfigError::PasswordLength)?,
             hostname: FixedStr::from_text(hostname).ok_or(ConfigError::BadHostname)?,
+            rest: Rest::new(),
         })
+    }
+
+    /// Replace the stored LED strings with these (each one's JSON). False when they don't
+    /// all fit in the slot (the ones that fit are kept).
+    pub fn set_led_strings<'a>(&mut self, strings: impl IntoIterator<Item = &'a [u8]>) -> bool {
+        let mut next = Rest::new();
+        for (tag, v) in self.rest.tlvs() {
+            if tag != TAG_LED_STRING {
+                next.push(tag, v);
+            }
+        }
+        let mut ok = true;
+        for (k, json) in strings.into_iter().enumerate() {
+            for (part, c) in json.chunks(CHUNK).enumerate() {
+                let mut v = [0u8; 255];
+                v[0] = k as u8;
+                v[1] = part as u8;
+                v[2..2 + c.len()].copy_from_slice(c);
+                ok &= next.push(TAG_LED_STRING, &v[..2 + c.len()]);
+            }
+        }
+        self.rest = next;
+        ok
+    }
+
+    /// The stored LED strings, each reassembled into `buf` and handed to `f`.
+    pub fn led_strings(&self, buf: &mut [u8], mut f: impl FnMut(&[u8])) {
+        let mut k = 0u8;
+        loop {
+            let mut n = 0;
+            let mut found = false;
+            for (tag, v) in self.rest.tlvs() {
+                if tag == TAG_LED_STRING && v.len() >= 2 && v[0] == k {
+                    found = true;
+                    let d = &v[2..];
+                    if n + d.len() <= buf.len() {
+                        buf[n..n + d.len()].copy_from_slice(d);
+                        n += d.len();
+                    }
+                }
+            }
+            if !found {
+                return;
+            }
+            f(&buf[..n]);
+            k = k.wrapping_add(1);
+        }
     }
 
     /// Has Wi-Fi credentials (a record with an empty SSID is treated as unprovisioned).
@@ -143,7 +255,8 @@ impl Config {
         !self.ssid.is_empty()
     }
 
-    /// Encode a record into `out` (at least `HEADER_LEN + 3*2 + 159` bytes); returns its length.
+    /// Encode a record into `out` (a slot, or at least `HEADER_LEN + 3*2 + 159` bytes plus
+    /// the rest); returns its length.
     pub fn encode(&self, seq: u32, out: &mut [u8]) -> usize {
         let mut n = HEADER_LEN;
         for (tag, v) in [(TAG_SSID, self.ssid.as_bytes()), (TAG_PASSWORD, self.password.as_bytes()), (TAG_HOSTNAME, self.hostname.as_bytes())] {
@@ -155,6 +268,9 @@ impl Config {
             out[n + 2..n + 2 + v.len()].copy_from_slice(v);
             n += 2 + v.len();
         }
+        let rest = self.rest.as_bytes();
+        out[n..n + rest.len()].copy_from_slice(rest);
+        n += rest.len();
         let len = (n - HEADER_LEN) as u16;
         out[0..4].copy_from_slice(&MAGIC);
         out[4] = FORMAT;
@@ -195,7 +311,9 @@ impl Config {
                         c.hostname = h;
                     }
                 }
-                _ => {}
+                _ => {
+                    c.rest.push(tag, v);
+                }
             }
             i += 2 + l;
         }
@@ -239,6 +357,7 @@ pub fn region_image(c: &Config, out: &mut [u8; REGION_SIZE]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    extern crate std;
 
     #[test]
     fn crc_matches_reference() {
@@ -277,6 +396,35 @@ mod tests {
     }
 
     #[test]
+    fn led_strings_round_trip_in_chunks_and_survive_wifi_saves() {
+        let mut c = Config::new("lab", "pw", "node").unwrap();
+        let long: std::vec::Vec<u8> = (0..600).map(|i| b'a' + (i % 26) as u8).collect();
+        assert!(c.set_led_strings([b"{\"id\":1}".as_slice(), long.as_slice()]));
+        let mut slot = [0xFFu8; SLOT_SIZE];
+        c.encode(7, &mut slot);
+        let (_, mut d) = Config::decode(&slot).unwrap();
+        assert_eq!(d, c);
+        let mut got = std::vec::Vec::new();
+        let mut buf = [0u8; 2048];
+        d.led_strings(&mut buf, |s| got.push(s.to_vec()));
+        assert_eq!(got, [b"{\"id\":1}".to_vec(), long.clone()]);
+        // A Wi-Fi change (what Improv does) keeps them; replacing them drops the old ones.
+        d.ssid = FixedStr::from_text("other").unwrap();
+        d.encode(8, &mut slot);
+        let (_, mut e) = Config::decode(&slot).unwrap();
+        got.clear();
+        e.led_strings(&mut buf, |s| got.push(s.to_vec()));
+        assert_eq!(got.len(), 2);
+        assert!(e.set_led_strings([b"x".as_slice()]));
+        got.clear();
+        e.led_strings(&mut buf, |s| got.push(s.to_vec()));
+        assert_eq!(got, [b"x".to_vec()]);
+        // Too much to fit: what fits is kept, and it says so.
+        let huge = std::vec![b'z'; REST_MAX];
+        assert!(!e.set_led_strings([huge.as_slice()]));
+    }
+
+    #[test]
     fn unknown_tags_are_skipped() {
         // Hand-built record: SSID "x", unknown tag 9 with 2 bytes.
         let mut slot = [0xFFu8; SLOT_SIZE];
@@ -292,6 +440,11 @@ mod tests {
         let (seq, c) = Config::decode(&slot).unwrap();
         assert_eq!(seq, 3);
         assert_eq!(c.ssid.as_str(), "x");
+        // Kept, and written back as they were.
+        assert_eq!(c.rest.as_bytes(), &[9, 2, 0xAA, 0xBB]);
+        let mut again = [0xFFu8; SLOT_SIZE];
+        let n = c.encode(3, &mut again);
+        assert_eq!(&again[..n], &slot[..n]);
     }
 
     #[test]

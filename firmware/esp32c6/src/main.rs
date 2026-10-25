@@ -55,6 +55,8 @@ const CONFIG_OFFSET_DEFAULT: u32 = 0x3F_E000;
 /// (DHCP, mDNS and two spare, as before).
 const HTTP_TASKS: usize = 4;
 pub type SharedNode = Mutex<CriticalSectionRawMutex, Shared<C6Node>>;
+/// The config record, shared by Improv and the LED settings' saver.
+type SharedStore = Mutex<CriticalSectionRawMutex, ConfigStore<FlashStorage<'static>>>;
 
 static DEVICE: DeviceInfo = DeviceInfo { firmware: "BenchBob node", version: benchbob_proto::VERSION, chip: "ESP32-C6" };
 
@@ -69,6 +71,11 @@ async fn http_task(stack: Stack<'static>, shared: &'static SharedNode, bufs: &'s
 }
 
 #[embassy_executor::task]
+async fn persist_task(shared: &'static SharedNode, store: &'static SharedStore) -> ! {
+    benchbob_node::store::persist_leds(shared, store).await
+}
+
+#[embassy_executor::task]
 async fn lights_task(stack: Stack<'static>, shared: &'static SharedNode, bufs: &'static mut benchbob_node::lights::Buffers) -> ! {
     benchbob_node::lights::run(stack, shared, bufs).await
 }
@@ -80,9 +87,9 @@ async fn mdns_task(stack: Stack<'static>, bufs: &'static mut benchbob_node::mdns
 }
 
 #[embassy_executor::task]
-async fn improv_task(mut rx: UsbSerialJtagRx<'static, Async>, mut tx: UsbSerialJtagTx<'static, Async>, mut store: ConfigStore<FlashStorage<'static>>) -> ! {
+async fn improv_task(mut rx: UsbSerialJtagRx<'static, Async>, mut tx: UsbSerialJtagTx<'static, Async>, store: &'static SharedStore) -> ! {
     loop {
-        improv::run(&mut rx, &mut tx, &mut store, &DEVICE).await;
+        improv::run(&mut rx, &mut tx, store, &DEVICE).await;
         Timer::after_millis(100).await;
     }
 }
@@ -153,7 +160,13 @@ async fn main(spawner: Spawner) {
         10 => GPIO10, 11 => GPIO11, 15 => GPIO15, 18 => GPIO18, 19 => GPIO19, 20 => GPIO20, 21 => GPIO21,
         22 => GPIO22, 23 => GPIO23);
     static SHARED: StaticCell<SharedNode> = StaticCell::new();
-    let shared: &'static SharedNode = SHARED.init(Mutex::new(Shared::new(C6Node::new(pins, i2c0))));
+    let mut node = Shared::new(C6Node::new(pins, i2c0));
+    // LED strings come back as they were saved (dark until output control is turned on).
+    store.restore_leds(&mut node.api.leds, &board::INFO);
+    let shared: &'static SharedNode = SHARED.init(Mutex::new(node));
+    static STORE: StaticCell<SharedStore> = StaticCell::new();
+    let store: &'static SharedStore = STORE.init(Mutex::new(store));
+    spawner.spawn(persist_task(shared, store).expect("persist task"));
 
     static HTTP_BUFS: StaticCell<[http::Buffers; HTTP_TASKS]> = StaticCell::new();
     for b in HTTP_BUFS.init([const { http::Buffers::new() }; HTTP_TASKS]) {

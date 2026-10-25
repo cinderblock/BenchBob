@@ -141,8 +141,11 @@ consoles find the node; DDP renders on each frame's push.
 
 The C6's RMT channel 0 drives its status LED, so GPIO8 isn't available for strings.
 
-A string's pins show in `GET /api/gpio` as used by it and can't be driven. Settings
-don't survive a reset yet. 3.3 V data into a 5 V strip is marginal; use a level shifter
+A string's pins show in `GET /api/gpio` as used by it and can't be driven. Strings and
+their patterns are saved in the config record (once they've stopped changing for 5 s,
+to spare the flash) and come back after a reset, dark until output control is turned
+on; pixels set through the API aren't saved. A `config.uf2` replaces the whole record,
+LED strings included; Improv's Wi-Fi changes keep them. 3.3 V data into a 5 V strip is marginal; use a level shifter
 (74AHCT125) if the first pixel misbehaves. The colour, timing and pattern logic is
 [`pixels/`](pixels), shared with the Linux server.
 

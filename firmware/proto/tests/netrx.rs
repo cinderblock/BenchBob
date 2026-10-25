@@ -5,8 +5,12 @@ use benchbob_proto::api::leds::NET_TIMEOUT_MS;
 use benchbob_proto::api::*;
 use benchbob_proto::json::{self, Buf, Json, Value};
 
-static PINS: [PinInfo; 2] =
-    [PinInfo { gpio: 2, header: Some(4), func: None, note: None }, PinInfo { gpio: 3, header: Some(5), func: None, note: None }];
+static PINS: [PinInfo; 4] = [
+    PinInfo { gpio: 2, header: Some(4), func: None, note: None },
+    PinInfo { gpio: 3, header: Some(5), func: None, note: None },
+    PinInfo { gpio: 4, header: Some(6), func: None, note: None },
+    PinInfo { gpio: 5, header: Some(7), func: None, note: None },
+];
 static LEDS: LedsInfo =
     LedsInfo { max_strings: 4, max_pixels: 1024, one_wire: true, clocked: true, check_timing: ok_timing, max_clock_hz: 10_000_000 };
 static INFO: BoardInfo = BoardInfo {
@@ -194,4 +198,45 @@ fn network_config_validates_and_round_trips() {
     l.configure(&INFO, Some(id), Some(&v), 0).ok().unwrap();
     assert!(field(&string(&l, id), &["network"]).is_null());
     assert_eq!(l.protocols(), 0);
+}
+
+fn persisted(l: &Leds, id: i64) -> String {
+    let mut mem = vec![0u8; 2048];
+    let mut b = Buf::new(&mut mem);
+    l.persist_json(id, &mut Json::new(&mut b)).ok().unwrap();
+    b.as_str().to_string()
+}
+
+#[test]
+fn settings_persist_and_restore_without_live_state() {
+    let mut l = Leds::new();
+    let g0 = l.persist_gen();
+    let a = add(
+        &mut l,
+        r#"{"chip":"custom","pin":2,"pixels":12,"name":"desk","order":"GRBW","timing":{"t0hNs":350,"t1hNs":700,"periodNs":1250,"resetUs":80},"power":{"maxMa":500},"network":{"protocol":"artnet","universe":4}}"#,
+    );
+    let b = add(&mut l, r#"{"chip":"apa102","pin":4,"clockPin":5,"pixels":5}"#);
+    assert_ne!(l.persist_gen(), g0);
+    let v = json::parse(r#"{"name":"chase","speed":20}"#).unwrap();
+    l.set_pattern(a, Some(&v), 0).ok().unwrap();
+    let g1 = l.persist_gen();
+    // Pixels and network data aren't settings.
+    let v = json::parse(r##"{"fill":"#ff0000"}"##).unwrap();
+    let _ = l.set_pixels(b, Some(&v));
+    l.receive(6454, &artdmx(4, &[1, 2, 3, 4]), "x", 10);
+    assert_eq!(l.persist_gen(), g1);
+
+    let pa = persisted(&l, a);
+    let pb = persisted(&l, b);
+    assert!(!pa.contains("state") && !pa.contains("receiving") && !pa.contains("estimateMa"));
+    assert!(pa.contains(r#""resetUs":80"#) && pa.contains(r#""name":"chase""#), "{pa}");
+    // A clocked string's clock; a preset chip's timing isn't stored; nor pixels.
+    assert!(pb.contains(r#""clockHz":"#) && !pb.contains("timing") && pb.contains(r#""pattern":{"name":"off"}"#), "{pb}");
+
+    let mut r = Leds::new();
+    assert_eq!(r.restore_json(&INFO, pa.as_bytes(), 0).ok(), Some(a));
+    assert_eq!(r.restore_json(&INFO, pb.as_bytes(), 0).ok(), Some(b));
+    assert_eq!(persisted(&r, a), pa);
+    assert_eq!(persisted(&r, b), pb);
+    assert!(r.restore_json(&INFO, b"{}", 0).is_err());
 }

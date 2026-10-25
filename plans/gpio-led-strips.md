@@ -222,8 +222,8 @@ User's answers of 2026-10-25:
 7. ~~Network receivers (sACN, Art-Net, DDP) on both sides~~: done (see Progress log).
    Next: 8 (DMX512 out), unless the user would rather have 6 or 5b's bring-up first.
 8. DMX512 output over a UART (sACN → DMX bridge).
-9. Persistence per the rule above, README updates (root, firmware, backend), hardware
-   bring-up.
+9. Persistence per the rule above: Linux done in step 5; nodes done (see Progress
+   log). README updates done along the way. Left: hardware bring-up (Pico, C6, desky).
 
 ## Progress log
 
@@ -313,7 +313,17 @@ User's answers of 2026-10-25:
   model tests (`proto/tests/netrx.rs`), ArtPollReply, a real UDP DDP round trip in the
   Linux crate, 1 web test. Live: 60 s of sACN at 40 fps from a Python sender to the Linux
   server in WSL (2147 of 2147 packets, pattern back after) and to the mock node.
-- [ ] Steps 6, 8, 9 (and 5b bring-up)
+- [x] Step 9, nodes (2026-10-25): config record tag 4 = LED string chunks
+  (`[string, part, json…]`, 253 data bytes each); `Config::rest` keeps every TLV it
+  doesn't interpret and writes it back (so Improv's Wi-Fi saves keep the strings, and a
+  later version's fields survive); `Leds::persist_json`/`restore_json`/`persist_gen`
+  (pixels-mode strings are stored as pattern off). `node::store`: whole-slot reads
+  (newest sequence first, one Config on the stack), writes in 256-byte pieces with a
+  read-back check, `restore_leds` at boot, `persist_leds` task saving 5 s after the
+  last change. Improv now shares the store through a mutex. Tests: config round trip
+  with chunks and unknown tags written back byte-for-byte; persist/restore round trip.
+  The config.uf2 golden tests still pass (bun). Builds; untested on hardware.
+- [ ] Steps 6, 8 (and hardware bring-up of everything)
 
 ## Open questions for the user
 
