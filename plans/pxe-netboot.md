@@ -557,8 +557,30 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         image's `cow: true` gives each machine its own overlay under
         `<data_dir>/overlays/<mac>/`; TFTP reads boot files through it once it exists;
         `GET/DELETE /api/devices/{mac}/overlays[/{image}]` and a "Reset to image" button
-        (409 while connected). desky stays on its plain `desky.img`. Not yet exercised by
-        a real Pi: needs a golden image and a second Pi (or desky re-pointed at one).
+        (409 while connected). desky stays on its plain `desky.img`.
+  - [x] PC disk boot + disk upload (BootBob `572efa4`): an image's `disk` section boots a
+        PC like a Pi image boots a Pi (kernel/initrd from the image's FAT partition over
+        HTTP at `/boot/disk/<image>/<file>`, through the machine's overlay; root over
+        NBD). `PUT/DELETE /api/disks/<name>.img`.
+  - [x] **Copy-on-write proven in VMs on sentinel** (2026-10-25, user-approved): two
+        UEFI VMs on transient macvtap interfaces `bbvm0`/`bbvm1` (52:54:00:b0:0b:01/02)
+        booted the golden Debian image `golden-pc.img` (`tools/make-pc-golden.sh`) as
+        BootBob image `debian-net` (cow). Each wrote only to its own overlay (VM 0's
+        200 MB file invisible to VM 1); the golden image's sha256 was unchanged after;
+        VM 0's files survived a reboot; boot files are read through the overlay (VM 0
+        got its own rebuilt initrd, VM 1 the golden one); reset is refused while in use.
+  - [x] TCP keepalives on NBD (BootBob `65caae8`): a powered-off VM's connection looked
+        open for hours, blocking reset.
+  - [x] **`bootbob-nbd-client`** (BootBob `961e76c`): diskless roots survive BootBob
+        restarting. See the incident below. Tested: socket killed under fsync writes on
+        VM 0 (reconnected in 7 ms, nothing lost), then a real BootBob restart (deploy
+        of `961e76c`, ops `a9c436d`, 2026-10-25 5:25 PM PDT / 00:25Z) with desky and
+        VM 0 both writing every second: both reconnected about 0.5 s later, no gap over
+        2 s, no I/O errors, roots stayed rw. desky runs it (installed by hand; its
+        `cmdline.txt` has `NBDCLIENT=/usr/sbin/bootbob-nbd-client`, backup at
+        `cmdline.txt.bak-pre-bootbob-client`). BootBob serves it at `/files/tools/`.
+  - [x] Overlays refuse a base rebuilt at the same size (BootBob `35b9f4b`): the map
+        records the base's mtime too.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -730,6 +752,32 @@ All design questions from rounds 1–3 are answered (see decisions).
   only your own files (`cargo fmt --all` would reformat other threads' uncommitted work).
 - **`camera::tests::ustreamer_giving_up_is_reported` is flaky** on the arm CI runner
   (ISSUES.md); a rerun of the failed job is enough.
+- **INCIDENT 2026-10-25 4:30–4:47 PM PDT (23:30–23:47Z): desky's root died when BootBob
+  restarted.** I deployed BootBob `65caae8` (ops `4156705`) without checking how NBD
+  clients take a server restart. Debian's `nbd-client` (netlink mode) sets the device up
+  and **exits**, so nothing reconnected: "block nbd0: I/O error", root to
+  `emergency_ro`. Recovered with a sysrq reboot (`echo b > /proc/sysrq-trigger`); desky
+  netbooted back clean (ext4 orphan cleanup only). Debian's `-persist` doesn't help: in
+  ioctl mode in-flight I/O still fails during the reconnect. Fix: `bootbob-nbd-client`
+  (netlink connect with `NBD_ATTR_DEAD_CONN_TIMEOUT` = 1 h so the kernel holds I/O, a
+  resident reconnector answering `NBD_CMD_LINK_DEAD` with `NBD_CMD_RECONFIGURE`).
+- **The first `bootbob-nbd-client` build died silently**: its stderr, inherited from the
+  initramfs, was a dead pipe after switch_root, and `eprintln!` panics on a failed
+  write. It now logs to `/dev/kmsg` (one write per record) and never panics on logging.
+- **Don't test an NBD outage with a black-hole route inside the client**: `ip route del`
+  lives on the (held) root filesystem, so the restore can never run and the machine
+  deadlocks. Kill the socket (`ss -K dst <server> dport = 10809`) or restart the server.
+- **Ubuntu 26.04's OVMF (2025.11) won't PXE-boot a virtio NIC here** (no network boot
+  option at all, with or without QEMU's option ROM, `bootindex=1`, or
+  `opt/org.tianocore/IPv4PXESupport=y`). The VMs boot a tiny ESP disk with a full-driver
+  `ipxe.efi` carrying BootBob's embed script instead; the firmware-PXE stage is covered
+  by desky and BootBob's CI e2e.
+- **iPXE stores an embedded script uncompressed in the `.efi`** (checked: the placeholder
+  string appears raw once), so BootBob can patch a server URL into a USB-stick iPXE at
+  download time.
+- **A Pi image's or disk image's `cmdline` is shared by every machine on it**: adding
+  `NBDCLIENT=…` broke VM 1, whose initrd (the golden one) didn't have the client yet.
+  Bake the client into the image first (`make-pc-golden.sh` with `BOOTBOB=…`).
 - **`BOOT_ORDER` is read right to left.** "Network, then SD" is `0xf12`; `0xf21` would
   try the SD first.
 - **A netbooted Pi 4 applies EEPROM updates only from the SD card.** The ROM loads
@@ -752,6 +800,10 @@ All design questions from rounds 1–3 are answered (see decisions).
   boot; both did before the move too (see DeskyPi `ISSUES.md`), unrelated to netboot.
 
 ## Things not to do
+
+- **Don't restart BootBob (deploy, pin bump) while any diskless machine runs Debian's
+  plain `nbd-client`**: its root dies. Every NBD-root machine must run
+  `bootbob-nbd-client` (check `pgrep -a -f @bootbob-nbd` on it) before a restart.
 
 - Don't touch UniFi DHCP options, Caddy, DNS or steamboat directly without a staged,
   approved ops change.
