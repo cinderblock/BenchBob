@@ -27,6 +27,7 @@ pub mod erase;
 pub mod files;
 pub mod firstboot;
 pub mod flash;
+pub mod netboot;
 pub mod ops;
 pub mod osinfo;
 pub mod probe;
@@ -74,6 +75,8 @@ pub struct Inner {
     lists: Vec<(&'static str, ImageList)>,
     defaults_path: std::path::PathBuf,
     ctx: OnceLock<Ctx>,
+    /// BootBob servers on the LAN, browsed for the first time the dashboard asks.
+    netboot: OnceLock<netboot::Servers>,
 }
 
 pub struct Drives {
@@ -141,6 +144,7 @@ impl Drives {
             lists: catalog::image_lists(),
             defaults_path: benchbob_core::paths::state_path("defaults.json"),
             ctx: OnceLock::new(),
+            netboot: OnceLock::new(),
         });
         let weak = Arc::downgrade(&inner);
         inner.queue.set_runner(Arc::new(move |op: Op| {
@@ -176,6 +180,10 @@ impl Drives {
             ("rpibootInstalled", installed.into()),
             ("rpibootResults", Value::Array(i.rpiboot_results.lock().unwrap().values().cloned().collect())),
             ("filesRoot", i.files_root.clone().into()),
+            (
+                "netbootServers",
+                Value::Array(i.netboot.get_or_init(netboot::Servers::start).list().iter().map(netboot::Server::to_json).collect()),
+            ),
             ("operations", Value::Array(i.queue.all().iter().map(|o| o.lock().unwrap().public()).collect())),
         ]
     }

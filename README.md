@@ -15,6 +15,9 @@ agent.
   fresh card becomes another BenchBob), and write bootloader-update SD cards. On a
   machine that boots from the network (desky: BootBob, root over NBD), the SD slot is a
   drive bay too; the disk the machine runs from and built-in eMMC are never offered.
+  When a BootBob network-boot server announces itself on the LAN (mDNS), each drive
+  gets **Network boot…**: a USB boot stick for that server, or a Pi bootloader card that
+  makes a Pi netboot from it.
 - **Compute Modules / USB boot**: rpiboot mass-storage mode, EEPROM checks and rewrites.
 - **Peripherals**: serial, CAN, I²C, 1-Wire, GPIO, Wi-Fi, BLE, cameras, debug probes,
   RTL-SDR, GPS, UPS, USB power and sharing, and wired-network diagnostics (below).

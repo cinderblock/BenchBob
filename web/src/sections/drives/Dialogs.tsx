@@ -1,9 +1,10 @@
-// Drive dialogs: erase, raw probe, deep scan results.
+// Drive dialogs: erase, raw probe, deep scan results, network boot media.
 
 import { useState } from "react";
 import { useBob } from "../../bob/context";
 import { fmtSz } from "../../lib/format";
-import type { Operation } from "../../lib/types";
+import type { Drive, NetbootServer, Operation } from "../../lib/types";
+import { ActionLine, useAction } from "../../ui/status";
 import type { ProbeResult } from "./api";
 
 export function EraseDialog({ dev, model, size, onDone }: { dev: string; model: string; size: number; onDone(mode: string | null): void }) {
@@ -156,6 +157,87 @@ export function ScanResultDialog({ dev, res }: { dev: string; res: NonNullable<O
       </div>
       <div className="modal-btns" style={{ marginTop: 14 }}>
         <button className="btn btn-primary" onClick={closeModal}>
+          Close
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** Boot media for a BootBob server found on this network (mDNS): a USB boot stick the
+ * server builds for itself, or a Raspberry Pi bootloader card that makes a Pi netboot
+ * from it. */
+export function NetbootDialog({ servers, d, onPiCard }: { servers: NetbootServer[]; d: Drive; onPiCard(s: NetbootServer): void }) {
+  const b = useBob();
+  const act = useAction();
+  const [pick, setPick] = useState(0);
+  const srv = servers[Math.min(pick, servers.length - 1)];
+  const model = d.model || d.name;
+  const stick = async () => {
+    const what = `${model}\n/dev/${d.name} · ${fmtSz(d.size)}`;
+    if (!(await b.confirm("BootBob USB boot stick", `Erase this drive and write a boot stick for ${srv.name}?`, what))) return;
+    const ok = await act.run(
+      () =>
+        b.api("POST", "/api/flash", {
+          device: d.name,
+          imageUrl: srv.url.replace(/\/$/, "") + "/files/usb/bootbob-usb.img",
+          imageName: `BootBob boot stick (${srv.name})`,
+        }),
+      { busy: "Starting…" },
+    );
+    if (ok) b.closeModal();
+  };
+  return (
+    <>
+      <h3>Network boot</h3>
+      <p>Boot media for the BootBob network-boot server on this network.</p>
+      <div className="modal-dev">
+        {model}
+        <br />
+        /dev/{d.name} · {fmtSz(d.size)}
+      </div>
+      {servers.length > 1 && (
+        <div className="fg">
+          <label htmlFor="nb-srv">Server</label>
+          <select id="nb-srv" value={pick} onChange={(e) => setPick(Number(e.currentTarget.value))}>
+            {servers.map((x, i) => (
+              <option key={x.url} value={i}>
+                {x.name} ({x.url})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {servers.length === 1 && (
+        <div className="img-detail">
+          {srv.name} · {srv.url}
+          {srv.version ? ` · BootBob ${srv.version}` : ""}
+        </div>
+      )}
+      <div className="radio-group" style={{ marginTop: 12 }}>
+        <div>
+          <button className="btn btn-warn" disabled={act.busy || !srv.caps.includes("usb")} onClick={stick}>
+            USB boot stick
+          </button>{" "}
+          A UEFI PC booted from it netboots from {srv.name}, even where DHCP gives no boot options. Erases the drive.
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <button
+            className="btn"
+            disabled={act.busy || !srv.ip}
+            onClick={() => {
+              b.closeModal();
+              onPiCard(srv);
+            }}
+          >
+            Pi netboot card…
+          </button>{" "}
+          A Raspberry Pi 4/5 bootloader card that sets the Pi to boot from {srv.name} first (TFTP_IP {srv.ip || "?"}), then its SD card.
+        </div>
+      </div>
+      <ActionLine a={act} />
+      <div className="modal-btns">
+        <button className="btn" onClick={b.closeModal}>
           Close
         </button>
       </div>

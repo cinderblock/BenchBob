@@ -6,12 +6,12 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { useBob, useSnapshot, type BobApi } from "../../bob/context";
 import { fmtRate, fmtSz } from "../../lib/format";
 import type { SectionProps } from "../../registry";
-import type { Drive } from "../../lib/types";
+import type { Drive, NetbootServer } from "../../lib/types";
 import { Bars } from "../../ui/spark";
 import { Hint } from "../../ui/common";
 import { ActionLine, useAction, type Action } from "../../ui/status";
 import { filesRel, OsInfoCache, partOsLabel, type ProbeResult } from "./api";
-import { EraseDialog, ProbeDialog, ScanResultDialog } from "./Dialogs";
+import { EraseDialog, NetbootDialog, ProbeDialog, ScanResultDialog } from "./Dialogs";
 import { FileBrowser } from "./FileBrowser";
 import { OpProgress } from "./OpProgress";
 
@@ -49,14 +49,30 @@ export default function Drives({ status: s }: SectionProps) {
             No USB storage devices connected<div className="empty-sub">Plug in a USB drive to get started</div>
           </div>
         ) : (
-          s.drives.map((d) => <DriveCard key={d.name} d={d} os={os} drvMax={drvMax} nbd={s.nbdExports} filesRoot={s.filesRoot} />)
+          s.drives.map((d) => (
+            <DriveCard key={d.name} d={d} os={os} drvMax={drvMax} nbd={s.nbdExports} filesRoot={s.filesRoot} netboot={s.netbootServers || []} />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-function DriveCard({ d, os, drvMax, nbd, filesRoot }: { d: Drive; os: OsInfoCache; drvMax: number; nbd: string[]; filesRoot?: string }) {
+function DriveCard({
+  d,
+  os,
+  drvMax,
+  nbd,
+  filesRoot,
+  netboot,
+}: {
+  d: Drive;
+  os: OsInfoCache;
+  drvMax: number;
+  nbd: string[];
+  filesRoot?: string;
+  netboot: NetbootServer[];
+}) {
   const b = useBob();
   const h = b.store.hist;
   const ops = d.operations || [];
@@ -206,6 +222,15 @@ function DriveCard({ d, os, drvMax, nbd, filesRoot }: { d: Drive; os: OsInfoCach
             <button className="btn" disabled={off} onClick={() => blCard(b, act, d)}>
               Bootloader card…
             </button>
+            {netboot.length > 0 && (
+              <button
+                className="btn"
+                disabled={off}
+                onClick={() => b.openModal(<NetbootDialog servers={netboot} d={d} onPiCard={(srv) => blCard(b, act, d, srv)} />)}
+              >
+                Network boot…
+              </button>
+            )}
           </>
         )}
         <button className="btn" disabled={busy || off} onClick={() => eject(b, act, d.name, model)}>
@@ -308,7 +333,8 @@ async function deepScan(b: BobApi, a: Action, dev: string, model: string, size: 
   await a.run(() => b.api<Reply>("POST", "/api/deepscan", { device: dev }), { busy: "Starting the deep scan…", ok: (r) => r.message });
 }
 
-async function blCard(b: BobApi, a: Action, d: Drive) {
+async function blCard(b: BobApi, a: Action, d: Drive, netboot?: NetbootServer) {
   const m = await a.run(() => import("../bootloader/Dialogs"), { busy: "Loading…" });
-  if (m) b.openModal(<m.BlCardDialog dev={d.name} model={d.model || d.name} size={d.size} hasParts={!!d.hasPartitions} />, { cls: "wide" });
+  const nb = netboot?.ip ? { name: netboot.name, ip: netboot.ip } : undefined;
+  if (m) b.openModal(<m.BlCardDialog dev={d.name} model={d.model || d.name} size={d.size} hasParts={!!d.hasPartitions} netboot={nb} />, { cls: "wide" });
 }

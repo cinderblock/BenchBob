@@ -6,6 +6,7 @@ import { useBob, type BobApi } from "../../bob/context";
 import { fmtSz } from "../../lib/format";
 import { readLocalStr, writeLocal } from "../../lib/storage";
 import { ActionLine, errText, useAction, type Action } from "../../ui/status";
+import { blSet } from "./bootconf";
 import { BlEditor, editorReady, imageStart, useBlEditor, type EepromImage, type Start } from "./Editor";
 
 export interface RpibootOptions {
@@ -129,7 +130,20 @@ function RpibootWrite({ path, o }: { path: string; o: RpibootOptions }) {
 // EEPROM image, which the boot ROM runs at power-on. The server builds it to fit any card,
 // so it works on the small cards Imager refuses (its image is 258 MiB).
 
-export function BlCardDialog({ dev, model, size, hasParts }: { dev: string; model: string; size: number; hasParts: boolean }) {
+export function BlCardDialog({
+  dev,
+  model,
+  size,
+  hasParts,
+  netboot,
+}: {
+  dev: string;
+  model: string;
+  size: number;
+  hasParts: boolean;
+  /** Start from a config that netboots from this BootBob server. */
+  netboot?: { name: string; ip: string };
+}) {
   const b = useBob();
   const [chip, setChip] = useState(() => (readLocalStr("blcard-chip") === "2711" ? "2711" : "2712"));
   const [opts, setOpts] = useState<{ chip: string; images?: EepromImage[]; error?: string } | null>(null);
@@ -174,7 +188,7 @@ export function BlCardDialog({ dev, model, size, hasParts }: { dev: string; mode
         </div>
       </div>
       {ready ? (
-        <CardEditor key={chip} chip={chip} images={opts.images!} dev={dev} hasParts={hasParts} />
+        <CardEditor key={chip} chip={chip} images={opts.images!} dev={dev} hasParts={hasParts} netboot={netboot} />
       ) : (
         <>
           <div style={{ marginTop: 12 }}>{opts?.error ? <div className="bl-warn">{opts.error}</div> : <div className="img-detail">Loading releases…</div>}</div>
@@ -192,7 +206,19 @@ export function BlCardDialog({ dev, model, size, hasParts }: { dev: string; mode
   );
 }
 
-function CardEditor({ chip, images, dev, hasParts }: { chip: string; images: EepromImage[]; dev: string; hasParts: boolean }) {
+function CardEditor({
+  chip,
+  images,
+  dev,
+  hasParts,
+  netboot,
+}: {
+  chip: string;
+  images: EepromImage[];
+  dev: string;
+  hasParts: boolean;
+  netboot?: { name: string; ip: string };
+}) {
   const b = useBob();
   const [confirmText, setConfirmText] = useState("");
   // The last card's settings for this board, so a batch of cards comes out the same.
@@ -200,8 +226,22 @@ function CardEditor({ chip, images, dev, hasParts }: { chip: string; images: Eep
   const ed = useBlEditor({
     board: { chip, cm: false },
     images,
-    prefer: ["last", "image"],
-    starts: (img) => [...(last ? ([["last", "Last card", last, "the last card written here"]] as Start[]) : []), ...imageStart(img)],
+    prefer: netboot ? ["netboot", "last", "image"] : ["last", "image"],
+    starts: (img) => [
+      // Network first (TFTP_IP: the BootBob server), then the SD card.
+      ...(netboot && img?.config
+        ? ([
+            [
+              "netboot",
+              `Netboot from ${netboot.name}`,
+              blSet(blSet(img.config, "BOOT_ORDER", "0xf12"), "TFTP_IP", netboot.ip),
+              `network boot from ${netboot.name} (${netboot.ip}) first, then the SD card`,
+            ],
+          ] as Start[])
+        : []),
+      ...(last ? ([["last", "Last card", last, "the last card written here"]] as Start[]) : []),
+      ...imageStart(img),
+    ],
   });
   // Stays open until the server takes the job; then it shows as the drive's progress bar.
   const act = useAction();

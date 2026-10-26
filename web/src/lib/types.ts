@@ -37,6 +37,14 @@ export interface Operation {
   scanResult?: { bytesScanned: number; signatures: { name: string; count: number; first: number[] }[] };
 }
 
+export interface NetbootServer {
+  name: string;
+  url: string;
+  ip: string | null;
+  version: string;
+  caps: string[];
+}
+
 export interface Drive {
   name: string;
   model?: string;
@@ -143,6 +151,8 @@ export interface Status {
   rpibootInstalled: boolean;
   rpibootResults: RpibootResult[];
   filesRoot?: string;
+  /** BootBob servers on this network (mDNS): boot media can be made for them. */
+  netbootServers?: NetbootServer[];
   operations: Operation[];
   peripherals?: Peripherals;
   history?: Record<string, number[]>;

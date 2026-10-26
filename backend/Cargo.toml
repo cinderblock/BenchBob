@@ -79,6 +79,8 @@ serde = { version = "1", features = ["derive"] }
 # API's JSON matches the Bun server's byte for byte.
 serde_json = { version = "1", features = ["preserve_order"] }
 socket2 = "0.6"
+# Finds BootBob servers on the LAN (_bootbob._tcp). No async runtime of its own.
+mdns-sd = { version = "0.21", default-features = false }
 sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "process", "signal", "sync", "time", "fs", "io-util"] }
