@@ -21,6 +21,7 @@ benchbob-sdr.workspace = true
 benchbob-serial.workspace = true
 benchbob-i2c.workspace = true
 benchbob-leds.workspace = true
+benchbob-ir-panel.workspace = true
 benchbob-netdiag.workspace = true
 benchbob-onewire.workspace = true
 benchbob-ups.workspace = true

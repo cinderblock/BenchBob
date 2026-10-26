@@ -231,8 +231,8 @@ fn json_shapes_match_the_typescript_objects() {
     let r = read_interfaces(DESKY);
     let j = r.to_json();
     let keys: Vec<&String> = j.as_object().unwrap().keys().collect();
-    // "audio" is new here (the LED strips' PWM needs analog audio off).
-    assert_eq!(keys, ["i2c", "spi", "audio", "uart", "onewire", "extraI2c", "extraUart", "i2cGpio", "conditional"]);
+    // "audio" and "ir" are new here (LED strips on the PWM, the IR panel).
+    assert_eq!(keys, ["i2c", "spi", "audio", "ir", "uart", "onewire", "extraI2c", "extraUart", "i2cGpio", "conditional"]);
     assert_eq!(j["extraI2c"]["i2c3"].to_string(), r#"{"enabled":false,"pins":"pins_4_5","baudrate":null}"#);
     assert_eq!(catalog()["extraI2c"]["i2c3"].to_string(), r#"{"choices":{"pins_4_5":[4,5],"pins_2_3":[2,3]},"def":"pins_4_5"}"#);
 }

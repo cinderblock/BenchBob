@@ -11,7 +11,7 @@ import { StagedChange } from "./Stage";
 import { ActionLine, useAction } from "../../ui/status";
 
 const SPEEDS = [10000, 50000, 100000, 400000, 1000000];
-const GROUPS: Record<IfaceGroup, string> = { i2c: "I²C buses", spi: "SPI", uart: "UARTs", w1: "1-Wire" };
+const GROUPS: Record<IfaceGroup, string> = { i2c: "I²C buses", spi: "SPI", uart: "UARTs", w1: "1-Wire", ir: "IR" };
 const kHz = (hz?: number) => (hz ? `${hz / 1000} kHz` : "");
 
 // Throws when the settings can't be read; the caller shows why.
@@ -91,6 +91,16 @@ function Interfaces({ info, focus }: { info: IfaceInfo; focus?: IfaceGroup }) {
       if (cat) req.extraUart = Object.fromEntries(Object.keys(cat.extraUart).map((n) => [n, { enabled: on(n), ctsrts: on(`${n}-cts`) }]));
     }
     if (show("w1")) req.onewire = { enabled: on("w1"), ...(on("w1") ? { pin: num("w1pin") } : {}) };
+    if (show("ir")) {
+      // Only what changed, so an untouched transmitter keeps its overlay line as it is.
+      const ir: Record<string, unknown> = {};
+      const rx = on("irrx") ? num("irrx-pin") : null;
+      if (rx !== (c.ir?.rx ?? null)) ir.rx = rx;
+      const tx = on("irtx") ? num("irtx-pin") : null;
+      const pwm = on("irtx-pwm");
+      if (tx !== (c.ir?.tx ?? null) || (tx != null && pwm !== !!c.ir?.txPwm)) Object.assign(ir, { tx, txPwm: pwm });
+      if (Object.keys(ir).length) req.ir = ir;
+    }
     let r: Staged;
     try {
       r = await b.api<Staged>("POST", "/api/gpio/interfaces/stage", req);
@@ -280,6 +290,29 @@ function Interfaces({ info, focus }: { info: IfaceInfo; focus?: IfaceGroup }) {
               <span className="pr-note">needs a 4.7 kΩ pull-up to 3V3</span>
             </div>
           </Row>
+        )}
+        {show("ir") && (
+          <>
+            <Row id="irrx" name="IR receiver (gpio-ir)" on={c.ir?.rx != null} live={c.ir?.rx != null ? `GPIO${c.ir.rx} in config.txt` : "off"}>
+              <div className="pr-row">
+                <label>
+                  Pin GPIO <input id="gi-irrx-pin" type="number" min={2} max={27} defaultValue={c.ir?.rx ?? 17} style={{ width: 60 }} />
+                </label>
+                <span className="pr-note">a TSOP38238-style demodulating receiver; codes stay in BenchBob (no keypresses)</span>
+              </div>
+            </Row>
+            <Row id="irtx" name="IR transmitter (gpio-ir-tx / pwm-ir-tx)" on={c.ir?.tx != null} live={c.ir?.tx != null ? `GPIO${c.ir.tx}${c.ir.txPwm ? " (PWM)" : ""} in config.txt` : "off"}>
+              <div className="pr-row">
+                <label>
+                  Pin GPIO <input id="gi-irtx-pin" type="number" min={2} max={27} defaultValue={c.ir?.tx ?? 18} style={{ width: 60 }} />
+                </label>
+                <label>
+                  <input type="checkbox" id="gi-irtx-pwm" defaultChecked={!!c.ir?.txPwm} /> PWM carrier (GPIO18 or 12; needs analog audio off)
+                </label>
+              </div>
+              <div className="pr-note">An IR LED through a transistor (the pin can't drive one directly).</div>
+            </Row>
+          </>
         )}
       </div>
       <p className="pr-note">Pins in use: {info.pins.map((u) => `GPIO${u.gpio} ${u.owner} ${u.role}`).join(" · ") || "none"}</p>

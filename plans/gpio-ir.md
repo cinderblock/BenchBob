@@ -59,16 +59,16 @@ Decisions.
    with a mark. Protocols: NEC (8-bit and extended 16-bit address, plus its repeat
    code), Samsung32, Sony SIRC 12/15/20, RC5, RC6 mode 0, JVC; anything else is raw.
    Pronto hex import/export. Done (see Progress log).
-2. **Linux** `backend/crates/ir` (panel id `ir`) ← current step: `/dev/lirc*` (features ioctl, mode2
+2. ~~**Linux** `backend/crates/ir` (panel id `ir`)~~ done: `/dev/lirc*` (features ioctl, mode2
    receive, pulse write with carrier/duty), a receive thread that splits frames on long
    spaces and decodes them, a ring of recent captures, `capture` (wait for the next
    frame), send (gated by output control), the named-codes library in settings. Overlays
    (`gpio-ir`, `gpio-ir-tx`, `pwm-ir-tx`) staged through the GPIO panel's interfaces, with
    `rc-map-name=rc-empty` so nothing becomes keypresses. Pins claimed in the GPIO panel.
-3. **Web**: an IR panel: receivers/transmitters, live captures (decoded + raw), Learn
+3. ~~**Web**~~ done: an IR panel: receivers/transmitters, live captures (decoded + raw), Learn
    (capture → name → save to a device), the library with send buttons, raw/Pronto send.
    MCP: `ir_list`, `ir_capture`, `ir_send`, `ir_codes`.
-4. **Nodes**: Pico (PIO) and ESP32-C6 (RMT RX ch 2–3, TX with hardware carrier).
+4. **Nodes**: Pico (PIO) and ESP32-C6 (RMT RX ch 2–3, TX with hardware carrier). ← next
 
 ## Progress log
 
@@ -78,7 +78,22 @@ Decisions.
   `pronto::{parse, format}`. 7 host tests: every protocol round-trips, also with marks
   10 % long and spaces 10 % short (receiver skew); known frames; noise. Builds for
   thumbv8m and riscv32imac. In CI's firmware-test job.
-- [ ] Steps 2–4
+- [x] Steps 2–3 (2026-10-25): `backend/crates/ir` (package `benchbob-ir-panel`, panel
+  `ir`): `lirc.rs` (features ioctl, mode2 samples, `Framer` splitting at 15 ms spaces,
+  pulse send with carrier + 33 % duty), captures ring (32), `capture` waits on a Notify,
+  `plan()` turns a code / timings / Pronto / library button into frames (Sony ×3, NEC
+  hold = repeat codes), library in settings (`fromCapture` saves a learned one). GPIO
+  panel: `ir: {rx, tx, txPwm}` stages `gpio-ir,gpio_pin=N,rc-map-name=rc-empty`,
+  `gpio-ir-tx` or `pwm-ir-tx` (GPIO18 func 2 / GPIO12 func 4), in the pin-conflict check.
+  Web: `panels/ir/Ir.tsx` (Learn, captures with raw/Pronto, library buttons, send form) and
+  an IR group in the Interfaces dialog. Tests: 4 Rust (IR crate) + 1 GPIO + 3 web.
+  **On desky through the real kernel**, using `rc-loopback` (sends come back as
+  receives): output control gated the first send; all nine protocols round-tripped
+  (nec, necx, samsung, sony12/15/20, rc5, rc6, jvc) decoded with the right address and
+  command; Learn → library → send by button name, and Pronto replay, both came back as
+  the same Samsung code; the library persisted. Cleaned up afterwards (side instance
+  stopped by PID, rc-loopback unloaded).
+- [ ] Step 4 (nodes); real IR hardware (receiver/LED) not tried yet
 
 ## Findings
 

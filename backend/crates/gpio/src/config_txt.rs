@@ -216,7 +216,24 @@ fn overlay_name(v: &str) -> String {
     params(v).first().map(|p| p.0.clone()).unwrap_or_default()
 }
 fn is_managed_overlay(n: &str) -> bool {
-    n.starts_with("w1-gpio") || extra_i2c(n).is_some() || extra_uart(n).is_some() || n == "i2c-gpio"
+    n.starts_with("w1-gpio") || extra_i2c(n).is_some() || extra_uart(n).is_some() || n == "i2c-gpio" || is_ir_overlay(n)
+}
+
+fn is_ir_overlay(n: &str) -> bool {
+    matches!(n, "gpio-ir" | "gpio-ir-tx" | "pwm-ir-tx")
+}
+
+/// pwm-ir-tx: the PWM pins it can use and their function number (GPIO18 is PWM0 at ALT5,
+/// GPIO12 PWM0 at ALT0).
+pub const PWM_IR_PINS: [(i64, i64); 2] = [(18, 2), (12, 4)];
+
+/// The IR overlays: a receiver on one pin, a transmitter on one pin (bit-banged, or the
+/// PWM for a hardware carrier).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Ir {
+    pub rx: Option<i64>,
+    pub tx: Option<i64>,
+    pub tx_pwm: bool,
 }
 
 /// The catalog the dialog may offer (GET /api/gpio/interfaces `catalog`).
@@ -269,6 +286,7 @@ pub struct Interfaces {
     /// `dtparam=audio` (analog audio, the 3.5 mm jack): it holds the PWM that LED strips
     /// on GPIO12/13/18/19 need. Absent = off.
     pub audio: bool,
+    pub ir: Ir,
     /// Keys also set in conditional sections (may override the [all] value).
     pub conditional: Vec<(String, String)>,
 }
@@ -287,6 +305,7 @@ impl Interfaces {
             "i2c": { "enabled": self.i2c.0, "baudrate": self.i2c.1 },
             "spi": { "enabled": self.spi, "coreFreq": self.core_freq, "coreFreqMin": self.core_freq_min, "fixedCoreMhz": self.fixed_core_mhz() },
             "audio": { "enabled": self.audio },
+            "ir": { "rx": self.ir.rx, "tx": self.ir.tx, "txPwm": self.ir.tx_pwm },
             "uart": { "enabled": self.uart },
             "onewire": { "enabled": self.onewire.0, "pin": self.onewire.1, "pullup": self.onewire.2 },
             "extraI2c": self.extra_i2c.iter().map(|(k, x)| (k.clone(), json!({ "enabled": x.enabled, "pins": x.pins, "baudrate": x.baudrate }))).collect::<serde_json::Map<_, _>>(),
@@ -311,6 +330,7 @@ pub fn read_interfaces(text: &str) -> Interfaces {
         core_freq: None,
         core_freq_min: None,
         audio: false,
+        ir: Ir::default(),
         conditional: Vec::new(),
     };
     for l in parse_config(text) {
@@ -379,6 +399,16 @@ pub fn read_interfaces(text: &str) -> Interfaces {
                 r.extra_uart.insert(&name, UartX { enabled: true, ctsrts });
                 continue;
             }
+            if is_ir_overlay(&name) {
+                let pin = num("gpio_pin").unwrap_or(18);
+                if name == "gpio-ir" {
+                    r.ir.rx = Some(pin);
+                } else {
+                    r.ir.tx = Some(pin);
+                    r.ir.tx_pwm = name == "pwm-ir-tx";
+                }
+                continue;
+            }
             if name == "i2c-gpio" {
                 r.i2c_gpio = I2cGpio {
                     enabled: true,
@@ -422,6 +452,10 @@ pub struct Changes {
     pub spidev_bufsiz: Option<Option<i64>>,
     /// Analog audio on/off (`dtparam=audio`).
     pub audio: Option<bool>,
+    /// IR receiver pin (Some(None) = off).
+    pub ir_rx: Option<Option<i64>>,
+    /// IR transmitter: pin and whether it uses the PWM (Some(None) = off).
+    pub ir_tx: Option<Option<(i64, bool)>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -492,6 +526,12 @@ pub fn pin_usage(r: &Interfaces) -> Vec<PinUse> {
     }
     if r.i2c_gpio.enabled {
         add("i2c-gpio", &[(r.i2c_gpio.sda, "SDA"), (r.i2c_gpio.scl, "SCL")]);
+    }
+    if let Some(p) = r.ir.rx {
+        add("IR receiver", &[(p, "in")]);
+    }
+    if let Some(p) = r.ir.tx {
+        add("IR transmitter", &[(p, if r.ir.tx_pwm { "out (PWM)" } else { "out" })]);
     }
     u
 }
@@ -762,6 +802,34 @@ pub fn edit_config(text: &str, ch: &Changes) -> Result<String, String> {
                 want,
             );
         }
+    }
+
+    // IR: gpio-ir for the receiver (with an empty keymap, so the kernel turns nothing into
+    // keypresses), gpio-ir-tx or pwm-ir-tx for the transmitter.
+    if let Some(rx) = ch.ir_rx {
+        if let Some(p) = rx
+            && !(2..=27).contains(&p)
+        {
+            return Err("IR receiver pin must be GPIO2–27".into());
+        }
+        let want =
+            rx.map(|p| vec![("gpio_pin".to_string(), Some(p.to_string())), ("rc-map-name".to_string(), Some("rc-empty".to_string()))]);
+        set_overlay(&mut out, &mut append, "gpio-ir", rx.is_some(), &|k| k == "gpio_pin" || k == "rc-map-name", want.unwrap_or_default());
+    }
+    if let Some(tx) = ch.ir_tx {
+        let (pwm, pin) = match tx {
+            Some((p, true)) => match PWM_IR_PINS.iter().find(|x| x.0 == p) {
+                Some(&(p, f)) => (Some((p, f)), None),
+                None => return Err("The PWM IR transmitter (pwm-ir-tx) works on GPIO18 or GPIO12".into()),
+            },
+            Some((p, false)) if !(2..=27).contains(&p) => return Err("IR transmitter pin must be GPIO2–27".into()),
+            Some((p, false)) => (None, Some(p)),
+            None => (None, None),
+        };
+        let pins = |p: i64| vec![("gpio_pin".to_string(), Some(p.to_string()))];
+        set_overlay(&mut out, &mut append, "gpio-ir-tx", pin.is_some(), &|k| k == "gpio_pin", pin.map(pins).unwrap_or_default());
+        let pwm_want = pwm.map(|(p, f)| vec![("gpio_pin".to_string(), Some(p.to_string())), ("func".to_string(), Some(f.to_string()))]);
+        set_overlay(&mut out, &mut append, "pwm-ir-tx", pwm.is_some(), &|k| k == "gpio_pin" || k == "func", pwm_want.unwrap_or_default());
     }
 
     if let Some(mhz) = ch.core_clock {

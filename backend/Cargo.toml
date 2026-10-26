@@ -13,6 +13,7 @@
 #   benchbob-serial  the serial panel: termios2 ports, bridges, auto-baud, flashing
 #   benchbob-i2c     the I²C panel: bus scans, identification, readings, raw tools
 #   benchbob-i2c-chips  I²C chip identification + decoders (no_std, shared with firmware)
+#   benchbob-ir-panel the IR panel: LIRC receive/send, the shared IR codec (benchbob-ir from firmware/)
 #   benchbob-leds    the LED strips panel: WS2812/APA102 strings over spidev or the GPIO uAPI,
 #                    with the nodes' string model (benchbob-proto, benchbob-pixels from firmware/)
 #   benchbob-netdiag the wired-network panel: ethtool, receive-only LLDP, iperf3, quick checks
@@ -50,6 +51,8 @@ benchbob-ups = { path = "crates/ups" }
 benchbob-i2c = { path = "crates/i2c" }
 benchbob-i2c-chips = { path = "crates/i2c-chips" }
 benchbob-leds = { path = "crates/leds" }
+benchbob-ir-panel = { path = "crates/ir" }
+benchbob-ir = { path = "../firmware/ir" }
 # Shared with the firmware nodes: the LED string model and its API, and the pixel logic.
 benchbob-pixels = { path = "../firmware/pixels" }
 benchbob-proto = { path = "../firmware/proto" }

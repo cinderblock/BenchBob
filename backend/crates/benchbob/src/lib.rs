@@ -60,6 +60,7 @@ pub fn drivers(board: &Arc<Board>) -> Vec<Arc<dyn benchbob_core::Driver>> {
     // LED strips claim their pins in the GPIO panel and follow its output control.
     let gpio = benchbob_gpio::Gpio::new(board.clone());
     let leds = benchbob_leds::Leds::new(gpio.handle());
+    let ir = benchbob_ir_panel::Ir::new(gpio.handle());
     vec![
         Arc::new(benchbob_ble::Ble::new()),
         Arc::new(benchbob_camera::Camera::new()),
@@ -69,6 +70,7 @@ pub fn drivers(board: &Arc<Board>) -> Vec<Arc<dyn benchbob_core::Driver>> {
         Arc::new(benchbob_gps::Gps::new()),
         Arc::new(i2c),
         Arc::new(leds),
+        Arc::new(ir),
         Arc::new(benchbob_netdiag::Netdiag::new()),
         Arc::new(onewire),
         Arc::new(benchbob_probes::Probes::new()),

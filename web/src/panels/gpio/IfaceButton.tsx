@@ -6,7 +6,7 @@
 import { useBob, useSnapshot, type BobApi } from "../../bob/context";
 import { AsyncButton } from "../../ui/common";
 
-export type IfaceGroup = "i2c" | "spi" | "uart" | "w1";
+export type IfaceGroup = "i2c" | "spi" | "uart" | "w1" | "ir";
 
 /** Whether this bob can show the interfaces dialog. */
 export function useIfaceAvailable(): boolean {

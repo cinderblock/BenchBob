@@ -176,6 +176,19 @@ pub fn parse_changes(a: &Value) -> Result<Changes, HttpError> {
     if let Some(e) = a.get("spi").and_then(|s| present(s, "enabled")) {
         ch.spi = Some(bool_field(&e, "spi.enabled")?);
     }
+    if let Some(ir) = a.get("ir").filter(|v| benchbob_core::http::truthy(v)) {
+        obj(ir, "ir")?;
+        if let Some(v) = ir.get("rx") {
+            ch.ir_rx = Some(opt_num(v, "ir.rx")?.map(|n| n as i64));
+        }
+        if let Some(v) = ir.get("tx") {
+            let pwm = match ir.get("txPwm") {
+                Some(p) => bool_field(p, "ir.txPwm")?,
+                None => false,
+            };
+            ch.ir_tx = Some(opt_num(v, "ir.tx")?.map(|n| (n as i64, pwm)));
+        }
+    }
     if let Some(e) = a.get("audio").and_then(|s| present(s, "enabled")) {
         ch.audio = Some(bool_field(&e, "audio.enabled")?);
     }
@@ -278,6 +291,18 @@ pub fn describe(before: &Interfaces, after: &Interfaces) -> Vec<String> {
     }
     if before.spi != after.spi {
         s.push(format!("SPI0 {}", onoff(after.spi)));
+    }
+    if before.ir.rx != after.ir.rx {
+        s.push(match after.ir.rx {
+            Some(p) => format!("IR receiver on GPIO{p}"),
+            None => "IR receiver off".into(),
+        });
+    }
+    if (before.ir.tx, before.ir.tx_pwm) != (after.ir.tx, after.ir.tx_pwm) {
+        s.push(match after.ir.tx {
+            Some(p) => format!("IR transmitter on GPIO{p}{}", if after.ir.tx_pwm { " (PWM carrier)" } else { "" }),
+            None => "IR transmitter off".into(),
+        });
     }
     if before.audio != after.audio {
         s.push(format!("analog audio {}", onoff(after.audio)));
@@ -429,5 +454,24 @@ dtparam=spi=on
         let next = edit_config(base, &parse_changes(&json!({ "audio": { "enabled": false } })).unwrap()).unwrap();
         assert!(next.contains("dtparam=audio=off"), "{next}");
         assert_eq!(describe(&before, &read_interfaces(&next)), ["analog audio off"]);
+    }
+
+    #[test]
+    fn ir_overlays() {
+        let base = "[all]\ndtparam=spi=on\n";
+        let before = read_interfaces(base);
+        let next = edit_config(base, &parse_changes(&json!({ "ir": { "rx": 17, "tx": 18, "txPwm": true } })).unwrap()).unwrap();
+        assert!(next.contains("dtoverlay=gpio-ir,gpio_pin=17,rc-map-name=rc-empty"), "{next}");
+        assert!(next.contains("dtoverlay=pwm-ir-tx,gpio_pin=18,func=2"), "{next}");
+        let after = read_interfaces(&next);
+        assert_eq!((after.ir.rx, after.ir.tx, after.ir.tx_pwm), (Some(17), Some(18), true));
+        assert_eq!(describe(&before, &after), ["IR receiver on GPIO17", "IR transmitter on GPIO18 (PWM carrier)"]);
+        // To a bit-banged transmitter on another pin: the PWM one goes.
+        let next2 = edit_config(&next, &parse_changes(&json!({ "ir": { "tx": 23 } })).unwrap()).unwrap();
+        assert!(next2.contains("dtoverlay=gpio-ir-tx,gpio_pin=23") && next2.contains("#dtoverlay=pwm-ir-tx"), "{next2}");
+        // And the pins count in the conflict check: the receiver on SPI0's MOSI.
+        let clash = read_interfaces(&edit_config(base, &parse_changes(&json!({ "ir": { "rx": 10 } })).unwrap()).unwrap());
+        assert_eq!(G::pin_conflicts(&clash).len(), 1);
+        assert!(edit_config(base, &parse_changes(&json!({ "ir": { "tx": 5, "txPwm": true } })).unwrap()).is_err());
     }
 }
