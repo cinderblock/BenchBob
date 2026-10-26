@@ -581,6 +581,25 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         `cmdline.txt.bak-pre-bootbob-client`). BootBob serves it at `/files/tools/`.
   - [x] Overlays refuse a base rebuilt at the same size (BootBob `35b9f4b`): the map
         records the base's mtime too.
+  - [x] Golden image 2 (`golden-pc2.img`, client baked in by `make-pc-golden.sh` with
+        `BOOTBOB=`); both VMs booted it fresh with the client resident. VM test setup
+        cleaned up afterwards (interfaces deleted, test overlays reset, `golden-pc.img`
+        deleted, VMs forgotten). Kept: `golden-pc2.img`, image `debian-net`,
+        `~/bootbob-vmtest` on sentinel (`runvm.sh`, `ipxe-disk*.img`).
+  - [x] **USB boot stick** (BootBob `82e6ab6`, `9bfe8ca`, `291a220`):
+        `/files/usb/bootbob-usb.img`, an ESP with the full `ipxe.efi` (x64 + arm64) built
+        with `ipxe/usb.ipxe`, the server's URL patched over a placeholder at download.
+        Tested: a sentinel VM with QEMU user networking (DHCP with no boot options, no
+        host change) booted the served stick and reached BootBob's menu; the firmware had
+        no network stack, which is why the stick uses `ipxe.efi`, not `snponly`.
+  - [x] **mDNS** `_bootbob._tcp` on the LAN interface (BootBob `82e6ab6`).
+  - [x] **BenchBob "Network boot…"** (DeskyPi `6253436`, on desky as
+        `0.5.0+git47.6253436`): finds "BootBob on steamboat" over mDNS; per drive, a USB
+        boot stick (flashes the stick URL) or a Pi bootloader card starting from a
+        "Netboot from <server>" preset (`BOOT_ORDER=0xf12`, `TFTP_IP`). Checked in the
+        dashboard without writing anything.
+  - [x] BootBob deploys since the client went in: `961e76c` (a9c436d), `9bfe8ca`
+        (706ee9a), `291a220` (2aacdbe); desky rode through each (reconnected ~0.5 s).
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -647,15 +666,12 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. The old system on desky's SD card: kept for now. Say when to wipe it (then the slot is
-   just a drive bay; a `BOOT_ORDER` of `0xf2` never boots it anyway).
-2. Copy-on-write is in (`f80f0b5`) but untested on hardware. To dogfood it: make a golden
-   image (desky's `desky.img` is a candidate once its hostname/keys are generalised) and
-   boot a Pi from it with `cow: true`. Is there a second Pi 4/5 to point at BootBob, or
-   should desky itself move to a cow overlay of a golden copy of its disk?
-3. Remaining Phase 2: stores and on-demand download with caching, mDNS for BenchBob, the
-   Pi EEPROM setter images. Recommendation: mDNS + BenchBob's "Network boot" flash group
-   next, since it reuses BenchBob's existing EEPROM editor.
+1. The old system on desky's SD card: user said wipe it "once we're 100% stable and can read
+   old leftover files from the SD card directly". The second part is done (mounted
+   read-only under `/srv/nfs/drives/{bootfs,rootfs}`, Browse in the dashboard). Stability:
+   three BootBob restarts survived since `bootbob-nbd-client`. Wipe when the user says.
+2. Remaining Phase 2: image stores with on-demand download and caching (and uberfall as a
+   remote store, which needs an ops change). Phase 3 (the controller) after that.
 
 ## Progress log
 
