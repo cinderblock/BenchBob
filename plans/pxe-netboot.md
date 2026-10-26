@@ -600,6 +600,20 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         dashboard without writing anything.
   - [x] BootBob deploys since the client went in: `961e76c` (a9c436d), `9bfe8ca`
         (706ee9a), `291a220` (2aacdbe); desky rode through each (reconnected ~0.5 s).
+  - [x] **Image stores** (BootBob `e3ae16c`): same binary, `mode = "store"`; NBD + a small
+        HTTP API (upload, list, delete, `/store/boot/<disk>/<file>`, overlays). Main
+        server: `[[stores]]`, image source `<store>:<disk>.img`; boot files fetched from
+        the store, `{server}` = the store (machines' root traffic goes straight to it),
+        sources list and overlays include the stores'. Authority stays on the main
+        server: the store asks `GET /api/store/allow` on every NBD connection. Tested
+        end to end (real store + main server on loopback).
+  - [ ] **uberfall as the store** (user approved in principle 2026-10-25): ops change
+        ready on local branch `bootbob-store` (worktree
+        `~/git/Personal Projects/ops-bootbob-store`, commit `219b2bf`, not pushed):
+        uberfall gets the shared stack loop and `stacks/bootbob-store` (host network,
+        10.255.0.3:8068/:10809, data `/mnt/md0/bootbob`); steamboat gets
+        `[[stores]] uberfall` and moves to `e3ae16c` (older builds reject `stores`).
+        Waiting for the user's yes on that exact diff.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -666,12 +680,9 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. The old system on desky's SD card: user said wipe it "once we're 100% stable and can read
-   old leftover files from the SD card directly". The second part is done (mounted
-   read-only under `/srv/nfs/drives/{bootfs,rootfs}`, Browse in the dashboard). Stability:
-   three BootBob restarts survived since `bootbob-nbd-client`. Wipe when the user says.
-2. Remaining Phase 2: image stores with on-demand download and caching (and uberfall as a
-   remote store, which needs an ops change). Phase 3 (the controller) after that.
+1. Yes to the uberfall `bootbob-store` ops change (branch `bootbob-store`, `219b2bf`)?
+2. Next: on-demand download and caching (a catalogue entry = upstream URL + checksum,
+   fetched by the store on first use). Then Phase 3 (the controller).
 
 ## Progress log
 
@@ -816,6 +827,13 @@ All design questions from rounds 1–3 are answered (see decisions).
   boot; both did before the move too (see DeskyPi `ISSUES.md`), unrelated to netboot.
 
 ## Things not to do
+
+- **Don't wipe desky's old SD card.** The user asked "why would you wipe it?"
+  (2026-10-25): it's just a drive in the slot and never boots (`BOOT_ORDER=0xf2`). The
+  earlier "once we're 100% stable…" wasn't a request to wipe it. Leave it.
+- **Don't pin a BootBob build older than a field its config uses**: the config denies
+  unknown fields, so `[[stores]]` with a pre-`e3ae16c` build stops BootBob from starting.
+  `packaging/test-configs/` in BootBob mirrors the ops configs and a test parses them.
 
 - **Don't restart BootBob (deploy, pin bump) while any diskless machine runs Debian's
   plain `nbd-client`**: its root dies. Every NBD-root machine must run
