@@ -607,12 +607,26 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         sources list and overlays include the stores'. Authority stays on the main
         server: the store asks `GET /api/store/allow` on every NBD connection. Tested
         end to end (real store + main server on loopback).
+  - [x] **Pi golden image built and VM-tested** (BootBob `f9a3a76`, 2026-10-30; user: desky
+        is not its source and not its test machine). `tools/make-pi-golden.sh`, from
+        packages (Debian trixie arm64 + archive.raspberrypi.com), built natively on
+        GitHub's `ubuntu-24.04-arm` runner (`.github/workflows/pi-golden.yml`). Artifact
+        `golden-pi` (299 MB zstd, 8 GiB disk), expires 2026-11-29; rerun the workflow for a
+        fresh one. No credentials in it. `tools/test-pi-golden.sh` boots it in an arm64 VM
+        with a generic kernel, real root over NBD (via `qemu-nbd`, not BootBob): boots in
+        about 70 s, root rw on `/dev/nbd0p2`, resident client running, first boot made host
+        keys and machine-id, no failed units, networkd kept the address, DNS, apt reaches
+        both repositories. NBD server killed under a writer: reconnected about 3.5 s
+        later, no I/O errors, writes kept going.
+  - [ ] **Pi golden image on real hardware** (not started): the Pi kernels, firmware and
+        TFTP path are unproven. Waiting for the user's spare Pi 4, which will also run
+        the new microscope camera; the image has no camera stack yet.
   - [ ] **uberfall as the store** (user approved in principle 2026-10-25): ops change
         ready on local branch `bootbob-store` (worktree
-        `~/git/Personal Projects/ops-bootbob-store`, commit `219b2bf`, not pushed):
+        `~/git/Personal Projects/ops-bootbob-store`, commit `d811fc8`, not pushed):
         uberfall gets the shared stack loop and `stacks/bootbob-store` (host network,
-        10.255.0.3:8068/:10809, data `/mnt/md0/bootbob`); steamboat gets
-        `[[stores]] uberfall` and moves to `e3ae16c` (older builds reject `stores`).
+        10.255.0.3:8068/:10809, data `/mnt/md0/bootbob`, pin `b9d2bc1`); steamboat gets
+        `[[stores]] uberfall` (the deploy bot already moved it to `b9d2bc1`).
         Waiting for the user's yes on that exact diff.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
@@ -680,7 +694,7 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Yes to the uberfall `bootbob-store` ops change (branch `bootbob-store`, `219b2bf`)?
+1. Yes to the uberfall `bootbob-store` ops change (branch `bootbob-store`, `d811fc8`)?
 2. Next: on-demand download and caching (a catalogue entry = upstream URL + checksum,
    fetched by the store on first use). Then Phase 3 (the controller).
 
@@ -826,7 +840,26 @@ All design questions from rounds 1–3 are answered (see decisions).
 - desky's `nbd-server.service` (BenchBob's drive exports) and `t3serve.service` fail on
   boot; both did before the move too (see DeskyPi `ISSUES.md`), unrelated to netboot.
 
+## Pi golden image gotchas (2026-10-30)
+
+- The Pi kernels have no virtio and no `ARCH_VIRT`, and QEMU's `raspi4b` has no network,
+  so a VM can't run them. The test uses `linux-image-arm64` from a throwaway copy of the
+  root. Its modules aren't in the image, so its initramfs has to carry `vfat`.
+- The key on Pi's website fails on trixie: `SHA1 is not considered secure since
+  2023-02-01`. Use the `raspberrypi-archive-keyring` package's file (same fingerprint);
+  Pi OS on desky trusts that one too.
+- mmdebstrap pins the Debian keyring on any source line without `signed-by`, and runs
+  its first `apt-get update` from outside the root, so `signed-by` must exist in both.
+- `ischroot` needs `/proc`, or the raspi-firmware hooks exit with "missing /boot/firmware".
+- The build script is one single-quoted string: an apostrophe in a comment ended it
+  early with exit 0. It has no apostrophes now, and fails if the image doesn't exist.
+- `rpi-eeprom-update.service` is disabled: EEPROM settings change only on purpose.
+
 ## Things not to do
+
+- **Don't register binfmt on sentinel (or any server) for arm64 builds** without a yes:
+  it's a host setting. Sentinel has none registered; WSL here has no Docker and `sudo`
+  wants a password. That's why the Pi golden image is built on a GitHub arm64 runner.
 
 - **Don't wipe desky's old SD card.** The user asked "why would you wipe it?"
   (2026-10-25): it's just a drive in the slot and never boots (`BOOT_ORDER=0xf2`). The
