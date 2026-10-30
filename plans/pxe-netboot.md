@@ -621,13 +621,19 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
   - [ ] **Pi golden image on real hardware** (not started): the Pi kernels, firmware and
         TFTP path are unproven. Waiting for the user's spare Pi 4, which will also run
         the new microscope camera; the image has no camera stack yet.
-  - [ ] **uberfall as the store** (user approved in principle 2026-10-25): ops change
-        ready on local branch `bootbob-store` (worktree
-        `~/git/Personal Projects/ops-bootbob-store`, commit `d811fc8`, not pushed):
-        uberfall gets the shared stack loop and `stacks/bootbob-store` (host network,
-        10.255.0.3:8068/:10809, data `/mnt/md0/bootbob`, pin `b9d2bc1`); steamboat gets
-        `[[stores]] uberfall` (the deploy bot already moved it to `b9d2bc1`).
-        Waiting for the user's yes on that exact diff.
+  - [x] **uberfall is a store** (deployed 2026-10-30 2:39 PM PDT / 21:39Z, ops `2aef079`
+        by the batch-deploy thread): `bootbob-store` on 10.255.0.3:8068/:10809, data
+        `/mnt/md0/bootbob`. Steamboat has `[[stores]] uberfall`. desky rode through the
+        restart (reconnected in about 0.5 s, root rw, write checked).
+  - [x] **Store path proven up to the boot** (2026-10-30 2:49 PM PDT / 21:49Z):
+        `golden-pc2.img` uploaded from sentinel (sha256 `d0e1de88…` identical on uberfall);
+        steamboat lists `uberfall:golden-pc2.img`; image `debian-store` serves vmlinuz and
+        initrd through the store, byte-identical to `debian-net`'s; an unassigned machine
+        gets a 403 from `/api/store/allow`, and a real NBD connection from 10.255.0.77 is
+        refused by the store. `debian-store` is assigned to nothing.
+  - [ ] **A machine booting from the store** (not started): the store checks by client
+        IP, so a user-networked VM is refused (it appears as sentinel). Needs the macvtap
+        test VM on sentinel again: waiting for the user's yes.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -694,7 +700,8 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Yes to the uberfall `bootbob-store` ops change (branch `bootbob-store`, `d811fc8`)?
+1. Yes to a transient macvtap `bbvm0` on sentinel for one VM booting from
+   `uberfall:golden-pc2.img`? Deleted after the test, like the 2026-10-25 one.
 2. Next: on-demand download and caching (a catalogue entry = upstream URL + checksum,
    fetched by the store on first use). Then Phase 3 (the controller).
 
@@ -839,6 +846,14 @@ All design questions from rounds 1–3 are answered (see decisions).
   `HEAD:master` (run `bun install` there so the hooks work).
 - desky's `nbd-server.service` (BenchBob's drive exports) and `t3serve.service` fail on
   boot; both did before the move too (see DeskyPi `ISSUES.md`), unrelated to netboot.
+
+## Store gotchas (2026-10-30)
+
+- uberfall `/health` is 503 for `/dev/sdb` (attrs 197 and 198 raw=8; both were 0 after the
+  2026-09-28 repair), the user hasn't decided what to do about the disk, and
+  `/mnt/md0/bootbob` is on that array. md0 itself is `[4/4] [UUUU]` (RAID 6). Keep only
+  rebuildable test data on the store until that's decided.
+- An upload isn't sparse: the 4 GiB `golden-pc2.img` takes 4.1 GiB on the store.
 
 ## Pi golden image gotchas (2026-10-30)
 
