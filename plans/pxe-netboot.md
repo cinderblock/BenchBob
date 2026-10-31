@@ -1,9 +1,9 @@
 # PXE / netboot server on steamboat, and a diskless DeskyPi
 
-Status: **Phase 1 in progress.** BootBob repo created (public,
-<https://github.com/cinderblock/BootBob>, local `~/git/Personal Projects/BootBob`) with the
-server, web UI, iPXE build and a QEMU end-to-end test. Nothing deployed; steamboat, UniFi
-and desky untouched. Written 2026-10-23; revised 9:30 AM PDT (16:30Z) after round 1, 3:40 PM
+Status: **Phase 2, finishing on-demand download and caching; Phase 3 (the controller) is
+next.** BootBob (public, <https://github.com/cinderblock/BootBob>, local
+`~/git/Personal Projects/BootBob`) is live on steamboat, with a store on uberfall, and desky
+runs diskless from it. Written 2026-10-23; revised 9:30 AM PDT (16:30Z) after round 1, 3:40 PM
 PDT (22:40Z) after round 2, and 4:30 PM PDT (23:30Z) after round 3 (storage, mDNS, repo).
 Name: **BootBob**, in its own new repo (decided round 2).
 
@@ -697,9 +697,7 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         keys and machine-id, no failed units, networkd kept the address, DNS, apt reaches
         both repositories. NBD server killed under a writer: reconnected about 3.5 s
         later, no I/O errors, writes kept going.
-  - [ ] **Pi golden image on real hardware** (not started): the Pi kernels, firmware and
-        TFTP path are unproven. Waiting for the user's spare Pi 4, which will also run
-        the new microscope camera; the image has no camera stack yet.
+  - [x] **Pi golden image on real hardware:** done on desky; see the 2026-10-30 entry below.
   - [x] **uberfall is a store** (deployed 2026-10-30 2:39 PM PDT / 21:39Z, ops `2aef079`
         by the batch-deploy thread): `bootbob-store` on 10.255.0.3:8068/:10809, data
         `/mnt/md0/bootbob`. Steamboat has `[[stores]] uberfall`. desky rode through the
