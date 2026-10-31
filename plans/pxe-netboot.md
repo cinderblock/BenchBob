@@ -1,7 +1,8 @@
 # PXE / netboot server on steamboat, and a diskless DeskyPi
 
 Status: **Phase 2. On-demand download and caching is built (BootBob `2b8ac70`); NBD TRIM is
-in progress in its own thread; Phase 3 (the controller) needs a go-ahead.** BootBob (public, <https://github.com/cinderblock/BootBob>, local
+built and proven on a real kernel, on BootBob master (`4cb8866`), with desky's first `fstrim`
+approved and waiting for the deploy; Phase 3 (the controller) needs a go-ahead.** BootBob (public, <https://github.com/cinderblock/BootBob>, local
 `~/git/Personal Projects/BootBob`) is live on steamboat, with a store on uberfall, and desky
 runs diskless from it. Written 2026-10-23; revised 9:30 AM PDT (16:30Z) after round 1, 3:40 PM
 PDT (22:40Z) after round 2, and 4:30 PM PDT (23:30Z) after round 3 (storage, mDNS, repo).
@@ -883,6 +884,11 @@ All design questions from rounds 1–3 are answered (see decisions).
 - [x] CI green on `2b8ac70` (run 41241534020), e2e included.
 - [ ] Proven in production, after Renovate deploys it: a machine on steamboat/uberfall, and
       desky waiting for a cached disk.
+- [x] NBD TRIM built, tests for all the cases, README, real kernel on sentinel: BootBob
+      `4cb8866` on branch `trim`.
+- [x] TRIM on master: `4cb8866`, with the user's yes.
+- [ ] TRIM on desky: approved, waiting for Renovate's deploy. Goal: `fstrim` runs, space
+      falls towards what's in use, `e2fsck` clean, survives a reboot.
 
 ## Findings / gotchas
 
@@ -1011,6 +1017,128 @@ All design questions from rounds 1–3 are answered (see decisions).
 - The VM can't show missing Wi-Fi firmware: `Direct firmware load for
   brcm/brcmfmac43455-sdio.bin failed with error -2` appears only on a real Pi.
 
+## NBD TRIM (2026-10-31)
+
+Goal: `fstrim` on a network disk gives space back on the server, for plain disks and overlays,
+locally and on a store. Code: BootBob `backend/crates/{cow,nbd}`, real-kernel test
+`tools/test-trim.sh`, which uses `backend/crates/nbd/examples/serve_dir.rs`.
+
+**Design, settled:**
+
+- **The client needs no change, and no image needs rebuilding.** `bootbob-nbd-client` already
+  passes the server's flags in `NBD_ATTR_SERVER_FLAGS` (`netlink.rs`). But the kernel reads them
+  only at connect: `NBD_CMD_RECONFIGURE` doesn't carry them, so **a running machine gets discard
+  only after a reboot**, never from a server restart.
+- **The overlay format doesn't change.** The map bit decides what a hole means: bit clear, it's
+  the base; bit set, zeroes. A discarded chunk is a hole in the `.ovl` with its bit set. Old
+  overlays work as they are, and older builds read trimmed overlays correctly. The hole comes
+  before the bit, so a crash between leaves the chunk reading as it did.
+- **The real ordering bug was already there, for writes too.** `select!` could drop a connection
+  with a `spawn_blocking` still running, and `open_disk` ran before `claim`. So a new connection
+  could start, and could read the overlay map, while the old one's last operation was still going.
+  Now every disk operation carries its connection's lock onto its thread (`on_disk`), a connection
+  keeps its claim until that lock is free and it has flushed, and a new connection waits for the
+  old claim **before opening the disk**. A resent TRIM is safe: the kernel holds overlapping
+  writes until the TRIM completes.
+- **Whether a disk offers TRIM is probed on a scratch file** next to it, not on the disk: a
+  no-op punch may still bump mtime, and mtime ties overlays to their base. Off Linux,
+  or on a filesystem without holes, TRIM isn't offered and everything else still works.
+- `WRITE_ZEROES` is offered too: a hole unless the client sends `NO_HOLE`, and written zeroes
+  on a filesystem without holes.
+- `Live::drain` needed no change: the newest holder stays in `by_key` until those before it
+  finish. A mutation test showed a separate counter I'd added was redundant, so it went.
+
+**Facts checked:** uberfall's store is ext4 (`/dev/md0`, `discard` mount option), bind-mounted
+at `/mnt/md0/bootbob`. desky: kernel 6.18.50, logical block size 512, and `fstrim.timer` is
+enabled, next run Mon 2026-11-02 1:27:59 AM PST (09:27:59Z).
+
+**Risk to keep in mind:** `fstrim.timer` runs by itself. Once a TRIM build is on steamboat and desky
+has rebooted, the next timer run is a real `fstrim` on the only copy of desky's root, with
+nobody having approved it. See "Things not to do".
+
+**Proven, 2026-10-31 4:30-4:50 PM PDT (23:30-23:50Z), on sentinel:** `tools/test-trim.sh` in a
+throwaway `debian:trixie` container, a KVM VM on user networking with its root on the real NBD
+crate (`serve_dir`) through the `bootbob-nbd-client` baked into `golden-pc2.img` on 2026-10-25.
+That old client got discard with no change (`discard_max_bytes=4294966784`,
+`write_zeroes_max_bytes=4294966784`). Nothing on sentinel's host or network changed.
+
+| Check | Plain disk | Overlay |
+| --- | --- | --- |
+| On the server: start, with a 400 MiB file, after deleting it and `fstrim` | 495 → 895 → 495 MiB | 52 → 452 → 52 MiB |
+| A reboot, then `fstrim` | Good, data intact | Good, data intact |
+| Churn rounds (write, delete, `fstrim`, reuse) through SIGTERM, 2 SIGKILLs, stalled TRIMs | 278 | 440 |
+| Every file's SHA-256 after dropping caches, root read-write, no I/O errors | Good | Good |
+| `e2fsck -fn`, reading the whole disk back through the server with `qemu-img` | Clean | Clean |
+| The base image's SHA-256 | n/a | Unchanged |
+
+"Stalled TRIMs" means every 7th held 40 s, past the kernel's 30 s timeout (3 stalls, then 3 more),
+with the same kernel and client as a real outage. Serial log: `Connection timed out`, `Dead
+connection`, then `reconnected` at about the moment the TRIM ended: the new connection really
+did wait. Unit tests: 140 on Linux and Windows, including `a_stale_trim_can_never_land_after_a_newer_write`.
+**Mutation-checked** on a private copy: removing the wait for the old claim, or the wait for the
+running operation, fails that test; leaving the bit clear or skipping partial chunks fails the
+overlay tests. `cargo check` passes for `aarch64-unknown-linux-musl` and `x86_64-apple-darwin`.
+
+**Not proven yet:** a real kernel through the full `bootbob` binary (the VM's user networking hides
+its address from the per-machine check, so it uses `serve_dir`, which has the same NBD code and
+no policy); a real kernel against a store (`a_store_trims_plain_disks_and_overlays` covers
+`StoreExports` over a real socket, for both disk types); anything on steamboat, uberfall or desky,
+including an arm64 Pi kernel (6.18.50) and hole punching on `/dev/md0`. `tools/test-trim.sh`
+isn't in CI, because it needs the golden image.
+
+**CI on `4cb8866`: success on every job**, conclusion read from the run (41253557780, started by
+hand on the branch), e2e and the Docker build included; `publish` skipped, as it should be off
+master.
+
+**The user said yes, 2026-10-31 4:50 PM PDT (23:50Z):** to stopping the timer, to master, and to
+backing up and trimming desky, "but make sure you don't accidentally hurt things on steamboat
+and uberfall". Done: `fstrim.timer` disabled on desky 4:51 PM PDT (23:51Z); `4cb8866` on master
+(fast-forward, the tree CI passed). Next: Renovate deploys it, then steps 3-9 below. Both pins
+were on `f9e5d3a`, so this deploy also brings the on-demand cache to production. CI on master:
+success on every job, `publish` included (run 41254284070).
+
+**Hole punching on the real filesystems, 4:52 PM PDT (23:52Z):** a 16 MiB scratch file beside
+the data on uberfall (`/dev/md0`) and steamboat (`/dev/nvme0n1p2`), both ext4: 8 MiB punched, 16 → 8
+MiB, same length, the range reads as zeroes, scratch file removed.
+
+A resume of this thread is queued for Sun 2026-11-01 11:30 AM PST (19:30Z), after Renovate's usual
+time. DST ends that morning.
+
+### Steps for desky (approved; steps 1-2 done)
+
+
+1. On desky, stop the timer so the first `fstrim` is on purpose:
+   `sudo systemctl disable --now fstrim.timer`.
+2. Merge `trim` to master. CI publishes; Renovate bumps the pins and steamboat and uberfall restart
+   (a pause for desky, not an outage). Check with `pgrep -a -f @bootbob-nbd` first.
+3. **Backup, on steamboat's own NVMe, 339 GiB free.** Freeze desky's root so the copy is consistent,
+   with an unfreeze armed first in case the session dies. Only if desky is idle:
+   `ssh desky 'sudo systemd-run --on-active=300 fsfreeze -u / && sudo fsfreeze -f /'`, then on
+   steamboat `sudo cp --sparse=always /srv/bootbob-data/images/desky.img /srv/bootbob-data/desky-before-trim.img`,
+   then `ssh desky sudo fsfreeze -u /`. If the copy takes over 4 minutes, the armed unfreeze makes
+   it inconsistent: start again. Outside `images/`, so BootBob doesn't see it.
+4. Check the backup, without touching it: copy its root partition out,
+   `sudo dd if=desky-before-trim.img of=/srv/bootbob-data/desky-check.ext4 bs=512 skip=1064960 count=66043904 conv=sparse`,
+   and run `sudo e2fsck -fy` on that scratch copy, because a frozen filesystem can still need its
+   journal replayed. A journal replay is expected; any other fix means stop. Delete the scratch
+   copy.
+5. Reboot desky (idle check first). It reconnects and now has discard:
+   `cat /sys/block/nbd0/queue/discard_max_bytes` is non-zero; it's on image `desky`, root rw.
+6. `sudo fstrim -v /` once. Measure `sudo du -h /srv/bootbob-data/images/desky.img` before and after;
+   expect about 11 GiB falling to about 9.8 GiB.
+7. Same as steps 3-4 for a fresh copy, `e2fsck -fn` clean.
+8. Reboot desky; confirm image `desky`, root rw, services as before.
+9. `sudo systemctl enable --now fstrim.timer`. Delete both copies only on the user's say-so.
+
+Undo, if the filesystem is damaged: power desky off and restore `desky-before-trim.img` over
+`desky.img` with `cp --sparse=always`, in the same window. Writes since the backup are lost.
+
+Gotchas:
+
+- The Bash tool's heredoc quirk hit again with Python containing quotes. Write the script to a
+  file first.
+- `ssh host bash -s -- "$cmd"` splits the command on spaces; pass it base64.
+
 ## On-demand cache: what's proven (2026-10-31)
 
 Code: BootBob `backend/crates/bootbob/src/{fetch,cache,catalogue}.rs`; tests in
@@ -1098,6 +1226,10 @@ Gotchas:
 - `rpi-eeprom-update.service` is disabled: EEPROM settings change only on purpose.
 
 ## Things not to do
+
+- **Don't re-enable `fstrim.timer` on desky before step 9 of "Steps for desky".** It's disabled
+  on purpose until the backup exists and the first `fstrim` has been checked. The production
+  test's one-shot reboot is safe from that now, but it's a reboot of desky, so check it's idle.
 
 - **Don't register binfmt on sentinel (or any server) for arm64 builds** without a yes:
   it's a host setting. Sentinel has none registered; WSL here has no Docker and `sudo`
