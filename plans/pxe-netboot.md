@@ -673,12 +673,22 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
   - [x] Image names (user asked): `debian-trixie-amd64.img`, `debian-trixie-rpi-arm64.img`,
         one copy of each, on the store. `pc2` only meant the second PC build; the first
         was deleted on 2026-10-25.
-  - [ ] **After Renovate pins the new build**: a scheduled follow-up in this thread,
-        Saturday 2026-10-31 11:30 AM PDT (18:30Z), replaces the images with sparse uploads
-        (the store still has a full 8 GiB Pi image without the Wi-Fi firmware, and
-        `golden-pc2.img`), removes `golden-pc2.img`, `debian-net` and `debian-store`,
-        removes the temporary `panic=30` from `debian-trixie-rpi`, and tests the drain on
-        steamboat.
+  - [x] **New build live** (2026-10-31 9:24 AM PDT / 16:24Z, by Renovate): steamboat and
+        uberfall both on BootBob `f9e5d3a` (digest 87c11e1).
+  - [x] **One copy of each golden image, on the store** (2026-10-31 11:32 AM PDT / 18:32Z):
+        `debian-trixie-rpi-arm64.img` (sha256 `2c090b3f…`, 8 GiB, 665 MB on disk, 304 MB
+        sent; has `~/bootbob-vmtest/keys` as authorized_keys) and `debian-trixie-amd64.img`
+        (`d0e1de88…`, 4 GiB, 444 MB on disk, 261 MB sent; the same build as `golden-pc2.img`).
+        BootBob images: `debian-trixie-rpi` (`panic=30` removed), `debian-trixie-amd64`
+        (`{disk}` in its cmdline). Removed: images `debian-store` and `debian-net`,
+        `golden-pc2.img` from uberfall and steamboat. Sentinel keeps its `golden-pc2.img`.
+  - [x] **Drain proven in production** (2026-10-31 11:34 AM PDT / 18:34Z): `docker restart
+        bootbob` on steamboat under sync writes on desky: worst gap 0.43 s, one run, no
+        I/O errors, root rw. The kernel logged `Dead connection, failed to find a
+        fallback` during the 0.5 s the port was closed; nothing failed.
+  - [ ] Not run yet: `debian-trixie-amd64` booting with `{disk}` as a bare store export
+        (only the store test at BootBob `tests.rs:867` covers it, since checking needs a
+        machine assigned to it); the Wi-Fi build of the Pi image on a real Pi; a Pi 5.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -896,8 +906,7 @@ All design questions from rounds 1–3 are answered (see decisions).
   2026-09-28 repair), the user hasn't decided what to do about the disk, and
   `/mnt/md0/bootbob` is on that array. md0 itself is `[4/4] [UUUU]` (RAID 6). Keep only
   rebuildable test data on the store until that's decided.
-- Before `0994893` an upload wasn't sparse: the 4 GiB `golden-pc2.img` still takes 4.1 GiB
-  on the store until it's uploaded again.
+- Before `0994893` an upload wasn't sparse: a 4 GiB image took 4.1 GiB on the store.
 - A boot is the only real test of a store image. `/api/store/allow` and the file checks
   passed with the export name typed by hand, while the name BootBob actually generates
   was wrong: `NBD export refused: no export "uberfall:golden-pc2.img"`.
@@ -905,8 +914,9 @@ All design questions from rounds 1–3 are answered (see decisions).
   server dies seems to wait for the 30 s request timeout: `block nbd0: Connection timed
   out, retrying (1/1 alive)` about 30 s after each drop, 31.5 s and 31.0 s gaps between
   writes. It applies to the main server too. Measure the longest write gap.
-- Renovate bumps BootBob pins once a day. The cron says 05:00 PDT, but GitHub has been
-  starting it around 10:20 AM PDT (17:20Z). Sooner needs an ops change, which needs its
+- Renovate bumps BootBob pins once a day. The cron says 05:00 PDT, but GitHub starts it
+  hours late: about 10:20 AM PDT (17:20Z) on 2026-10-30, 9:24 AM PDT (16:24Z) on
+  2026-10-31. Sooner needs an ops change, which needs its
   own yes.
 - tokio's `TcpStream::readable()` stays ready after a read until something sees
   `WouldBlock`, so it can't tell a connection has gone quiet. `peek` can.
