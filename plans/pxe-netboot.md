@@ -425,6 +425,85 @@ big remote), and downloading images on the fly with a cache.
 - **btrfs is now optional.** Since the NBD server does copy-on-write itself, btrfs/XFS
   reflinks are a nice speed-up for NFS-style directory clones, not a requirement.
 
+#### On-demand download and caching: decisions (2026-10-31)
+
+Settled from the code and upstream checks; supersedes "downloads and serves at the same
+time" above.
+
+**What upstreams publish (checked 2026-10-31).**
+
+| Source | Format | Checksum published | Range |
+| --- | --- | --- | --- |
+| Raspberry Pi OS (BenchBob's `os_list_imagingutility_v4.json`) | `.img.xz` | **Only `extract_sha256`, of the decompressed image**; `image_download_sha256` is null | yes |
+| Third-party images in that list | often `.zip` | both | varies |
+| Alpine Pi | `.img.gz`, `.tar.gz` | `sha256`, `extracted_sha256` | yes |
+| Debian netboot | loose `linux`, `initrd.gz` | SHA256SUMS | yes |
+| Debian cloud | `.raw`, `.qcow2`, `.tar.xz` | **SHA512SUMS only** | yes |
+| Ubuntu cloud | `.img` **that is really qcow2** (`QFI\xfb`) | SHA256SUMS | yes |
+| ISOs | plain `.iso` | SHA256SUMS | yes |
+
+So: checksums are `sha256:` or `sha512:`; an entry has a checksum of the download, of the
+unpacked image, or both, at least one; xz (`lzma-rust2`) and gzip (`flate2`) join zstd,
+all pure Rust; packing is detected from magic bytes, not the file name. Only disk entries
+(`.img`) are unpacked: `initrd.gz` must reach the machine as it is. qcow2, zip and tar
+are refused with a message that says so, never served as a raw disk.
+
+1. **Hold the boot until the image is complete and verified. No serving while
+   downloading**, in any format. Random reads can't be served from a compressed stream,
+   and they are not rare: a kernel reads the backup GPT at the far end of the disk and
+   ext4 metadata all over it in the first seconds. A read past the decoder would wait,
+   the NBD client times out at 30 s, and the root fails. It would also mean running on
+   bytes nobody has verified, with a machine's writes stacked on top. Holding gives one
+   rule: **nothing unverified is ever visible to a machine.** Partial files stay out of
+   the images directory's listing, so NBD and TFTP can't see them.
+2. **iPXE waits at the ordinary polling menu**, with progress in its status lines and the
+   normal escapes (local disk, reboot, shell). Never a held-open HTTP request: iPXE's
+   `HTTP_WATCHDOG_SECONDS` is 120 (`net/tcp/httpcore.c` at our pinned commit). Each poll is
+   instant, so there is no timeout to hit however long the download takes. A one-shot
+   assignment isn't used up and no boot is recorded until the image is ready. The menu's
+   clock to local disk doesn't run: the machine was told to boot this.
+3. **A Pi waits by being told no.** TFTP answers not-found until the image is ready, the
+   way an unassigned Pi is treated. With `BOOT_ORDER=0xf2` the bootloader retries forever.
+   A Pi with SD in its boot order falls through to the card, which is what that setting
+   means. The image is checked only when a new boot session would start, so a boot in
+   progress costs no extra round trips.
+4. **Download to a part file, then unpack.** `.part` is resumable: an interrupted or
+   restarted download rehashes what it has and continues with `Range`. Large files come
+   in 256 MiB ranges, because `ureq` has no idle timeout: a stalled range times out and
+   only that range is retried. An upstream without `Range` restarts from zero. A checksum
+   failure on a resumed download gets one clean retry (the two halves may be different
+   uploads); on a clean download it is permanent until someone retries it, so a wrong
+   checksum can't burn bandwidth in a loop. Network failures retry with backoff. A
+   restart forgets failures, keeps part files, and resumes when a machine next asks.
+5. **Two machines, one download.** Each host has one job per file; everyone else reads its
+   progress.
+6. **Stores fetch for themselves.** The main server asks (`POST /api/cache/<name>`), the
+   store downloads over its own uplink, and the store owns its cap, rows and eviction.
+7. **Only what the cache fetched can be evicted.** It keeps a row per file. `desky.img`
+   and uploads have no row, so eviction can't see them. Never evicted: pinned files; a
+   disk connected over NBD; **a disk with any machine's overlay on it** (those overlays
+   mean nothing over a different base, and are refused by the base-mtime check anyway);
+   anything used in the last 15 minutes (a machine between its boot files and its NBD
+   connect). If that leaves no room, the fetch fails and says what's holding the space,
+   without evicting anything first.
+8. **A catalogue disk must be copy-on-write.** Otherwise a machine writes into the
+   verified copy, and an eviction would delete its data.
+9. **Local store: `<data_dir>/images` plus `<data_dir>/cache`**, so `/srv/bootbob-data` on
+   steamboat's NVMe, already bind-mounted. **`cache_gib` defaults to 150**, so the build
+   needs no ops change. Fetches also stop with 5 GiB left free on the filesystem: this
+   NVMe holds steamboat's root.
+10. **Tiering:** a local entry whose URL is `store:<store>/<disk>.img` fetches from that
+    store, checked against the digest the store computes. That disk route is open only
+    to the main server's address, or anyone on the LAN could read someone's root disk.
+11. **Non-disk files** (kernels, initrds, ISOs) are served at `/files/cache/<name>` with
+    `Range`; an image's iPXE action names them `{cached:<id>}`.
+12. **TLS:** `ureq` with `rustls` and bundled roots (the container has no CA store). `ring`
+    needs a C compiler at build time; `rust:alpine` ships gcc, so the build stays static.
+13. **Stock Pi OS downloads, verifies and serves its boot files, but can't run its root
+    over NBD:** its initramfs has no `nbd-client`, and cloud images have no kernel in a
+    FAT partition. Making stock images bootable over NBD is a separate feature (see
+    BootBob `ISSUES.md`), not part of this.
+
 **Is there enough space?** Rough sizes: iPXE and the controller are tiny; a Pi OS golden
 image is 4–8 GB; a per-device overlay is 1–5 GB; an installer ISO is 1–7 GB (Windows 11
 ~6 GB); a backup is tens to hundreds of GB each.
@@ -690,8 +769,10 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
   - [ ] Not run yet: `debian-trixie-amd64` booting with `{disk}` as a bare store export
         (only the store test at BootBob `tests.rs:867` covers it, since checking needs a
         machine assigned to it); the latest Pi image build on a real Pi; a Pi 5.
+  - [x] **On-demand download and caching** (BootBob `2b8ac70`): see "On-demand download and
+        caching: decisions" and "On-demand cache: what's proven".
   - Our NBD server with copy-on-write overlays; managed NFS exports.
-  - Stores (local first, then remote `store` mode), on-demand download and cache.
+  - Stores (local first, then remote `store` mode).
   - Golden-image tooling.
   - Client-side boot settings: Pi EEPROM setter (SD and netboot).
   - mDNS advertisement; BenchBob's "Network boot" flash group (USB iPXE stick, EEPROM
@@ -756,8 +837,8 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Next: on-demand download and caching (a catalogue entry = upstream URL + checksum,
-   fetched by the store on first use). Then Phase 3 (the controller).
+1. Next, once the on-demand cache is proven on steamboat, uberfall and desky: Phase 3 (the
+   controller).
 
 ## Progress log
 
@@ -798,6 +879,12 @@ All design questions from rounds 1–3 are answered (see decisions).
         `dhcp-efi-x64` and `dhcp-bios` fail ("10.255.0.1 offers boot server 10.255.0.1
         and file (none)"), as expected.
   - [ ] Waiting on a yes for the TSL `netboot:` entry; then push and rerun the doctor.
+
+- [x] On-demand download and caching: built, tests for every failure case, README, real
+      upstreams on sentinel (BootBob `2b8ac70`).
+- [x] CI green on `2b8ac70` (run 41241534020), e2e included.
+- [ ] Proven in production, after Renovate deploys it: a machine on steamboat/uberfall, and
+      desky waiting for a cached disk.
 
 ## Findings / gotchas
 
@@ -925,6 +1012,77 @@ All design questions from rounds 1–3 are answered (see decisions).
   date, and `apt` fails signature checks until `timesyncd` syncs. That's normal.
 - The VM can't show missing Wi-Fi firmware: `Direct firmware load for
   brcm/brcmfmac43455-sdio.bin failed with error -2` appears only on a real Pi.
+
+## On-demand cache: what's proven (2026-10-31)
+
+Code: BootBob `backend/crates/bootbob/src/{fetch,cache,catalogue}.rs`; tests in
+`cache_tests.rs` run on a real socket against a fake upstream that drops, stalls, ignores
+`Range`, replaces its file and refuses. The web UI has a Catalogue tab.
+
+**Proven against real upstreams, 1:55-1:59 PM PDT (20:55-20:59Z), on sentinel:** the real
+Docker image built from the commit before the resume event, two loopback-only containers
+(main + store), a UEFI QEMU VM on user networking booting BootBob's USB stick. No server or
+network setting changed.
+
+| What | Result |
+| --- | --- |
+| A VM assigned the Debian installer, kernel and initrd not on the host | Held at the menu ("fetching") about 5 s, then booted by itself. Both SHA-256 checks passed. Reached the installer's own dialog on serial |
+| Second boot | No fetch event, file mtime unchanged, kernel booted |
+| Raspberry Pi OS Lite `.img.xz` on the store, only `extract_sha256` published | 2.9 GiB unpacked in about a minute, checksum good, 2.0 GiB on disk. `kernel8.img`, `kernel_2712.img`, `start4.elf` read out of it |
+| Store restarted partway through that download | On `2b8ac70`, 2:12 PM PDT (21:12Z): part file survived at 196 MB, the next ask logged `Resuming pios-lite.img: 196 MB already here` and finished, checksum good. 47 s against 54 s for a run with less kept |
+| Alpine Pi `.img.gz`, both checksums | Good, boot files read out of it |
+| Debian cloud `.raw`, SHA-512 | Good: 3 GiB, 937 MiB on disk |
+| Ubuntu cloud `.img` | Refused as qcow2 after the download |
+| Wrong checksum, real upstream | Failed, permanent, nothing kept |
+| Tiering: a local copy of a store's disk | sha256 identical both sides |
+
+**CI on `2b8ac70`: success on every job**, conclusion read from the run (41241534020). Its new
+e2e stage: a SeaBIOS VM held at BootBob for a download from a stand-in upstream on the bridge,
+one-shot intact, booted what arrived with nobody touching it, and a second boot reached the
+upstream zero times.
+
+**Not proven yet:** anything on steamboat, uberfall or a real Pi. Unit tests cover a Pi being
+told no, and the real Pi retry behaviour is only known from unassigned Pis. An NBD root over
+a fetched disk has run nowhere: the sentinel VM's user networking hides its address from
+BootBob's per-machine check. The steps are in "Production test" below.
+
+### Production test (after Renovate deploys `2b8ac70` or later)
+
+Check first: `servers/steamboat/stacks/bootbob/pin.json` and uberfall's `bootbob-store` pin in
+ops `origin/master` name `2b8ac70` or a descendant, and `GET http://10.255.0.5:8067/api/catalogue`
+answers. Don't edit pins, don't trigger Renovate. Everything here goes through BootBob's API
+and is removed afterwards; no ops, server or UniFi change.
+
+1. **Fresh store fetch, PC.** Catalogue entries `store: uberfall` for Debian's netboot `linux`
+   and `initrd.gz` (sums from `SHA256SUMS`), image `debian-installer-test` with
+   `{cached:…}`. On sentinel, a QEMU VM on user networking (not macvtap) booting
+   `http://10.255.0.5:8067/files/usb/bootbob-usb.img`, MAC `52:54:00:b0:0b:10`, one-shot
+   assignment. Expect: state `fetching`, then the installer dialog on serial. Files on
+   uberfall at `/mnt/md0/bootbob/cache/files/`. Second boot: no new `Fetching` event on
+   uberfall (`docker logs bootbob-store`).
+2. **desky, NBD root over a cached disk.** Only if desky is idle (`who`, `uptime`, no
+   BenchBob job, nothing in use). Local entry `debian-trixie-rpi-cached.img`, URL
+   `store:uberfall/debian-trixie-rpi-arm64.img`. Image `debian-trixie-rpi-cached`: copy of
+   `debian-trixie-rpi` with that source, `cow: true`. One-shot assign to desky and reboot it.
+   Expect: TFTP told no while the copy runs (note how often the Pi retries, and that
+   `/api/devices` says `fetching`), then a boot with root on NBD from 10.255.0.5, through
+   an overlay. Then reboot: the one-shot is gone, so desky is back on `desky`. Confirm it
+   came back on image `desky`, root rw.
+3. **Clean up.** Reset the test overlay, delete the test images and entries (which removes
+   the cached files), forget the VM's device. Record the results here, tick the progress log.
+
+Gotchas:
+
+- **Writing the row before the file appears raced with polling machines.** A poll in that gap
+  saw "row, no file", deleted the row, and the finished file was then "not from the
+  catalogue" forever. `ensure` now looks at running jobs first. A test found it about 1 run
+  in 4 on Windows.
+- **hyper drops what it's holding when a response body fails**, so a fake upstream that cuts
+  the connection has to let bytes go out first, or "kept what arrived" looks broken.
+- **WSL's network can't reach crates.io right now** (`transfer too slow`). CI's commands ran
+  on sentinel in `rust:1` and `oven/bun:1` containers instead, which needs no install.
+- `/dev/kvm` on sentinel isn't open to `cameron`, so the test VM ran under TCG. Still fast
+  enough: the installer's dialog appeared 18 s after QEMU started.
 
 ## Pi golden image gotchas (2026-10-30)
 
