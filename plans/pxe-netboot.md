@@ -1,7 +1,7 @@
 # PXE / netboot server on steamboat, and a diskless DeskyPi
 
-Status: **Phase 2, finishing on-demand download and caching; Phase 3 (the controller) is
-next.** BootBob (public, <https://github.com/cinderblock/BootBob>, local
+Status: **Phase 2. On-demand download and caching is built (BootBob `2b8ac70`); NBD TRIM is
+in progress in its own thread; Phase 3 (the controller) needs a go-ahead.** BootBob (public, <https://github.com/cinderblock/BootBob>, local
 `~/git/Personal Projects/BootBob`) is live on steamboat, with a store on uberfall, and desky
 runs diskless from it. Written 2026-10-23; revised 9:30 AM PDT (16:30Z) after round 1, 3:40 PM
 PDT (22:40Z) after round 2, and 4:30 PM PDT (23:30Z) after round 3 (storage, mDNS, repo).
