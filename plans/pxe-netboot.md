@@ -643,8 +643,7 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         desky was unaffected.
   - [x] **`{disk}` fix** (BootBob `0994893`, helper in `c8d4803`): the first boot failed
         because `{disk}` expanded to `uberfall:golden-pc2.img`, which isn't an export.
-        Deployed builds still have the bug, so `debian-store`'s cmdline holds the
-        literal `golden-pc2.img`; that works with old and new builds.
+        Live since 2026-10-31; until then the test image held the literal name.
   - [x] **Sparse and compressed uploads** (BootBob `0994893`): whole 4 KiB blocks of zeros
         become holes; `Content-Encoding: zstd` is decoded on the way in (`ruzstd`, pure
         Rust; every frame; checksum checked when present); other encodings get a 415.
