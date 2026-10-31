@@ -668,7 +668,9 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         nominally don't break things"), only on bcm2711/bcm2712 boards. On desky: ran
         fine, "up to date", `BOOT_ORDER=0xf2` and `TFTP_IP` kept.
   - [x] **Wi-Fi and Bluetooth firmware** added (BootBob `f9e5d3a`): the real board had none;
-        with it `wlan0` comes up. Rebuilt and VM-tested; that build hasn't run on a Pi.
+        with it `wlan0` comes up. Network boot stays wired: this is only so a booted Pi can
+        use its radios, and nothing depends on it. Rebuilt and VM-tested; that build hasn't
+        run on a Pi.
   - [x] Image names (user asked): `debian-trixie-amd64.img`, `debian-trixie-rpi-arm64.img`,
         one copy of each, on the store. `pc2` only meant the second PC build; the first
         was deleted on 2026-10-25.
@@ -687,7 +689,7 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         fallback` during the 0.5 s the port was closed; nothing failed.
   - [ ] Not run yet: `debian-trixie-amd64` booting with `{disk}` as a bare store export
         (only the store test at BootBob `tests.rs:867` covers it, since checking needs a
-        machine assigned to it); the Wi-Fi build of the Pi image on a real Pi; a Pi 5.
+        machine assigned to it); the latest Pi image build on a real Pi; a Pi 5.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
