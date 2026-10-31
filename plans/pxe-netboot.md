@@ -631,9 +631,30 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         initrd through the store, byte-identical to `debian-net`'s; an unassigned machine
         gets a 403 from `/api/store/allow`, and a real NBD connection from 10.255.0.77 is
         refused by the store. `debian-store` is assigned to nothing.
-  - [ ] **A machine booting from the store** (not started): the store checks by client
-        IP, so a user-networked VM is refused (it appears as sentinel). Needs the macvtap
-        test VM on sentinel again: waiting for the user's yes.
+  - [x] **A machine booting from the store** (2026-10-30 4:41 PM PDT / 23:41Z,
+        user-approved): VM on transient macvtap `bbvm0` (52:54:00:b0:0b:01), assigned
+        `debian-store`. Kernel and initrd through steamboat from the store, root NBD
+        direct from uberfall (10.255.0.3), rw, resident client; overlay on the store
+        (`/mnt/md0/bootbob/overlays/52-54-00-b0-0b-01/`, listed on steamboat); golden
+        sha256 unchanged. Two `docker restart bootbob-store` under sync writes: no I/O
+        errors, root stayed rw, a 100 MB file's hash unchanged, but writes stalled 31 s
+        each time (see Store gotchas). Cleaned up: interface deleted, assignment and
+        overlay cleared, VM forgotten. An empty overlay directory stays on uberfall.
+        desky was unaffected.
+  - [x] **`{disk}` fix** (BootBob `0994893`, helper in `c8d4803`): the first boot failed
+        because `{disk}` expanded to `uberfall:golden-pc2.img`, which isn't an export.
+        Deployed builds still have the bug, so `debian-store`'s cmdline holds the
+        literal `golden-pc2.img`; that works with old and new builds.
+  - [x] **Sparse and compressed uploads** (BootBob `0994893`): whole 4 KiB blocks of zeros
+        become holes; `Content-Encoding: zstd` is decoded on the way in (`ruzstd`, pure
+        Rust; every frame; checksum checked when present); other encodings get a 415.
+        Proven with the Linux build of `6ebadb8` on sentinel, real `golden-pc2.img`
+        (sha256 `d0e1de88…` both ways): plain and zstd each 444 MB on disk instead of
+        4.1 GiB; zstd sent 273 MB instead of 4 GiB. CI green on `6ebadb8`, published.
+  - [ ] **Not live yet**: Renovate should pin `6ebadb8` at its next run (05:00 PDT /
+        12:00Z). Then re-upload `golden-pc2.img` to uberfall to free the space (delete
+        it there first: uploads never overwrite), and optionally put `{disk}` back in
+        `debian-store`'s cmdline.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -700,8 +721,8 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Yes to a transient macvtap `bbvm0` on sentinel for one VM booting from
-   `uberfall:golden-pc2.img`? Deleted after the test, like the 2026-10-25 one.
+1. Fix the 30 s write stall after an NBD server restart (BootBob `ISSUES.md`)? It means
+   rebuilding the golden images, since the client is baked in.
 2. Next: on-demand download and caching (a catalogue entry = upstream URL + checksum,
    fetched by the store on first use). Then Phase 3 (the controller).
 
@@ -853,7 +874,17 @@ All design questions from rounds 1–3 are answered (see decisions).
   2026-09-28 repair), the user hasn't decided what to do about the disk, and
   `/mnt/md0/bootbob` is on that array. md0 itself is `[4/4] [UUUU]` (RAID 6). Keep only
   rebuildable test data on the store until that's decided.
-- An upload isn't sparse: the 4 GiB `golden-pc2.img` takes 4.1 GiB on the store.
+- Before `0994893` an upload wasn't sparse: the 4 GiB `golden-pc2.img` still takes 4.1 GiB
+  on the store until it's uploaded again.
+- A boot is the only real test of a store image. `/api/store/allow` and the file checks
+  passed with the export name typed by hand, while the name BootBob actually generates
+  was wrong: `NBD export refused: no export "uberfall:golden-pc2.img"`.
+- "Reconnected in 0.5 s" is the socket, not the machine. A request in flight when the
+  server dies seems to wait for the 30 s request timeout: `block nbd0: Connection timed
+  out, retrying (1/1 alive)` about 30 s after each drop, 31.5 s and 31.0 s gaps between
+  writes. It applies to the main server too. Measure the longest write gap.
+- Renovate bumps BootBob pins once a day (05:00 PDT / 12:00Z); sooner needs an ops
+  change, which needs its own yes.
 
 ## Pi golden image gotchas (2026-10-30)
 
