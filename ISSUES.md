@@ -136,3 +136,21 @@ USB-related at all (see the 1-Wire entry). The kernel journal (`journalctl -k -b
 has them. The over-current start-up history already reads the journal first
 (`load_oc_history` in `backend/crates/usb/src/lib.rs`). Matters because the panel calls
 this view the log since boot.
+
+## Remove the Wi-Fi uplink in the rebuild
+
+Decided 2026-10-30: desky runs from the network, so it can't run without Ethernet and
+doesn't need `wlan0` as a backup uplink. Delete the profile as part of the rebuild:
+`sudo nmcli connection delete netplan-wlan0-TwillTech`, and confirm
+`/etc/netplan/90-NM-ceed0aa7-*.yaml` is gone too. BootBob's `pi-clone-to-nbd.sh` copies all
+of `/`, so a re-clone keeps the profile unless it's removed first.
+
+Check the Wi-Fi panel afterwards: the test runner gives the radio back and checks NM
+reconnected it, which has nothing to reconnect to, and `useSavedKey` tests need TwillTech's
+saved key. Docs and tool text calling `wlan0` the backup uplink also need updating.
+
+Until then, `wlan0` and `eth0` share a /20, so replies to 10.255.3.139 leave via `eth0`
+(`ip route get 10.255.0.77 from 10.255.3.139`) and the Wi-Fi address isn't an independent
+path. Port 22 there timed out on 2026-09-22 and 2026-10-26, cause unknown. DNS no longer
+depends on it: ops now publishes `deskypi.tsl` for `eth0` (ops
+`plans/deskypi-tsl-wrong-address.md`).
