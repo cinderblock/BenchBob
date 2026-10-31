@@ -651,10 +651,34 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
         Proven with the Linux build of `6ebadb8` on sentinel, real `golden-pc2.img`
         (sha256 `d0e1de88…` both ways): plain and zstd each 444 MB on disk instead of
         4.1 GiB; zstd sent 273 MB instead of 4 GiB. CI green on `6ebadb8`, published.
-  - [ ] **Not live yet**: Renovate should pin `6ebadb8` at its next run (05:00 PDT /
-        12:00Z). Then re-upload `golden-pc2.img` to uberfall to free the space (delete
-        it there first: uploads never overwrite), and optionally put `{disk}` back in
-        `debian-store`'s cmdline.
+  - [x] **Restart stall fixed for normal restarts** (BootBob `1cf21da`, needs no client or
+        image change): on SIGTERM the server stops accepting, answers what it was sent,
+        then closes (`Live::drain`, at most 3 s). Proven 2026-10-30 about 6:18 PM PDT
+        (01:18Z) with a real Pi kernel: the new build on sentinel, `/dev/nbd1` on desky,
+        ext4, sync writes. Worst gap over 5 restarts with light writes 0.52 s; over 5
+        with heavy writes 0.73 s. Control: `kill -9` stalled 30.1-30.3 s in 3 of 5. No I/O
+        errors, `e2fsck` clean. Crashes still stall (BootBob `ISSUES.md`); the client's
+        30 s timeout stays, because shortening it risks a stale write landing late.
+  - [x] **Pi golden image on real hardware** (2026-10-30 6:11 PM PDT / 01:11Z): desky, a
+        Pi 4 Model B Rev 1.1, booted `uberfall:debian-trixie-rpi-arm64.img` (image
+        `debian-trixie-rpi`) in about 1 minute: Pi kernel 6.18.50, root rw over NBD from
+        uberfall, no failed units, networkd, NTP, apt. Installed packages and a test file
+        survived a reboot in the overlay. Afterwards desky went back to image `desky`
+        and the overlay was reset. Not tested: a Pi 5.
+  - [x] **`rpi-eeprom-update` back on** (BootBob `51b22f2`, user: "I don't mind updates that
+        nominally don't break things"), only on bcm2711/bcm2712 boards. On desky: ran
+        fine, "up to date", `BOOT_ORDER=0xf2` and `TFTP_IP` kept.
+  - [x] **Wi-Fi and Bluetooth firmware** added (BootBob `f9e5d3a`): the real board had none;
+        with it `wlan0` comes up. Rebuilt and VM-tested; that build hasn't run on a Pi.
+  - [x] Image names (user asked): `debian-trixie-amd64.img`, `debian-trixie-rpi-arm64.img`,
+        one copy of each, on the store. `pc2` only meant the second PC build; the first
+        was deleted on 2026-10-25.
+  - [ ] **After Renovate pins the new build**: a scheduled follow-up in this thread,
+        Saturday 2026-10-31 11:30 AM PDT (18:30Z), replaces the images with sparse uploads
+        (the store still has a full 8 GiB Pi image without the Wi-Fi firmware, and
+        `golden-pc2.img`), removes `golden-pc2.img`, `debian-net` and `debian-store`,
+        removes the temporary `panic=30` from `debian-trixie-rpi`, and tests the drain on
+        steamboat.
   - Our NBD server with copy-on-write overlays; managed NFS exports.
   - Stores (local first, then remote `store` mode), on-demand download and cache.
   - Golden-image tooling.
@@ -721,9 +745,7 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Fix the 30 s write stall after an NBD server restart (BootBob `ISSUES.md`)? It means
-   rebuilding the golden images, since the client is baked in.
-2. Next: on-demand download and caching (a catalogue entry = upstream URL + checksum,
+1. Next: on-demand download and caching (a catalogue entry = upstream URL + checksum,
    fetched by the store on first use). Then Phase 3 (the controller).
 
 ## Progress log
@@ -883,8 +905,15 @@ All design questions from rounds 1–3 are answered (see decisions).
   server dies seems to wait for the 30 s request timeout: `block nbd0: Connection timed
   out, retrying (1/1 alive)` about 30 s after each drop, 31.5 s and 31.0 s gaps between
   writes. It applies to the main server too. Measure the longest write gap.
-- Renovate bumps BootBob pins once a day (05:00 PDT / 12:00Z); sooner needs an ops
-  change, which needs its own yes.
+- Renovate bumps BootBob pins once a day. The cron says 05:00 PDT, but GitHub has been
+  starting it around 10:20 AM PDT (17:20Z). Sooner needs an ops change, which needs its
+  own yes.
+- tokio's `TcpStream::readable()` stays ready after a read until something sees
+  `WouldBlock`, so it can't tell a connection has gone quiet. `peek` can.
+- A Pi has no battery clock: for about 30 s after boot it thinks it's the image's build
+  date, and `apt` fails signature checks until `timesyncd` syncs. That's normal.
+- The VM can't show missing Wi-Fi firmware: `Direct firmware load for
+  brcm/brcmfmac43455-sdio.bin failed with error -2` appears only on a real Pi.
 
 ## Pi golden image gotchas (2026-10-30)
 
