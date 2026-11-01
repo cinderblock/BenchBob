@@ -881,17 +881,9 @@ All design questions from rounds 1–3 are answered (see decisions).
 - [x] On-demand download and caching: built, tests for every failure case, README, real
       upstreams on sentinel (BootBob `2b8ac70`).
 - [x] CI green on `2b8ac70` (run 41241534020), e2e included.
-- [ ] Proven in production, after Renovate deploys it: a machine on steamboat/uberfall, and
-      desky waiting for a cached disk.
-- [x] NBD TRIM built, tests for all the cases, README, real kernel on sentinel: BootBob
-      `4cb8866` on branch `trim`.
-- [x] TRIM on master: `4cb8866`, with the user's yes.
-- [x] TRIM on desky (2026-11-01, 11:32-11:44 AM PST, 19:32-19:44Z): `fstrim` ran, the image is
-      down to what's in use, `e2fsck` clean on a frozen copy, survived a reboot, `dpkg -V` read
-      every packaged file back. `fstrim.timer` on. See "Result on desky".
-- [ ] The three copies on steamboat deleted, on the user's say-so (23 GiB).
-- [x] desky updates itself and reboots at 5 AM when idle (2026-11-01). See "Updates on desky".
-- [ ] First unattended kernel update seen through a 5 AM reboot: none has come along yet.
+- [x] Production step 1 (2026-11-01, 12:00-12:02 PM PST, 20:00-20:02Z, BootBob `4cb8866`): a
+      fresh fetch on uberfall booted a VM. See "Production test".
+- [ ] Production step 2: desky on an NBD root over a cached disk. Not run: desky was in use.
 
 ## Findings / gotchas
 
@@ -1255,16 +1247,43 @@ and is removed afterwards; no ops, server or UniFi change.
    assignment. Expect: state `fetching`, then the installer dialog on serial. Files on
    uberfall at `/mnt/md0/bootbob/cache/files/`. Second boot: no new `Fetching` event on
    uberfall (`docker logs bootbob-store`).
-2. **desky, NBD root over a cached disk.** Only if desky is idle (`who`, `uptime`, no
-   BenchBob job, nothing in use). Local entry `debian-trixie-rpi-cached.img`, URL
-   `store:uberfall/debian-trixie-rpi-arm64.img`. Image `debian-trixie-rpi-cached`: copy of
-   `debian-trixie-rpi` with that source, `cow: true`. One-shot assign to desky and reboot it.
-   Expect: TFTP told no while the copy runs (note how often the Pi retries, and that
-   `/api/devices` says `fetching`), then a boot with root on NBD from 10.255.0.5, through
-   an overlay. Then reboot: the one-shot is gone, so desky is back on `desky`. Confirm it
-   came back on image `desky`, root rw.
+2. **desky, NBD root over a cached disk.** Only if desky is idle: check `who` and `uptime`, and
+   that no other thread is `running` on it (`t3_thread_list`, plan commits in the last hour).
+   A quiet machine isn't proof: see the result below. Local entry
+   `debian-trixie-rpi-cached.img`, URL `store:uberfall/debian-trixie-rpi-arm64.img`. Image
+   `debian-trixie-rpi-cached`: copy of `debian-trixie-rpi` with that source, `cow: true`, and
+   **`nbdroot={server},debian-trixie-rpi-cached.img,nbd0`**: its command line names the
+   export by hand, so a copy has to change it. One-shot assign to desky and reboot it. Expect:
+   TFTP told no while the copy runs (note how often the Pi retries, and that `/api/devices`
+   says `fetching`), then a boot with root on NBD from 10.255.0.5, through an overlay.
+   **A one-shot replaces desky's persistent assignment and is then cleared, leaving desky on
+   nothing, so `PUT` `{"image":"desky","once":false}` as soon as the boot is recorded.** The
+   machine's access to its disk comes from `last_boot`, so that doesn't cut off the running
+   root. Log in as root from sentinel (the image holds `~/bootbob-vmtest/keys`; the `pi@`
+   login is gone while it runs this image), check `findmnt /`, reboot. Confirm desky came back
+   on image `desky`, root rw. That image's latest build (with the Wi-Fi firmware) has not run
+   on a Pi before, so this is its first time too.
 3. **Clean up.** Reset the test overlay, delete the test images and entries (which removes
    the cached files), forget the VM's device. Record the results here, tick the progress log.
+
+**Result of step 1 (2026-11-01, on `4cb8866`):** VM `52:54:00:b0:0b:10` on user networking on
+sentinel, entries kept on uberfall, nothing there beforehand.
+
+| Time | What |
+| --- | --- |
+| 12:00:57 PM PST (20:00:57Z) | VM started, one-shot assignment |
+| 12:01:05-08 PM PST (20:01:05-08Z) | Uberfall starts both fetches; the device says `fetching`, then real progress ("48% of 39 MB") |
+| 12:01:17-21 PM PST (20:01:17-21Z) | `Fetched test-debian-linux: 12 MB, checksum good`, then the initrd, 39 MB |
+| 12:01:27 PM PST (20:01:27Z) | Booted by itself, one-shot used up. Kernel and initrd came straight from uberfall's `/files/cache/`. Serial reached `Debian installer main menu` |
+| 12:01:41 PM PST (20:01:41Z) | Second boot: straight to `booted`, no holding event, no new `Fetching` line in `docker logs bootbob-store`, same menu |
+
+Deleting the entries removed the files on uberfall through the main server (0 left), and both
+caches read 0 used afterwards.
+
+**Step 2 not run:** at 12:02 PM PST (20:02Z) desky looked idle (only my login, low load), but
+it had rebooted 20 minutes earlier, and `reboot-if-required` was running. That job normally
+runs at 5 AM, so someone had started it by hand. It rebooted desky at 12:03 PM PST (20:03Z), and
+the TRIM thread was still `running`. Nothing of this test touched desky.
 
 Gotchas:
 
