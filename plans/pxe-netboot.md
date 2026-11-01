@@ -1,8 +1,7 @@
 # PXE / netboot server on steamboat, and a diskless DeskyPi
 
 Status: **Phase 2. On-demand download and caching is built (BootBob `2b8ac70`); NBD TRIM is
-built and proven on a real kernel, on BootBob master (`4cb8866`), with desky's first `fstrim`
-approved and waiting for the deploy; Phase 3 (the controller) needs a go-ahead.** BootBob (public, <https://github.com/cinderblock/BootBob>, local
+live (BootBob `4cb8866`, deployed 2026-11-01) and proven on desky; Phase 3 (the controller) needs a go-ahead.** BootBob (public, <https://github.com/cinderblock/BootBob>, local
 `~/git/Personal Projects/BootBob`) is live on steamboat, with a store on uberfall, and desky
 runs diskless from it. Written 2026-10-23; revised 9:30 AM PDT (16:30Z) after round 1, 3:40 PM
 PDT (22:40Z) after round 2, and 4:30 PM PDT (23:30Z) after round 3 (storage, mDNS, repo).
@@ -887,8 +886,10 @@ All design questions from rounds 1–3 are answered (see decisions).
 - [x] NBD TRIM built, tests for all the cases, README, real kernel on sentinel: BootBob
       `4cb8866` on branch `trim`.
 - [x] TRIM on master: `4cb8866`, with the user's yes.
-- [ ] TRIM on desky: approved, waiting for Renovate's deploy. Goal: `fstrim` runs, space
-      falls towards what's in use, `e2fsck` clean, survives a reboot.
+- [x] TRIM on desky (2026-11-01, 11:32-11:44 AM PST, 19:32-19:44Z): `fstrim` ran, the image is
+      down to what's in use, `e2fsck` clean on a frozen copy, survived a reboot, `dpkg -V` read
+      every packaged file back. `fstrim.timer` on. See "Result on desky".
+- [ ] The two copies on steamboat deleted, on the user's say-so (15 GiB).
 
 ## Findings / gotchas
 
@@ -1050,11 +1051,7 @@ locally and on a store. Code: BootBob `backend/crates/{cow,nbd}`, real-kernel te
 
 **Facts checked:** uberfall's store is ext4 (`/dev/md0`, `discard` mount option), bind-mounted
 at `/mnt/md0/bootbob`. desky: kernel 6.18.50, logical block size 512, and `fstrim.timer` is
-enabled, next run Mon 2026-11-02 1:27:59 AM PST (09:27:59Z).
-
-**Risk to keep in mind:** `fstrim.timer` runs by itself. Once a TRIM build is on steamboat and desky
-has rebooted, the next timer run is a real `fstrim` on the only copy of desky's root, with
-nobody having approved it. See "Things not to do".
+enabled (disabled for the first `fstrim`, back on 2026-11-01).
 
 **Proven, 2026-10-31 4:30-4:50 PM PDT (23:30-23:50Z), on sentinel:** `tools/test-trim.sh` in a
 throwaway `debian:trixie` container, a KVM VM on user networking with its root on the real NBD
@@ -1084,7 +1081,9 @@ its address from the per-machine check, so it uses `serve_dir`, which has the sa
 no policy); a real kernel against a store (`a_store_trims_plain_disks_and_overlays` covers
 `StoreExports` over a real socket, for both disk types); anything on steamboat, uberfall or desky,
 including an arm64 Pi kernel (6.18.50) and hole punching on `/dev/md0`. `tools/test-trim.sh`
-isn't in CI, because it needs the golden image.
+isn't in CI, because it needs the golden image. **Update 2026-11-01:** desky settled the real
+kernel through the full `bootbob` binary, the arm64 kernel, and steamboat, for a plain disk. See
+"Result on desky" for what's still open.
 
 **CI on `4cb8866`: success on every job**, conclusion read from the run (41253557780, started by
 hand on the branch), e2e and the Docker build included; `publish` skipped, as it should be off
@@ -1101,10 +1100,46 @@ success on every job, `publish` included (run 41254284070).
 the data on uberfall (`/dev/md0`) and steamboat (`/dev/nvme0n1p2`), both ext4: 8 MiB punched, 16 → 8
 MiB, same length, the range reads as zeroes, scratch file removed.
 
-A resume of this thread is queued for Sun 2026-11-01 11:30 AM PST (19:30Z), after Renovate's usual
-time. DST ends that morning.
+### Result on desky (2026-11-01)
 
-### Steps for desky (approved; steps 1-2 done)
+Renovate bumped both pins at 9:17 AM PST (17:17Z), on its scheduled run. Both servers ran
+`4cb8866` from about 9:20 AM PST (17:20Z); desky reconnected by itself with no client change.
+Before anything else, desky had only a login of mine on it, load 0.1-0.2, one NFS client
+connected (10.255.0.3:674), nothing else running.
+
+| Check | Result |
+| --- | --- |
+| Backup, frozen, 11:32 AM PST (19:32Z) | 14 s, `desky-before-trim.img`, 7.8 GiB allocated |
+| `e2fsck -fy` on a scratch copy of its root | All 5 passes, nothing fixed, not even a journal replay; 174868 files, 2691322 blocks |
+| After the first reboot | `discard_max_bytes=4294966784`, granularity 512, image `desky`, root rw, plain disk (`cow=false`) |
+| `fstrim -v /` once, 11:36 AM PST (19:36Z) | 21.2 GiB trimmed, 0.14 s, rc 0, no errors on desky or in BootBob |
+| `desky.img` allocated | 22151696 → 21666856 blocks, 10.56 → 10.33 GiB (231 MiB back) |
+| Copy after the trim, frozen, `desky-after-trim.img` | 16 s, 7.6 GiB; `e2fsck -fy` clean, nothing fixed; 174868 files, 2691343 blocks |
+| Second reboot | Image `desky`, root rw, discard still on, no failed units; running services as before, plus on-demand `systemd-hostnamed` |
+| `dpkg -V` with caches dropped | 1m52s, rc 0. Flags 7 files, 6 of them conffiles; all 7 identical in the pre-trim backup, read with `debugfs` |
+| `fstrim.timer` | Enabled, active, next run Mon 2026-11-02 12:07 AM PST (08:07Z) |
+
+**231 MiB, not the 1.2 GiB the plan guessed.** The guess came from `df`, which leaves out ext4's
+metadata. `e2fsck` counts 2691343 blocks in use, 10.27 GiB, so 10.33 GiB allocated is that plus
+the boot partition. The space went back as far as it could. The sparse copies are smaller (7.6
+GiB) only because `cp --sparse=always` also drops allocated blocks that hold zeroes.
+
+**Changed from the steps as written:** step 3's `ssh desky sudo fsfreeze -u /` could hang, since a
+new login can write to the frozen root. `frozen-copy.sh` froze and thawed from one root shell opened
+before the freeze: losing the connection thaws at once, the armed `systemd-run` timer stayed as a
+backstop and is stopped after the thaw, and the copy only counts if the thaw reports it was still
+frozen. Step 7 used `e2fsck -fy` on the scratch copy rather than `-fn`, for the same reason as step 4.
+Both worked first time; the root stayed writable afterwards. `dpkg -V` was an addition, because
+`e2fsck` proves structure, not file contents.
+
+**Still not proven:** a real kernel on an overlay through `bootbob` (sentinel proved it through
+`serve_dir`), and a real kernel against a store for either disk type. `dpkg -V` doesn't cover files
+outside packages (`/home`, for one). `e2fsck` and the reboot do cover their structure.
+
+Both copies are still on steamboat, outside `images/`: `/srv/bootbob-data/desky-before-trim.img`
+and `desky-after-trim.img`, 15 GiB together, 324 GiB free. They are for the user to delete or keep.
+
+### Steps for desky (all done, 2026-11-01)
 
 
 1. On desky, stop the timer so the first `fstrim` is on purpose:
@@ -1226,10 +1261,6 @@ Gotchas:
 - `rpi-eeprom-update.service` is disabled: EEPROM settings change only on purpose.
 
 ## Things not to do
-
-- **Don't re-enable `fstrim.timer` on desky before step 9 of "Steps for desky".** It's disabled
-  on purpose until the backup exists and the first `fstrim` has been checked. The production
-  test's one-shot reboot is safe from that now, but it's a reboot of desky, so check it's idle.
 
 - **Don't register binfmt on sentinel (or any server) for arm64 builds** without a yes:
   it's a host setting. Sentinel has none registered; WSL here has no Docker and `sudo`
