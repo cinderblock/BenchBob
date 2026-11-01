@@ -884,6 +884,16 @@ All design questions from rounds 1–3 are answered (see decisions).
 - [x] Production step 1 (2026-11-01, 12:00-12:02 PM PST, 20:00-20:02Z, BootBob `4cb8866`): a
       fresh fetch on uberfall booted a VM. See "Production test".
 - [ ] Production step 2: desky on an NBD root over a cached disk. Not run: desky was in use.
+- [x] NBD TRIM built, tests for all the cases, README, real kernel on sentinel: BootBob
+      `4cb8866`.
+- [x] TRIM on master: `4cb8866`, with the user's yes.
+- [x] TRIM on desky (2026-11-01, 11:32-11:44 AM PST, 19:32-19:44Z): `fstrim` ran, the image is
+      down to what's in use, `e2fsck` clean on a frozen copy, survived a reboot, `dpkg -V` read
+      every packaged file back. `fstrim.timer` on. See "Result on desky".
+- [ ] The three copies on steamboat (23 GiB): kept until the first new-version kernel has been
+      through a 5 AM reboot, as the user agreed 2026-11-01; then deleted on the user's say-so.
+- [x] desky updates itself and reboots at 5 AM when idle (2026-11-01). See "Updates on desky".
+- [ ] First unattended kernel update seen through a 5 AM reboot: none has come along yet.
 
 ## Findings / gotchas
 
