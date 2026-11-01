@@ -835,8 +835,8 @@ card itself (broken-cd polling) is untested, nobody was at the Pi.
 
 All design questions from rounds 1–3 are answered (see decisions).
 
-1. Next, once the on-demand cache is proven on steamboat, uberfall and desky: Phase 3 (the
-   controller).
+1. The on-demand cache is proven on steamboat, uberfall and desky. Next: Phase 3 (the
+   controller), which needs its own go-ahead.
 
 ## Progress log
 
@@ -883,7 +883,8 @@ All design questions from rounds 1–3 are answered (see decisions).
 - [x] CI green on `2b8ac70` (run 41241534020), e2e included.
 - [x] Production step 1 (2026-11-01, 12:00-12:02 PM PST, 20:00-20:02Z, BootBob `4cb8866`): a
       fresh fetch on uberfall booted a VM. See "Production test".
-- [ ] Production step 2: desky on an NBD root over a cached disk. Not run: desky was in use.
+- [x] Production step 2 (2026-11-01, 12:11-12:23 PM PST, 20:11-20:23Z, BootBob `4cb8866`): desky
+      held, then ran its root over NBD from a cached disk. See "Production test".
 - [x] NBD TRIM built, tests for all the cases, README, real kernel on sentinel: BootBob
       `4cb8866`.
 - [x] TRIM on master: `4cb8866`, with the user's yes.
@@ -1290,10 +1291,40 @@ sentinel, entries kept on uberfall, nothing there beforehand.
 Deleting the entries removed the files on uberfall through the main server (0 left), and both
 caches read 0 used afterwards.
 
-**Step 2 not run:** at 12:02 PM PST (20:02Z) desky looked idle (only my login, low load), but
-it had rebooted 20 minutes earlier, and `reboot-if-required` was running. That job normally
-runs at 5 AM, so someone had started it by hand. It rebooted desky at 12:03 PM PST (20:03Z), and
-the TRIM thread was still `running`. Nothing of this test touched desky.
+**Step 2 didn't run on the first try:** at 12:02 PM PST (20:02Z) desky looked idle, but
+`reboot-if-required` had been started by hand, and it rebooted desky at 12:03 PM PST (20:03Z)
+while the TRIM thread was still running. It ran once that thread had finished.
+
+**Result of step 2 (2026-11-01, on `4cb8866`):** desky, a real Pi 4, one-shot assigned image
+`debian-trixie-rpi-cached`, a local copy of `uberfall:debian-trixie-rpi-arm64.img` (8 GiB, 664 MiB
+on disk) that wasn't on steamboat. Times up to the copy's end are the test PC's clock, about 14 s
+behind the servers'; the boot lines are BootBob's own event times.
+
+| Time | What |
+| --- | --- |
+| 12:10:59 PM PST (20:10:59Z) | desky rebooted |
+| 12:11:19 PM PST (20:11:19Z) | Device says `fetching`. The store takes 1 min 48 s to compute its digest, and the UI shows "0 MB" meanwhile |
+| 12:13:07-12:15:04 PM PST (20:13:07-20:15:04Z) | The copy, under 2 minutes for 8 GiB with holes |
+| While held | **The Pi asks again every 4.9 s**, about 45 times, without a fault, for `575da773/start4.elf`, `575da773/kernel8.img` and `start.elf`. TFTP said no each time |
+| 12:15:18 PM PST (20:15:18Z) | Boot recorded, one-shot used up, `desky` reassigned one second later |
+| 12:15:29 PM PST (20:15:29Z) | Root login. Kernel 6.18.50, `/dev/nbd0p2` rw, `bootbob-nbd-client` resident, NBD from 10.255.0.5, overlay in use (3.7 MB), no failed units, no I/O errors, `wlan0` present |
+| While running | The cache listed it `kept: machines have overlays on it` |
+| 12:23 PM PST (20:23Z) | desky back on image `desky`, root rw, BenchBob active. Test overlay, image and entry removed |
+
+That was also the first run of the latest Pi image build, with the Wi-Fi firmware, on a real Pi.
+`wlan0` came up, which it didn't before.
+
+**Desky booted the test image twice.** Its first reboot back, at 12:15:30 PM PST (20:15:30Z), began
+a boot under 60 s after the last TFTP request, so `PI_SESSION_GAP_MS` called it the same boot and
+served the same image, although the assignment had changed. A second reboot at 12:21 PM PST
+(20:21Z) came back on `desky`. Harmless here, but a reboot inside that window ignores a new
+assignment; it's in BootBob's `ISSUES.md`. It did show a cached disk serving a second boot
+with no fetch.
+
+**Not proven:** a Pi 5; a Pi kept on an SD fallback while held (`BOOT_ORDER=0xf12` should boot
+the card, by design); eviction on a production host, where nothing has yet needed the room
+(tests cover it, on a real socket with real files); tiering of a disk in use, which the store
+refuses with a 409 (route covered, that refusal isn't).
 
 Gotchas:
 
