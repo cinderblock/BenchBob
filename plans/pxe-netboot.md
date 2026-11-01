@@ -1149,7 +1149,8 @@ the user to delete or keep.
 
 The user approved this on 2026-11-01. A shared base image can't change under an overlay and a
 plain disk can't be patched from the host while it's running, so desky, which is a pet, updates
-itself. The host's part is the backup. A rollout for machines sharing a base is its own thread.
+itself. The host's part is the backup. A rollout for machines sharing a base is its own thread:
+`plans/image-rollout.md`.
 
 - `unattended-upgrades`, enabled by `/etc/apt/apt.conf.d/20auto-upgrades`, with the Raspberry Pi
   archive added in `52unattended-desky` so kernels update. Runs about 6-7 AM. BenchBob's repo
