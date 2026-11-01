@@ -889,7 +889,9 @@ All design questions from rounds 1–3 are answered (see decisions).
 - [x] TRIM on desky (2026-11-01, 11:32-11:44 AM PST, 19:32-19:44Z): `fstrim` ran, the image is
       down to what's in use, `e2fsck` clean on a frozen copy, survived a reboot, `dpkg -V` read
       every packaged file back. `fstrim.timer` on. See "Result on desky".
-- [ ] The two copies on steamboat deleted, on the user's say-so (15 GiB).
+- [ ] The three copies on steamboat deleted, on the user's say-so (23 GiB).
+- [x] desky updates itself and reboots at 5 AM when idle (2026-11-01). See "Updates on desky".
+- [ ] First unattended kernel update seen through a 5 AM reboot: none has come along yet.
 
 ## Findings / gotchas
 
@@ -1136,8 +1138,40 @@ Both worked first time; the root stayed writable afterwards. `dpkg -V` was an ad
 `serve_dir`), and a real kernel against a store for either disk type. `dpkg -V` doesn't cover files
 outside packages (`/home`, for one). `e2fsck` and the reboot do cover their structure.
 
-Both copies are still on steamboat, outside `images/`: `/srv/bootbob-data/desky-before-trim.img`
-and `desky-after-trim.img`, 15 GiB together, 324 GiB free. They are for the user to delete or keep.
+The copies are still on steamboat, outside `images/`: `/srv/bootbob-data/desky-before-trim.img`,
+`desky-after-trim.img` and `desky-before-update.img`, 23 GiB together, 316 GiB free. They are for
+the user to delete or keep.
+
+### Updates on desky (2026-11-01)
+
+The user approved this on 2026-11-01. A shared base image can't change under an overlay and a
+plain disk can't be patched from the host while it's running, so desky, which is a pet, updates
+itself. The host's part is the backup. A rollout for machines sharing a base is its own thread.
+
+- `unattended-upgrades`, enabled by `/etc/apt/apt.conf.d/20auto-upgrades`, with the Raspberry Pi
+  archive added in `52unattended-desky` so kernels update. Runs about 6-7 AM. BenchBob's repo
+  stays out.
+- **`rpi-eeprom` is blacklisted.** `rpi-eeprom-update.service` is enabled and would apply a new
+  bootloader by itself, and the EEPROM is what makes desky netboot. 28.34-1 is waiting, held on
+  purpose. Firmware changes are done by hand.
+- `/usr/local/sbin/reboot-if-required`, from `reboot-if-required.timer` at 5:00 AM. Does nothing
+  unless `/run/reboot-required` exists. Skips if anyone's logged in, apt is running, BenchBob used
+  over 3 s of CPU in a 30 s sample, or a local drive was written to in it. BenchBob has no "busy" API, so
+  that is a guess at idle; a skip waits for the next 5 AM. A kernel installed one morning
+  reboots the next 5 AM.
+
+Proven, 12:00-12:04 PM PST (20:00-20:04Z), after a frozen backup (`e2fsck` not run on it): a real
+`unattended-upgrade` run installed 9 packages and held `rpi-eeprom`. Reinstalling
+`linux-image-6.18.50+rpt-rpi-v8` ran every kernel hook: `kernel8.img` and `initramfs8` rewritten and
+matching `/boot`, `bootbob-nbd-client` in the initramfs identical to `/usr/sbin`, `cmdline.txt` and
+`config.txt` unchanged, `/run/reboot-required` set. With a login open the service returned without
+rebooting; 25 s after logging out it rebooted desky. It came back on image `desky`, root rw, discard
+on, no failed units, services as before plus `unattended-upgrades` and on-demand
+`systemd-hostnamed`.
+
+Not proven: a kernel of a **new version** (none is out; a reinstall runs the same hooks, but not
+a changed module tree), and a skip for BenchBob or drive activity. desky's journal isn't
+persistent, so the refused run's message wasn't kept; the proof of it is that desky stayed up.
 
 ### Steps for desky (all done, 2026-11-01)
 
