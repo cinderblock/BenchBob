@@ -1,7 +1,7 @@
 # Rolling a new golden image out to the machines on it
 
-Status: **built and proven on VMs, on BootBob branch `rollout` (`89eefbf`).** Not on master, so not
-deployed. Merging needs the user's yes. Parent plan: `plans/pxe-netboot.md`.
+Status: **merged to BootBob master (`7091b0f`), CI green, waiting for Renovate to deploy it.** Then
+`time_zone` and the real Pi test, both approved. Parent plan: `plans/pxe-netboot.md`.
 
 ## Goal
 
@@ -121,14 +121,24 @@ files can be read. That makes it `current`; the next window does the rest.
    (`publish` skipped, as it should be off master), PC golden 41357708246, which ran a real rollout on
    GitHub's runner, Pi golden 41357712636, which checked the EEPROM mask in an arm64 VM.
 9. [x] `rollout` taken out of `pc-golden.yml`'s push branches again (the only change since).
-10. [ ] **Current step. Needs the user's yes:** merge to master, which deploys through Renovate. Inert until a track
-    exists. Check every NBD root runs `bootbob-nbd-client` first (`pgrep -a -f @bootbob-nbd`).
-11. [ ] **Needs the user's yes:** set `time_zone` to `America/Los_Angeles` in BootBob's settings. The
-    default is UTC, which makes 05:00 about 9-10 PM here.
-12. [ ] **Needs the user's yes:** a real Pi run on desky, only when idle, back on image `desky` after.
+10. [x] Merged: master `f80a805`, a fast-forward (user yes, 2026-11-01), then `7091b0f`, a test-only
+    fix. CI on `7091b0f` success on every job, `publish` included (41365972494), and PC golden success,
+    a real rollout on GitHub's runner (41365972479). Pi golden success on `f80a805` (41362729264).
+    desky was the only NBD root, running `bootbob-nbd-client`.
+11. [ ] **Current step:** wait for Renovate to bump both pins. Don't touch them.
+12. [ ] Approved: set `time_zone` to `America/Los_Angeles` in BootBob's settings once deployed.
+13. [ ] Approved: a real Pi run on desky, once deployed, only when idle, back on image `desky` after.
     Steps below.
 
 ## Findings / gotchas
+
+- A systemd timer's default `AccuracySec` is 1 minute, so the test's 15 s timer could run up to a
+  minute late. That made the login check flaky: PC golden failed on master (run 41362729127, `FAIL: a
+  login wasn't reported`) after passing on the branch and twice on sentinel. It's the test, not the
+  rollout: every earlier step in that run passed. The test's drop-in now sets `AccuracySec=1s`.
+- `A Pi that reboots quickly ignores a new assignment` (BootBob ISSUES, from another thread): a
+  rollout tells a Pi to reboot well over 60 s after its last TFTP read. If it ever did hit, the move
+  times out and the machine is put back.
 
 - `make-pi-golden.sh` has `rpi-eeprom-update` enabled since `51b22f2`. A rollout would run it on
   every Pi on every version, against the user's rule, so it goes off in step 3.
@@ -158,8 +168,7 @@ files can be read. That makes it `current`; the next window does the rest.
       `rust:1` on sentinel (95 in `bootbob`). Clippy and Windows still to run.
 - [x] VM test passed on sentinel, with an image built without keys, as CI's are.
 - [x] All nine mutations caught, after adding one test. Windows and clippy clean.
-- [x] Committed on branch `rollout` (`89eefbf`) and pushed. Not on master.
-- [x] CI on `89eefbf`: success on all three workflows.
+- [x] Committed on branch `rollout` (`89eefbf`), CI success on all three workflows, merged to master.
 
 ## What's proven (2026-11-01)
 
@@ -200,7 +209,10 @@ readable, deleting a version still running. That last one wasn't caught at first
 - The web UI in a browser.
 - The hour-long failure paths on real machines: a machine that never reboots (unit-tested only).
 
-## Steps for desky, once deployed (needs a yes)
+## Steps for desky, once deployed (approved 2026-11-01)
+
+The artifact is `debian-trixie-rpi-arm64-20261101` from run 41362729264, expires 2026-12-01. This
+thread is set to resume itself at 10:45 AM PST (18:45Z) on 2026-11-02.
 
 Only if idle: `who`, load, and no other thread `running` on it (`pxe-netboot.md`: a quiet machine
 isn't proof). The golden image needs the new build, with keys added, uploaded twice under two names.
@@ -208,13 +220,28 @@ Follow a test track, boot it, publish the second, Run now, expect it to reboot i
 `PUT` `{"image":"desky","once":false}` and reboot it from root's login, and confirm image `desky`,
 root rw. `desky.img` isn't touched by any of this: it's a plain disk, and only its assignment changes.
 
+## LAN-level settings (user, 2026-11-01: "we should have a LAN level setting")
+
+What the network hands out today, read from real leases on sentinel and steamboat:
+
+- **NTP: yes.** DHCP gives `NTP=10.255.0.9`, which is the Home Assistant host, and it answers
+  (stratum 3). steamboat syncs from it. This is a live UniFi setting that **ops doesn't model**.
+- **Time zone: no.** The leases have no `TIMEZONE=`.
+- Golden Pi images use networkd, which takes DHCP's NTP server, so they should use it with no change
+  (check on desky's test). desky itself runs NetworkManager on an externally configured interface,
+  so it ignores the option and uses `2.debian.pool.ntp.org`.
+
+**Proposal, not built, needs a yes per change:** advertise the zone as DHCP option 101
+(`America/Los_Angeles`) from the ops UniFi config, and model NTP there too, so both live in one
+place. BootBob's `time_zone` then defaults to what the network says, read by the doctor's probes,
+with the setting as an override. networkd machines could take it with `UseTimezone=yes`. Not yet
+checked: that the UXG-Pro and the API we use can set a custom DHCP option. Until then, `time_zone`
+is set by hand.
+
 ## Open questions for the user
 
-1. Merge `rollout` to master once CI is green? It deploys to steamboat and uberfall through Renovate.
-   Nothing changes for desky, which reconnects as usual, and no rollout runs until a track exists.
-   Recommended: yes.
-2. Set BootBob's `time_zone` to `America/Los_Angeles` after that? Recommended: yes.
-3. A real Pi run on desky after that? Recommended: yes, when it's idle.
+1. The LAN-level time zone above: go ahead with staging the ops change? Recommended: yes, once the
+   UniFi side is confirmed.
 
 ## Things not to do
 
