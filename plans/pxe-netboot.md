@@ -891,8 +891,10 @@ All design questions from rounds 1–3 are answered (see decisions).
 - [x] TRIM on desky (2026-11-01, 11:32-11:44 AM PST, 19:32-19:44Z): `fstrim` ran, the image is
       down to what's in use, `e2fsck` clean on a frozen copy, survived a reboot, `dpkg -V` read
       every packaged file back. `fstrim.timer` on. See "Result on desky".
-- [ ] The three copies on steamboat (23 GiB): kept until the first new-version kernel has been
-      through a 5 AM reboot, as the user agreed 2026-11-01; then deleted on the user's say-so.
+- [x] The two older copies on steamboat deleted, proven redundant, as the user allowed
+      (2026-11-02). See "Result on desky".
+- [ ] `desky-before-update.img` (7.6 GiB): kept until the first new-version kernel has been
+      through a 5 AM reboot; then deleted on the user's say-so.
 - [x] desky updates itself and reboots at 5 AM when idle (2026-11-01). See "Updates on desky".
 - [ ] First unattended kernel update seen through a 5 AM reboot: none has come along yet.
 
@@ -1139,11 +1141,25 @@ Both worked first time; the root stayed writable afterwards. `dpkg -V` was an ad
 
 **Still not proven:** a real kernel on an overlay through `bootbob` (sentinel proved it through
 `serve_dir`), and a real kernel against a store for either disk type. `dpkg -V` doesn't cover files
-outside packages (`/home`, for one). `e2fsck` and the reboot do cover their structure.
+outside packages (`/home`, for one); the file-level comparison below does.
 
-The copies are still on steamboat, outside `images/`: `/srv/bootbob-data/desky-before-trim.img`,
-`desky-after-trim.img` and `desky-before-update.img`, 23 GiB together, 316 GiB free. They are for
-the user to delete or keep.
+**File-level comparison, 2026-11-02 about 11:30 AM PST (19:30Z).** Each copy on a read-only loop
+device, ext4 mounted `noload`, then unmounted and detached. `e2fsck -fn` clean on all three, which
+also covers `desky-before-update.img`. `rsync -c` read every file of every copy:
+
+| Older → newer | Only in older | Content differs | Same size and mtime but different |
+| --- | --- | --- | --- |
+| before-trim → after-trim, root | 0 | 21 | 0 |
+| after-trim → before-update, root | 0 | 20 | 0 |
+| Either pair, boot partition | 0 | 0 | 0 |
+
+The differing files are logs and running state (`var/log`, `var/lib/cloud`, `var/lib/systemd`,
+NetworkManager, nfs, samba) and `var/swap`. So the trim changed no file. This closes the gap
+`dpkg -V` left: `/home` and everything else outside packages was read and matched too.
+
+`desky-before-trim.img` and `desky-after-trim.img` were deleted on that proof, with the user's
+leave. `/srv/bootbob-data/desky-before-update.img` stays, outside `images/`: the rollback for the
+first unattended kernel, and now the only backup.
 
 ### Updates on desky (2026-11-01)
 
@@ -1164,7 +1180,7 @@ itself. The host's part is the backup. A rollout for machines sharing a base is 
   that is a guess at idle; a skip waits for the next 5 AM. A kernel installed one morning
   reboots the next 5 AM.
 
-Proven, 12:00-12:04 PM PST (20:00-20:04Z), after a frozen backup (`e2fsck` not run on it): a real
+Proven, 12:00-12:04 PM PST (20:00-20:04Z), after a frozen backup (`e2fsck -fn` clean, 2026-11-02): a real
 `unattended-upgrade` run installed 9 packages and held `rpi-eeprom`. Reinstalling
 `linux-image-6.18.50+rpt-rpi-v8` ran every kernel hook: `kernel8.img` and `initramfs8` rewritten and
 matching `/boot`, `bootbob-nbd-client` in the initramfs identical to `/usr/sbin`, `cmdline.txt` and
