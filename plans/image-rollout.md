@@ -231,17 +231,38 @@ What the network hands out today, read from real leases on sentinel and steamboa
   (check on desky's test). desky itself runs NetworkManager on an externally configured interface,
   so it ignores the option and uses `2.debian.pool.ntp.org`.
 
+**What the gateway's APIs offer (read-only GETs, 2026-11-01 evening PST; UXG-Pro 5.1.26.33914,
+Network 10.6.109, site `default`).** The ops API key works on both APIs:
+
+| API | Time zone | NTP | Custom DHCP options |
+| --- | --- | --- | --- |
+| Integration v1, `/proxy/network/integration/v1/`, 44 paths, spec at `/proxy/network/api-docs/integration.json` | None | Per network, `dhcpConfiguration.ntpServerIpAddresses` | None. Only `option43Value`, `pxeConfiguration` |
+| Older `/proxy/network/api/s/default/` | **`rest/setting` key `locale`: `timezone = America/Los_Angeles`**, also `stat/sysinfo` | `rest/networkconf` `dhcpd_ntp_enabled`, `dhcpd_ntp_1`. The gateway's own in `rest/setting` key `ntp` | `rest/dhcpoption` answers 200 with 0 items, so the object exists. **How a network attaches one is unknown**: no network has such a field, and the field can't be seen until one is set |
+
+So the site already has a LAN-level time zone, it just isn't handed to clients. `/v2/.../dhcp-options`,
+`/v2/.../dhcp/options` and `rest/dhcp_option` don't exist (404, 404, 400).
+
+Ways to get it to BootBob, best first:
+
+1. **DHCP option 101.** Standard, works for anything on the LAN, needs no UniFi knowledge in BootBob.
+   Unproven: needs one custom option added on a quiet network (UI or API, needs a yes) and the JSON
+   read back. Web sources say UniFi takes custom values through an option code, and one reports hex
+   byte values, so string encoding needs checking. Clients only get 101 if they ask, so the doctor's
+   probe and networkd (`UseTimezone=yes`) must request it.
+2. **Ops-managed config.** A `time_zone` in `bootbob.toml`, with the value in ops. No new DHCP, but
+   it's a second copy of the zone rather than one LAN setting.
+3. **BootBob reads UniFi's API.** Rejected: it ties BootBob, a public project, to one router.
+
 **Proposal, not built, needs a yes per change:** advertise the zone as DHCP option 101
 (`America/Los_Angeles`) from the ops UniFi config, and model NTP there too, so both live in one
 place. BootBob's `time_zone` then defaults to what the network says, read by the doctor's probes,
-with the setting as an override. networkd machines could take it with `UseTimezone=yes`. Not yet
-checked: that the UXG-Pro and the API we use can set a custom DHCP option. Until then, `time_zone`
-is set by hand.
+with the setting as an override. networkd machines could take it with `UseTimezone=yes`. Until that's
+proven, `time_zone` is set by hand.
 
 ## Open questions for the user
 
-1. The LAN-level time zone above: go ahead with staging the ops change? Recommended: yes, once the
-   UniFi side is confirmed.
+1. Add one custom DHCP option 101 on a quiet network, to prove it works and see the JSON?
+   Recommended: yes, on `Isolation`. Then stage the ops change.
 
 ## Things not to do
 
