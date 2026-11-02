@@ -261,17 +261,38 @@ Ways to get it to BootBob, best first:
    it's a second copy of the zone rather than one LAN setting.
 3. **BootBob reads UniFi's API.** Rejected: it ties BootBob, a public project, to one router.
 
-**Proposal, not built, needs a yes per change:** advertise the zone as DHCP option 101
-(`America/Los_Angeles`) from the ops UniFi config, and model NTP there too, so both live in one
-place. BootBob's `time_zone` then defaults to what the network says, read by the doctor's probes,
-with the setting as an override. networkd machines could take it with `UseTimezone=yes`. Until that's
-proven, `time_zone` is set by hand.
+**Done (user yes for `TSL`, 2026-11-01 evening PST):** option 101 is live on `TSL`.
+
+- `POST rest/dhcpoption` `{"name":"tzdb_timezone","code":"101","type":"text","signed":false}` made the
+  site-level definition, `_id` `6ae8030eb6bda5fd0d234084`. That changes no network by itself.
+- `PUT rest/networkconf/59e1a496e4b0f74756791b5f`: the live object plus
+  `dhcpd_user_option_6ae8030eb6bda5fd0d234084 = America/Los_Angeles`. A diff against a snapshot showed
+  that one field and nothing else. The field is named for the definition's **`_id`**:
+  `dhcpd_user_option_tzdb_timezone` and `dhcpd_user_option_101` were refused with
+  `api.err.InvalidDhcpUserOption`, which changed nothing. Found from the Network UI's own JavaScript
+  (`/proxy/network/manage/react/js/`, prefix `dhcpd_user_option_`, codes 7-254, a few disallowed).
+- Proved with a DISCOVER from sentinel's `enp12s0` (made-up MAC, never REQUEST) asking for 42, 100 and
+  101: the offer from `10.255.0.1` carried `101: America/Los_Angeles` and `42: 10.255.0.9`. It sends
+  no option 100, and nothing was defined for it.
+- sentinel, steamboat, desky (root rw) and BootBob all answered afterwards.
+- To undo: `PUT` the network without that field, then `DELETE rest/dhcpoption/<_id>`.
+
+**Staged, not pushed:** ops `0a1b27b` on branch `unifi-lan-dhcp`, worktree `~/git/Personal Projects/ops-lan-dhcp`.
+A `lan:` block (`time_zone`, `ntp`) in `unifi/config/tomsawyerlabs.yaml`, with `derive-lan.ts`
+following `netboot:`. 164 tests pass. A real dry run says `LAN settings: in sync` and all sites clean,
+so applying it changes nothing on the gateway. It re-reads the network right before writing, because
+`netboot:` writes the same object in the same run.
+
+**Not built:** BootBob reading the zone from the network. Its doctor probe has to ask for 101, then
+`time_zone` can default to it. Golden images would need `UseTimezone=yes` in their networkd config.
+Until BootBob reads it, `time_zone` is set by hand.
 
 ## Open questions for the user
 
-1. The user wants option 101 (2026-11-01). Still needs the per-change yes for the first step: add
-   custom option 101, text `America/Los_Angeles`, on the `Isolation` network, to prove it and see the
-   JSON. Then stage the ops change for `TSL`.
+1. Push ops branch `unifi-lan-dhcp` to master, so `lan:` is managed there? It changes nothing on the
+   gateway. Recommended: yes.
+2. Build BootBob reading the time zone from DHCP 101? Recommended: yes, as its own small change,
+   after the Pi test.
 
 ## Things not to do
 
