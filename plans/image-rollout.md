@@ -224,9 +224,17 @@ root rw. `desky.img` isn't touched by any of this: it's a plain disk, and only i
 
 What the network hands out today, read from real leases on sentinel and steamboat:
 
-- **NTP: yes.** DHCP gives `NTP=10.255.0.9`, which is the Home Assistant host, and it answers
-  (stratum 3). steamboat syncs from it. This is a live UniFi setting that **ops doesn't model**.
-- **Time zone: no.** The leases have no `TIMEZONE=`.
+- **NTP: yes.** DHCP gives `NTP=10.255.0.9`, the Home Assistant Yellow, whose `chrony` add-on serves
+  it (stratum 3, running). steamboat syncs from it. The UXG (`10.255.0.1`) and steamboat don't answer
+  NTP. This is a live UniFi setting that **ops doesn't model**.
+- **Time zone: not as far as anything shows.** The leases have no `TIMEZONE=`, but that's weak
+  evidence: networkd only asks for option 101 with `UseTimezone=yes`, and a server sends it only when
+  asked. The strong evidence is that `rest/dhcpoption` is empty on all six sites and no network has a
+  custom option field.
+- **The user recalls 101 being enabled once. Ops didn't remove it.** No commit in `unifi/` has ever
+  mentioned `dhcpoption` or option 101, nothing calls that endpoint, and the only network write sends
+  the whole live object back with just the boot fields changed (`netbootBody`), so it can't drop a
+  field. Whether it ever existed can't be told: `stat/event` and `stat/admin` answer 404 here.
 - Golden Pi images use networkd, which takes DHCP's NTP server, so they should use it with no change
   (check on desky's test). desky itself runs NetworkManager on an externally configured interface,
   so it ignores the option and uses `2.debian.pool.ntp.org`.
@@ -261,8 +269,9 @@ proven, `time_zone` is set by hand.
 
 ## Open questions for the user
 
-1. Add one custom DHCP option 101 on a quiet network, to prove it works and see the JSON?
-   Recommended: yes, on `Isolation`. Then stage the ops change.
+1. The user wants option 101 (2026-11-01). Still needs the per-change yes for the first step: add
+   custom option 101, text `America/Los_Angeles`, on the `Isolation` network, to prove it and see the
+   JSON. Then stage the ops change for `TSL`.
 
 ## Things not to do
 
