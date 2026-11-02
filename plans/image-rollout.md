@@ -125,7 +125,12 @@ files can be read. That makes it `current`; the next window does the rest.
     fix. CI on `7091b0f` success on every job, `publish` included (41365972494), and PC golden success,
     a real rollout on GitHub's runner (41365972479). Pi golden success on `f80a805` (41362729264).
     desky was the only NBD root, running `bootbob-nbd-client`.
-11. [ ] **Current step:** wait for Renovate to bump both pins. Don't touch them.
+11. [ ] **Current step:** wait for Renovate to bump both pins. Don't touch them. At 10:46 AM PST
+    (18:46Z) on 2026-11-02 both pins were still `c1513d9`, and `/api/tracks` answered the web page's
+    HTML with a 200, so the old build is running. `7091b0f` is published to GHCR as `latest`. Today's
+    scheduled Renovate run hasn't started: the cron says 12:00Z, but GitHub has started it between
+    15:06Z and 17:43Z for the last 8 days, so it's already later than usual. Next check 12:30 PM PST
+    (20:30Z).
 12. [ ] Approved: set `time_zone` to `America/Los_Angeles` in BootBob's settings once deployed.
 13. [ ] Approved: a real Pi run on desky, once deployed, only when idle, back on image `desky` after.
     Steps below.
@@ -212,7 +217,7 @@ readable, deleting a version still running. That last one wasn't caught at first
 ## Steps for desky, once deployed (approved 2026-11-01)
 
 The artifact is `debian-trixie-rpi-arm64-20261101` from run 41362729264, expires 2026-12-01. This
-thread is set to resume itself at 10:45 AM PST (18:45Z) on 2026-11-02.
+thread is set to resume itself at 12:30 PM PST (20:30Z) on 2026-11-02.
 
 Only if idle: `who`, load, and no other thread `running` on it (`pxe-netboot.md`: a quiet machine
 isn't proof). The golden image needs the new build, with keys added, uploaded twice under two names.
