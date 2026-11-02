@@ -282,11 +282,11 @@ Ways to get it to BootBob, best first:
 - sentinel, steamboat, desky (root rw) and BootBob all answered afterwards.
 - To undo: `PUT` the network without that field, then `DELETE rest/dhcpoption/<_id>`.
 
-**Staged, not pushed:** ops `0a1b27b` on branch `unifi-lan-dhcp`, worktree `~/git/Personal Projects/ops-lan-dhcp`.
-A `lan:` block (`time_zone`, `ntp`) in `unifi/config/tomsawyerlabs.yaml`, with `derive-lan.ts`
-following `netboot:`. 164 tests pass. A real dry run says `LAN settings: in sync` and all sites clean,
-so applying it changes nothing on the gateway. It re-reads the network right before writing, because
-`netboot:` writes the same object in the same run.
+**In ops master (user yes, 2026-11-02):** `b3bd0c2`, rebased from `0a1b27b`. A `lan:` block
+(`time_zone`, `ntp`) in `unifi/config/tomsawyerlabs.yaml`, with `derive-lan.ts` following `netboot:`.
+164 tests pass. A push to master runs the real sync (`unifi.yml`, not a dry run), so the rebased
+commit got a live dry run first: all sites in sync. It re-reads the network right before writing,
+because `netboot:` writes the same object in the same run.
 
 **Not built:** BootBob reading the zone from the network. Its doctor probe has to ask for 101, then
 `time_zone` can default to it. Golden images would need `UseTimezone=yes` in their networkd config.
@@ -294,9 +294,7 @@ Until BootBob reads it, `time_zone` is set by hand.
 
 ## Open questions for the user
 
-1. Push ops branch `unifi-lan-dhcp` to master, so `lan:` is managed there? It changes nothing on the
-   gateway. Recommended: yes.
-2. Build BootBob reading the time zone from DHCP 101? Recommended: yes, as its own small change,
+1. Build BootBob reading the time zone from DHCP 101? Recommended: yes, as its own small change,
    after the Pi test.
 
 ## Things not to do
